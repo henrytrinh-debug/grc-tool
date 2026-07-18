@@ -4,34 +4,40 @@ import { FormEvent, Fragment, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import { getSupabaseClient } from "@/lib/supabase/client";
-import type { Control } from "@/lib/types/control";
 import {
+  EFFECTIVENESS_OPTIONS,
   formatEffectiveness,
+  formatKeyStatus,
+  formatLastTestedAt,
   getTestingStatus,
+  toControlFormPayload,
+  type Control,
+  type NewControl,
 } from "@/lib/types/control";
 import {
-  groupRiskControlRows,
-  type LinkedControl,
-  type RiskControlRow,
+  groupRiskControlRowsByControl,
+  type LinkedRisk,
+  type RiskControlRiskRow,
 } from "@/lib/types/risk-control";
-import { toRiskFormPayload, type NewRisk, type Risk } from "@/lib/types/risk";
+import type { Risk } from "@/lib/types/risk";
 
-const emptyForm: NewRisk = {
+const emptyForm: NewControl = {
   title: "",
   description: "",
-  likelihood: 3,
-  impact: 3,
+  is_key: false,
+  effectiveness: "not_tested",
+  last_tested_at: null,
 };
 
 const inputClassName =
   "rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50";
 
-type RiskFormFieldsProps = {
-  form: NewRisk;
-  onChange: (updates: Partial<NewRisk>) => void;
+type ControlFormFieldsProps = {
+  form: NewControl;
+  onChange: (updates: Partial<NewControl>) => void;
 };
 
-function RiskFormFields({ form, onChange }: RiskFormFieldsProps) {
+function ControlFormFields({ form, onChange }: ControlFormFieldsProps) {
   return (
     <>
       <label className="flex flex-col gap-1 sm:col-span-2">
@@ -59,20 +65,34 @@ function RiskFormFields({ form, onChange }: RiskFormFieldsProps) {
         />
       </label>
 
+      <label className="flex items-center gap-2 sm:col-span-2">
+        <input
+          type="checkbox"
+          checked={form.is_key}
+          onChange={(event) => onChange({ is_key: event.target.checked })}
+          className="h-4 w-4 rounded border-zinc-300 dark:border-zinc-700"
+        />
+        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+          Key control
+        </span>
+      </label>
+
       <label className="flex flex-col gap-1">
         <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-          Likelihood (1-5)
+          Effectiveness
         </span>
         <select
-          value={form.likelihood}
+          value={form.effectiveness}
           onChange={(event) =>
-            onChange({ likelihood: Number(event.target.value) })
+            onChange({
+              effectiveness: event.target.value as NewControl["effectiveness"],
+            })
           }
           className={inputClassName}
         >
-          {[1, 2, 3, 4, 5].map((value) => (
-            <option key={value} value={value}>
-              {value}
+          {EFFECTIVENESS_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
             </option>
           ))}
         </select>
@@ -80,54 +100,53 @@ function RiskFormFields({ form, onChange }: RiskFormFieldsProps) {
 
       <label className="flex flex-col gap-1">
         <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-          Impact (1-5)
+          Last Tested At
         </span>
-        <select
-          value={form.impact}
-          onChange={(event) => onChange({ impact: Number(event.target.value) })}
+        <input
+          type="date"
+          value={form.last_tested_at ?? ""}
+          onChange={(event) =>
+            onChange({
+              last_tested_at: event.target.value || null,
+            })
+          }
           className={inputClassName}
-        >
-          {[1, 2, 3, 4, 5].map((value) => (
-            <option key={value} value={value}>
-              {value}
-            </option>
-          ))}
-        </select>
+        />
       </label>
     </>
   );
 }
 
-type LinkedControlsPanelProps = {
-  links: LinkedControl[];
-  userControls: Control[];
-  selectedControlId: string;
-  controlSearch: string;
+type LinkedRisksPanelProps = {
+  links: LinkedRisk[];
+  userRisks: Risk[];
+  selectedRiskId: string;
+  riskSearch: string;
   linking: boolean;
   unlinkingLinkId: string | null;
-  onControlSearchChange: (value: string) => void;
-  onSelectedControlChange: (controlId: string) => void;
+  onRiskSearchChange: (value: string) => void;
+  onSelectedRiskChange: (riskId: string) => void;
   onLink: () => void;
   onUnlink: (linkId: string) => void;
 };
 
-function LinkedControlsPanel({
+function LinkedRisksPanel({
   links,
-  userControls,
-  selectedControlId,
-  controlSearch,
+  userRisks,
+  selectedRiskId,
+  riskSearch,
   linking,
   unlinkingLinkId,
-  onControlSearchChange,
-  onSelectedControlChange,
+  onRiskSearchChange,
+  onSelectedRiskChange,
   onLink,
   onUnlink,
-}: LinkedControlsPanelProps) {
-  const linkedControlIds = new Set(links.map((link) => link.controlId));
-  const search = controlSearch.trim().toLowerCase();
+}: LinkedRisksPanelProps) {
+  const linkedRiskIds = new Set(links.map((link) => link.riskId));
+  const search = riskSearch.trim().toLowerCase();
 
-  const availableControls = userControls.filter((control) => {
-    if (linkedControlIds.has(control.id)) {
+  const availableRisks = userRisks.filter((risk) => {
+    if (linkedRiskIds.has(risk.id)) {
       return false;
     }
 
@@ -135,18 +154,18 @@ function LinkedControlsPanel({
       return true;
     }
 
-    return control.title.toLowerCase().includes(search);
+    return risk.title.toLowerCase().includes(search);
   });
 
   return (
     <div className="space-y-4 bg-zinc-50 px-6 py-4 dark:bg-zinc-900/50">
       <h3 className="text-sm font-medium text-zinc-950 dark:text-zinc-50">
-        Linked Controls
+        Linked Risks
       </h3>
 
       {links.length === 0 ? (
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          No controls linked to this risk yet.
+          No risks linked to this control yet.
         </p>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
@@ -154,8 +173,9 @@ function LinkedControlsPanel({
             <thead className="bg-zinc-50 text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
               <tr>
                 <th className="px-4 py-2 font-medium">Title</th>
-                <th className="px-4 py-2 font-medium">Effectiveness</th>
-                <th className="px-4 py-2 font-medium">Testing Status</th>
+                <th className="px-4 py-2 font-medium">Likelihood</th>
+                <th className="px-4 py-2 font-medium">Impact</th>
+                <th className="px-4 py-2 font-medium">Owner</th>
                 <th className="px-4 py-2 font-medium">Actions</th>
               </tr>
             </thead>
@@ -166,10 +186,13 @@ function LinkedControlsPanel({
                     {link.title}
                   </td>
                   <td className="px-4 py-3 text-zinc-950 dark:text-zinc-50">
-                    {formatEffectiveness(link.effectiveness)}
+                    {link.likelihood}
                   </td>
                   <td className="px-4 py-3 text-zinc-950 dark:text-zinc-50">
-                    {getTestingStatus(link.last_tested_at)}
+                    {link.impact}
+                  </td>
+                  <td className="px-4 py-3 text-zinc-950 dark:text-zinc-50">
+                    {link.owner_email}
                   </td>
                   <td className="px-4 py-3">
                     <button
@@ -193,12 +216,12 @@ function LinkedControlsPanel({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
         <label className="flex flex-1 flex-col gap-1">
           <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-            Search controls
+            Search risks
           </span>
           <input
             type="search"
-            value={controlSearch}
-            onChange={(event) => onControlSearchChange(event.target.value)}
+            value={riskSearch}
+            onChange={(event) => onRiskSearchChange(event.target.value)}
             placeholder="Filter by title..."
             className={inputClassName}
           />
@@ -206,17 +229,17 @@ function LinkedControlsPanel({
 
         <label className="flex flex-1 flex-col gap-1">
           <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-            Link control
+            Link risk
           </span>
           <select
-            value={selectedControlId}
-            onChange={(event) => onSelectedControlChange(event.target.value)}
+            value={selectedRiskId}
+            onChange={(event) => onSelectedRiskChange(event.target.value)}
             className={inputClassName}
           >
-            <option value="">Select a control...</option>
-            {availableControls.map((control) => (
-              <option key={control.id} value={control.id}>
-                {control.title}
+            <option value="">Select a risk...</option>
+            {availableRisks.map((risk) => (
+              <option key={risk.id} value={risk.id}>
+                {risk.title}
               </option>
             ))}
           </select>
@@ -225,57 +248,61 @@ function LinkedControlsPanel({
         <button
           type="button"
           onClick={onLink}
-          disabled={!selectedControlId || linking}
+          disabled={!selectedRiskId || linking}
           className="rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
         >
-          {linking ? "Linking..." : "Link Control"}
+          {linking ? "Linking..." : "Link Risk"}
         </button>
       </div>
 
-      {userControls.length === 0 && (
+      {userRisks.length === 0 && (
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          Create controls on the{" "}
+          Create risks on the{" "}
           <a
-            href="/controls"
+            href="/risks"
             className="font-medium text-zinc-950 underline underline-offset-2 dark:text-zinc-50"
           >
-            controls page
+            risks page
           </a>{" "}
           before linking them here.
         </p>
       )}
 
-      {userControls.length > 0 &&
-        availableControls.length === 0 &&
+      {userRisks.length > 0 &&
+        availableRisks.length === 0 &&
         links.length > 0 &&
         !search && (
           <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            All of your controls are already linked to this risk.
+            All of your risks are already linked to this control.
           </p>
         )}
     </div>
   );
 }
 
-export default function RisksPage() {
+export default function ControlsPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
-  const [risks, setRisks] = useState<Risk[]>([]);
-  const [userControls, setUserControls] = useState<Control[]>([]);
-  const [linkedControlsByRisk, setLinkedControlsByRisk] = useState<
-    Record<string, LinkedControl[]>
+  const [controls, setControls] = useState<Control[]>([]);
+  const [userRisks, setUserRisks] = useState<Risk[]>([]);
+  const [linkedRisksByControl, setLinkedRisksByControl] = useState<
+    Record<string, LinkedRisk[]>
   >({});
-  const [expandedRiskId, setExpandedRiskId] = useState<string | null>(null);
+  const [expandedControlId, setExpandedControlId] = useState<string | null>(
+    null,
+  );
   const [linkSelections, setLinkSelections] = useState<Record<string, string>>(
     {},
   );
-  const [controlSearchByRisk, setControlSearchByRisk] = useState<
+  const [riskSearchByControl, setRiskSearchByControl] = useState<
     Record<string, string>
   >({});
-  const [linkingRiskId, setLinkingRiskId] = useState<string | null>(null);
+  const [linkingControlId, setLinkingControlId] = useState<string | null>(
+    null,
+  );
   const [unlinkingLinkId, setUnlinkingLinkId] = useState<string | null>(null);
-  const [form, setForm] = useState<NewRisk>(emptyForm);
-  const [editingRisk, setEditingRisk] = useState<Risk | null>(null);
+  const [form, setForm] = useState<NewControl>(emptyForm);
+  const [editingControl, setEditingControl] = useState<Control | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -283,10 +310,10 @@ export default function RisksPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchUserControls = useCallback(async (ownerId: string) => {
+  const fetchUserRisks = useCallback(async (ownerId: string) => {
     const supabase = getSupabaseClient();
     const { data, error: fetchError } = await supabase
-      .from("controls")
+      .from("risks")
       .select("*")
       .eq("owner_id", ownerId)
       .order("title", { ascending: true });
@@ -295,7 +322,7 @@ export default function RisksPage() {
       throw fetchError;
     }
 
-    setUserControls(data ?? []);
+    setUserRisks(data ?? []);
   }, []);
 
   const fetchRiskControlLinks = useCallback(async (ownerId: string) => {
@@ -303,7 +330,7 @@ export default function RisksPage() {
     const { data, error: fetchError } = await supabase
       .from("risk_controls")
       .select(
-        "id, risk_id, control_id, controls(title, effectiveness, last_tested_at)",
+        "id, risk_id, control_id, risks(title, likelihood, impact, owner_email)",
       )
       .eq("owner_id", ownerId);
 
@@ -311,48 +338,51 @@ export default function RisksPage() {
       throw fetchError;
     }
 
-    setLinkedControlsByRisk(
-      groupRiskControlRows((data ?? []) as RiskControlRow[]),
+    setLinkedRisksByControl(
+      groupRiskControlRowsByControl((data ?? []) as RiskControlRiskRow[]),
     );
   }, []);
 
-  const fetchRisks = useCallback(async () => {
+  const fetchControls = useCallback(async (ownerId: string) => {
     setError(null);
 
     try {
       const supabase = getSupabaseClient();
       const { data, error: fetchError } = await supabase
-        .from("risks")
+        .from("controls")
         .select("*")
+        .eq("owner_id", ownerId)
         .order("created_at", { ascending: false });
 
       if (fetchError) {
         throw fetchError;
       }
 
-      setRisks(data ?? []);
+      setControls(data ?? []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load risks");
+      setError(err instanceof Error ? err.message : "Failed to load controls");
     } finally {
       setLoading(false);
     }
   }, []);
 
-  const loadRiskPageData = useCallback(
+  const loadControlPageData = useCallback(
     async (ownerId: string) => {
       try {
         await Promise.all([
-          fetchRisks(),
-          fetchUserControls(ownerId),
+          fetchControls(ownerId),
+          fetchUserRisks(ownerId),
           fetchRiskControlLinks(ownerId),
         ]);
       } catch (err) {
         setError(
-          err instanceof Error ? err.message : "Failed to load risk page data",
+          err instanceof Error
+            ? err.message
+            : "Failed to load control page data",
         );
       }
     },
-    [fetchRiskControlLinks, fetchRisks, fetchUserControls],
+    [fetchControls, fetchRiskControlLinks, fetchUserRisks],
   );
 
   useEffect(() => {
@@ -370,7 +400,7 @@ export default function RisksPage() {
 
       setUser(session.user);
       setAuthLoading(false);
-      await loadRiskPageData(session.user.id);
+      await loadControlPageData(session.user.id);
     }
 
     void checkAuth();
@@ -389,25 +419,26 @@ export default function RisksPage() {
     return () => {
       subscription.unsubscribe();
     };
-  }, [loadRiskPageData, router]);
+  }, [loadControlPageData, router]);
 
-  function updateForm(updates: Partial<NewRisk>) {
+  function updateForm(updates: Partial<NewControl>) {
     setForm((current) => ({ ...current, ...updates }));
   }
 
-  function startEdit(risk: Risk) {
-    setEditingRisk(risk);
+  function startEdit(control: Control) {
+    setEditingControl(control);
     setForm({
-      title: risk.title,
-      description: risk.description,
-      likelihood: risk.likelihood,
-      impact: risk.impact,
+      title: control.title,
+      description: control.description,
+      is_key: control.is_key,
+      effectiveness: control.effectiveness,
+      last_tested_at: control.last_tested_at,
     });
     setError(null);
   }
 
   function cancelEdit() {
-    setEditingRisk(null);
+    setEditingControl(null);
     setForm(emptyForm);
   }
 
@@ -418,40 +449,36 @@ export default function RisksPage() {
 
     try {
       const supabase = getSupabaseClient();
+      const payload = toControlFormPayload(form);
 
-      if (editingRisk) {
+      if (editingControl) {
         const { error: updateError } = await supabase
-          .from("risks")
-          .update(toRiskFormPayload(form))
-          .eq("id", editingRisk.id);
+          .from("controls")
+          .update(payload)
+          .eq("id", editingControl.id);
 
         if (updateError) {
           throw updateError;
         }
 
-        setEditingRisk(null);
+        setEditingControl(null);
       } else {
         const {
-          data: { user },
+          data: { user: currentUser },
         } = await supabase.auth.getUser();
 
-        if (!user) {
-          throw new Error("You must be signed in to add a risk");
+        if (!currentUser) {
+          throw new Error("You must be signed in to add a control");
         }
 
-        if (!user.email) {
+        if (!currentUser.email) {
           throw new Error("User email not available");
         }
 
-        const { title, description, likelihood, impact } = form;
-
-        const { error: insertError } = await supabase.from("risks").insert({
-          title,
-          description,
-          likelihood,
-          impact,
-          owner_id: user.id,
-          owner_email: user.email,
+        const { error: insertError } = await supabase.from("controls").insert({
+          ...payload,
+          owner_id: currentUser.id,
+          owner_email: currentUser.email,
         });
 
         if (insertError) {
@@ -460,18 +487,17 @@ export default function RisksPage() {
       }
 
       setForm(emptyForm);
+
       if (user) {
-        await loadRiskPageData(user.id);
-      } else {
-        await fetchRisks();
+        await loadControlPageData(user.id);
       }
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
-          : editingRisk
-            ? "Failed to update risk"
-            : "Failed to add risk",
+          : editingControl
+            ? "Failed to update control"
+            : "Failed to add control",
       );
     } finally {
       setSubmitting(false);
@@ -497,61 +523,61 @@ export default function RisksPage() {
     }
   }
 
-  async function handleDelete(risk: Risk) {
+  async function handleDelete(control: Control) {
     const confirmed = window.confirm(
-      `Delete "${risk.title}"? This action cannot be undone.`,
+      `Delete "${control.title}"? This action cannot be undone.`,
     );
 
     if (!confirmed) {
       return;
     }
 
-    setDeletingId(risk.id);
+    setDeletingId(control.id);
     setError(null);
 
     try {
       const supabase = getSupabaseClient();
       const { error: deleteError } = await supabase
-        .from("risks")
+        .from("controls")
         .delete()
-        .eq("id", risk.id);
+        .eq("id", control.id);
 
       if (deleteError) {
         throw deleteError;
       }
 
-      if (editingRisk?.id === risk.id) {
+      if (editingControl?.id === control.id) {
         cancelEdit();
       }
 
-      if (expandedRiskId === risk.id) {
-        setExpandedRiskId(null);
+      if (expandedControlId === control.id) {
+        setExpandedControlId(null);
       }
 
       if (user) {
-        await loadRiskPageData(user.id);
-      } else {
-        await fetchRisks();
+        await loadControlPageData(user.id);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete risk");
+      setError(err instanceof Error ? err.message : "Failed to delete control");
     } finally {
       setDeletingId(null);
     }
   }
 
-  function toggleLinkedControls(riskId: string) {
-    setExpandedRiskId((current) => (current === riskId ? null : riskId));
+  function toggleLinkedRisks(controlId: string) {
+    setExpandedControlId((current) =>
+      current === controlId ? null : controlId,
+    );
   }
 
-  async function handleLinkControl(riskId: string) {
-    const controlId = linkSelections[riskId];
+  async function handleLinkRisk(controlId: string) {
+    const riskId = linkSelections[controlId];
 
-    if (!controlId || !user) {
+    if (!riskId || !user) {
       return;
     }
 
-    setLinkingRiskId(riskId);
+    setLinkingControlId(controlId);
     setError(null);
 
     try {
@@ -566,17 +592,17 @@ export default function RisksPage() {
         throw linkError;
       }
 
-      setLinkSelections((current) => ({ ...current, [riskId]: "" }));
-      setControlSearchByRisk((current) => ({ ...current, [riskId]: "" }));
+      setLinkSelections((current) => ({ ...current, [controlId]: "" }));
+      setRiskSearchByControl((current) => ({ ...current, [controlId]: "" }));
       await fetchRiskControlLinks(user.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to link control");
+      setError(err instanceof Error ? err.message : "Failed to link risk");
     } finally {
-      setLinkingRiskId(null);
+      setLinkingControlId(null);
     }
   }
 
-  async function handleUnlinkControl(linkId: string) {
+  async function handleUnlinkRisk(linkId: string) {
     if (!user) {
       return;
     }
@@ -597,7 +623,7 @@ export default function RisksPage() {
 
       await fetchRiskControlLinks(user.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to unlink control");
+      setError(err instanceof Error ? err.message : "Failed to unlink risk");
     } finally {
       setUnlinkingLinkId(null);
     }
@@ -613,14 +639,14 @@ export default function RisksPage() {
 
   return (
     <div className="min-h-full bg-zinc-50 px-6 py-10 dark:bg-black">
-      <main className="mx-auto flex w-full max-w-5xl flex-col gap-10">
+      <main className="mx-auto flex w-full max-w-6xl flex-col gap-10">
         <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h1 className="text-3xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-              Risk Register
+              Control Register
             </h1>
             <p className="mt-2 text-zinc-600 dark:text-zinc-400">
-              Track and assess organizational risks.
+              Manage and track your assigned controls.
             </p>
             {user?.email && (
               <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-500">
@@ -640,13 +666,13 @@ export default function RisksPage() {
 
         <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
           <h2 className="mb-4 text-lg font-medium text-zinc-950 dark:text-zinc-50">
-            {editingRisk ? "Edit Risk" : "Add Risk"}
+            {editingControl ? "Edit Control" : "Add Control"}
           </h2>
           <form
             onSubmit={handleSubmit}
             className="grid gap-4 sm:grid-cols-2"
           >
-            <RiskFormFields form={form} onChange={updateForm} />
+            <ControlFormFields form={form} onChange={updateForm} />
 
             <div className="flex gap-3 sm:col-span-2">
               <button
@@ -655,14 +681,14 @@ export default function RisksPage() {
                 className="rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
               >
                 {submitting
-                  ? editingRisk
+                  ? editingControl
                     ? "Saving..."
                     : "Adding..."
-                  : editingRisk
+                  : editingControl
                     ? "Save Changes"
-                    : "Add Risk"}
+                    : "Add Control"}
               </button>
-              {editingRisk && (
+              {editingControl && (
                 <button
                   type="button"
                   onClick={cancelEdit}
@@ -685,17 +711,17 @@ export default function RisksPage() {
         <section className="overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
           <div className="border-b border-zinc-200 px-6 py-4 dark:border-zinc-800">
             <h2 className="text-lg font-medium text-zinc-950 dark:text-zinc-50">
-              All Risks
+              My Controls
             </h2>
           </div>
 
           {loading ? (
             <p className="px-6 py-8 text-zinc-600 dark:text-zinc-400">
-              Loading risks...
+              Loading controls...
             </p>
-          ) : risks.length === 0 ? (
+          ) : controls.length === 0 ? (
             <p className="px-6 py-8 text-zinc-600 dark:text-zinc-400">
-              No risks yet. Add one using the form above.
+              No controls yet. Add one using the form above.
             </p>
           ) : (
             <div className="overflow-x-auto">
@@ -703,62 +729,62 @@ export default function RisksPage() {
                 <thead className="bg-zinc-50 text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
                   <tr>
                     <th className="px-6 py-3 font-medium">Title</th>
-                    <th className="px-6 py-3 font-medium">Description</th>
-                    <th className="px-6 py-3 font-medium">Likelihood</th>
-                    <th className="px-6 py-3 font-medium">Impact</th>
-                    <th className="px-6 py-3 font-medium">Owner</th>
+                    <th className="px-6 py-3 font-medium">Key</th>
+                    <th className="px-6 py-3 font-medium">Effectiveness</th>
+                    <th className="px-6 py-3 font-medium">Last Tested</th>
+                    <th className="px-6 py-3 font-medium">Testing Status</th>
                     <th className="px-6 py-3 font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-                  {risks.map((risk) => {
-                    const linkedControls = linkedControlsByRisk[risk.id] ?? [];
-                    const isExpanded = expandedRiskId === risk.id;
+                  {controls.map((control) => {
+                    const linkedRisks = linkedRisksByControl[control.id] ?? [];
+                    const isExpanded = expandedControlId === control.id;
 
                     return (
-                      <Fragment key={risk.id}>
+                      <Fragment key={control.id}>
                         <tr>
                           <td className="px-6 py-4 font-medium text-zinc-950 dark:text-zinc-50">
-                            {risk.title}
-                          </td>
-                          <td className="max-w-md px-6 py-4 text-zinc-600 dark:text-zinc-400">
-                            {risk.description}
+                            {control.title}
                           </td>
                           <td className="px-6 py-4 text-zinc-950 dark:text-zinc-50">
-                            {risk.likelihood}
+                            {formatKeyStatus(control.is_key)}
                           </td>
                           <td className="px-6 py-4 text-zinc-950 dark:text-zinc-50">
-                            {risk.impact}
+                            {formatEffectiveness(control.effectiveness)}
                           </td>
                           <td className="px-6 py-4 text-zinc-950 dark:text-zinc-50">
-                            {risk.owner_email}
+                            {formatLastTestedAt(control.last_tested_at)}
+                          </td>
+                          <td className="px-6 py-4 text-zinc-950 dark:text-zinc-50">
+                            {getTestingStatus(control.last_tested_at)}
                           </td>
                           <td className="px-6 py-4">
                             <div className="flex flex-wrap gap-2">
                               <button
                                 type="button"
-                                onClick={() => toggleLinkedControls(risk.id)}
+                                onClick={() => toggleLinkedRisks(control.id)}
                                 className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
                               >
                                 {isExpanded
-                                  ? "Hide Controls"
-                                  : `Linked Controls (${linkedControls.length})`}
+                                  ? "Hide Risks"
+                                  : `Linked Risks (${linkedRisks.length})`}
                               </button>
                               <button
                                 type="button"
-                                onClick={() => startEdit(risk)}
-                                disabled={deletingId === risk.id}
+                                onClick={() => startEdit(control)}
+                                disabled={deletingId === control.id}
                                 className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
                               >
                                 Edit
                               </button>
                               <button
                                 type="button"
-                                onClick={() => void handleDelete(risk)}
-                                disabled={deletingId === risk.id}
+                                onClick={() => void handleDelete(control)}
+                                disabled={deletingId === control.id}
                                 className="rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-700 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950"
                               >
-                                {deletingId === risk.id
+                                {deletingId === control.id
                                   ? "Deleting..."
                                   : "Delete"}
                               </button>
@@ -768,32 +794,28 @@ export default function RisksPage() {
                         {isExpanded && (
                           <tr>
                             <td colSpan={6} className="p-0">
-                              <LinkedControlsPanel
-                                links={linkedControls}
-                                userControls={userControls}
-                                selectedControlId={
-                                  linkSelections[risk.id] ?? ""
-                                }
-                                controlSearch={
-                                  controlSearchByRisk[risk.id] ?? ""
-                                }
-                                linking={linkingRiskId === risk.id}
+                              <LinkedRisksPanel
+                                links={linkedRisks}
+                                userRisks={userRisks}
+                                selectedRiskId={linkSelections[control.id] ?? ""}
+                                riskSearch={riskSearchByControl[control.id] ?? ""}
+                                linking={linkingControlId === control.id}
                                 unlinkingLinkId={unlinkingLinkId}
-                                onControlSearchChange={(value) =>
-                                  setControlSearchByRisk((current) => ({
+                                onRiskSearchChange={(value) =>
+                                  setRiskSearchByControl((current) => ({
                                     ...current,
-                                    [risk.id]: value,
+                                    [control.id]: value,
                                   }))
                                 }
-                                onSelectedControlChange={(controlId) =>
+                                onSelectedRiskChange={(riskId) =>
                                   setLinkSelections((current) => ({
                                     ...current,
-                                    [risk.id]: controlId,
+                                    [control.id]: riskId,
                                   }))
                                 }
-                                onLink={() => void handleLinkControl(risk.id)}
+                                onLink={() => void handleLinkRisk(control.id)}
                                 onUnlink={(linkId) =>
-                                  void handleUnlinkControl(linkId)
+                                  void handleUnlinkRisk(linkId)
                                 }
                               />
                             </td>
