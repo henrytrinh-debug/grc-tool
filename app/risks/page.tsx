@@ -14,6 +14,17 @@ import {
   type LinkedControl,
   type RiskControlRow,
 } from "@/lib/types/risk-control";
+import {
+  groupIncidentRiskRowsByRisk,
+  type IncidentRiskIncidentRow,
+  type LinkedIncident,
+} from "@/lib/types/incident-risk";
+import {
+  formatDateOccurred,
+  formatIncidentStatus,
+  formatSeverity,
+} from "@/lib/types/incident";
+import type { Incident } from "@/lib/types/incident";
 import { toRiskFormPayload, type NewRisk, type Risk } from "@/lib/types/risk";
 
 const emptyForm: NewRisk = {
@@ -257,6 +268,169 @@ function LinkedControlsPanel({
   );
 }
 
+type LinkedIncidentsPanelProps = {
+  links: LinkedIncident[];
+  userIncidents: Incident[];
+  selectedIncidentId: string;
+  incidentSearch: string;
+  linking: boolean;
+  unlinkingLinkId: string | null;
+  onIncidentSearchChange: (value: string) => void;
+  onSelectedIncidentChange: (incidentId: string) => void;
+  onLink: () => void;
+  onUnlink: (linkId: string) => void;
+};
+
+function LinkedIncidentsPanel({
+  links,
+  userIncidents,
+  selectedIncidentId,
+  incidentSearch,
+  linking,
+  unlinkingLinkId,
+  onIncidentSearchChange,
+  onSelectedIncidentChange,
+  onLink,
+  onUnlink,
+}: LinkedIncidentsPanelProps) {
+  const linkedIncidentIds = new Set(links.map((link) => link.incidentId));
+  const search = incidentSearch.trim().toLowerCase();
+
+  const availableIncidents = userIncidents.filter((incident) => {
+    if (linkedIncidentIds.has(incident.id)) {
+      return false;
+    }
+
+    if (!search) {
+      return true;
+    }
+
+    return incident.title.toLowerCase().includes(search);
+  });
+
+  return (
+    <div className="space-y-4 bg-zinc-50 px-6 py-4 dark:bg-zinc-900/50">
+      <h3 className="text-sm font-medium text-zinc-950 dark:text-zinc-50">
+        Linked Incidents
+      </h3>
+
+      {links.length === 0 ? (
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          No incidents linked to this risk yet.
+        </p>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+          <table className="min-w-full text-left text-sm">
+            <thead className="bg-zinc-50 text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
+              <tr>
+                <th className="px-4 py-2 font-medium">Title</th>
+                <th className="px-4 py-2 font-medium">Date Occurred</th>
+                <th className="px-4 py-2 font-medium">Severity</th>
+                <th className="px-4 py-2 font-medium">Status</th>
+                <th className="px-4 py-2 font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+              {links.map((link) => (
+                <tr key={link.linkId}>
+                  <td className="px-4 py-3 font-medium text-zinc-950 dark:text-zinc-50">
+                    {link.title}
+                  </td>
+                  <td className="px-4 py-3 text-zinc-950 dark:text-zinc-50">
+                    {formatDateOccurred(link.date_occurred)}
+                  </td>
+                  <td className="px-4 py-3 text-zinc-950 dark:text-zinc-50">
+                    {formatSeverity(link.severity)}
+                  </td>
+                  <td className="px-4 py-3 text-zinc-950 dark:text-zinc-50">
+                    {formatIncidentStatus(link.status)}
+                  </td>
+                  <td className="px-4 py-3">
+                    <button
+                      type="button"
+                      onClick={() => onUnlink(link.linkId)}
+                      disabled={unlinkingLinkId === link.linkId}
+                      className="rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-700 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950"
+                    >
+                      {unlinkingLinkId === link.linkId
+                        ? "Unlinking..."
+                        : "Unlink"}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+        <label className="flex flex-1 flex-col gap-1">
+          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            Search incidents
+          </span>
+          <input
+            type="search"
+            value={incidentSearch}
+            onChange={(event) => onIncidentSearchChange(event.target.value)}
+            placeholder="Filter by title..."
+            className={inputClassName}
+          />
+        </label>
+
+        <label className="flex flex-1 flex-col gap-1">
+          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            Link incident
+          </span>
+          <select
+            value={selectedIncidentId}
+            onChange={(event) => onSelectedIncidentChange(event.target.value)}
+            className={inputClassName}
+          >
+            <option value="">Select an incident...</option>
+            {availableIncidents.map((incident) => (
+              <option key={incident.id} value={incident.id}>
+                {incident.title}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <button
+          type="button"
+          onClick={onLink}
+          disabled={!selectedIncidentId || linking}
+          className="rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+        >
+          {linking ? "Linking..." : "Link Incident"}
+        </button>
+      </div>
+
+      {userIncidents.length === 0 && (
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          Create incidents on the{" "}
+          <a
+            href="/incidents"
+            className="font-medium text-zinc-950 underline underline-offset-2 dark:text-zinc-50"
+          >
+            incidents page
+          </a>{" "}
+          before linking them here.
+        </p>
+      )}
+
+      {userIncidents.length > 0 &&
+        availableIncidents.length === 0 &&
+        links.length > 0 &&
+        !search && (
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            All of your incidents are already linked to this risk.
+          </p>
+        )}
+    </div>
+  );
+}
+
 export default function RisksPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
@@ -265,15 +439,40 @@ export default function RisksPage() {
   const [linkedControlsByRisk, setLinkedControlsByRisk] = useState<
     Record<string, LinkedControl[]>
   >({});
-  const [expandedRiskId, setExpandedRiskId] = useState<string | null>(null);
+  const [userIncidents, setUserIncidents] = useState<Incident[]>([]);
+  const [linkedIncidentsByRisk, setLinkedIncidentsByRisk] = useState<
+    Record<string, LinkedIncident[]>
+  >({});
+  const [expandedControlsRiskId, setExpandedControlsRiskId] = useState<
+    string | null
+  >(null);
+  const [expandedIncidentsRiskId, setExpandedIncidentsRiskId] = useState<
+    string | null
+  >(null);
   const [linkSelections, setLinkSelections] = useState<Record<string, string>>(
     {},
   );
+  const [incidentLinkSelections, setIncidentLinkSelections] = useState<
+    Record<string, string>
+  >({});
   const [controlSearchByRisk, setControlSearchByRisk] = useState<
     Record<string, string>
   >({});
-  const [linkingRiskId, setLinkingRiskId] = useState<string | null>(null);
-  const [unlinkingLinkId, setUnlinkingLinkId] = useState<string | null>(null);
+  const [incidentSearchByRisk, setIncidentSearchByRisk] = useState<
+    Record<string, string>
+  >({});
+  const [linkingControlRiskId, setLinkingControlRiskId] = useState<
+    string | null
+  >(null);
+  const [linkingIncidentRiskId, setLinkingIncidentRiskId] = useState<
+    string | null
+  >(null);
+  const [unlinkingControlLinkId, setUnlinkingControlLinkId] = useState<
+    string | null
+  >(null);
+  const [unlinkingIncidentLinkId, setUnlinkingIncidentLinkId] = useState<
+    string | null
+  >(null);
   const [form, setForm] = useState<NewRisk>(emptyForm);
   const [editingRisk, setEditingRisk] = useState<Risk | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -316,6 +515,39 @@ export default function RisksPage() {
     );
   }, []);
 
+  const fetchIncidentRiskLinks = useCallback(async (ownerId: string) => {
+    const supabase = getSupabaseClient();
+    const { data, error: fetchError } = await supabase
+      .from("incident_risks")
+      .select(
+        "id, incident_id, risk_id, incidents(title, date_occurred, severity, status)",
+      )
+      .eq("owner_id", ownerId);
+
+    if (fetchError) {
+      throw fetchError;
+    }
+
+    setLinkedIncidentsByRisk(
+      groupIncidentRiskRowsByRisk((data ?? []) as IncidentRiskIncidentRow[]),
+    );
+  }, []);
+
+  const fetchUserIncidents = useCallback(async (ownerId: string) => {
+    const supabase = getSupabaseClient();
+    const { data, error: fetchError } = await supabase
+      .from("incidents")
+      .select("*")
+      .eq("owner_id", ownerId)
+      .order("title", { ascending: true });
+
+    if (fetchError) {
+      throw fetchError;
+    }
+
+    setUserIncidents(data ?? []);
+  }, []);
+
   const fetchRisks = useCallback(async () => {
     setError(null);
 
@@ -345,6 +577,8 @@ export default function RisksPage() {
           fetchRisks(),
           fetchUserControls(ownerId),
           fetchRiskControlLinks(ownerId),
+          fetchUserIncidents(ownerId),
+          fetchIncidentRiskLinks(ownerId),
         ]);
       } catch (err) {
         setError(
@@ -352,7 +586,13 @@ export default function RisksPage() {
         );
       }
     },
-    [fetchRiskControlLinks, fetchRisks, fetchUserControls],
+    [
+      fetchIncidentRiskLinks,
+      fetchRiskControlLinks,
+      fetchRisks,
+      fetchUserControls,
+      fetchUserIncidents,
+    ],
   );
 
   useEffect(() => {
@@ -524,8 +764,12 @@ export default function RisksPage() {
         cancelEdit();
       }
 
-      if (expandedRiskId === risk.id) {
-        setExpandedRiskId(null);
+      if (expandedControlsRiskId === risk.id) {
+        setExpandedControlsRiskId(null);
+      }
+
+      if (expandedIncidentsRiskId === risk.id) {
+        setExpandedIncidentsRiskId(null);
       }
 
       if (user) {
@@ -541,7 +785,15 @@ export default function RisksPage() {
   }
 
   function toggleLinkedControls(riskId: string) {
-    setExpandedRiskId((current) => (current === riskId ? null : riskId));
+    setExpandedControlsRiskId((current) =>
+      current === riskId ? null : riskId,
+    );
+  }
+
+  function toggleLinkedIncidents(riskId: string) {
+    setExpandedIncidentsRiskId((current) =>
+      current === riskId ? null : riskId,
+    );
   }
 
   async function handleLinkControl(riskId: string) {
@@ -551,7 +803,7 @@ export default function RisksPage() {
       return;
     }
 
-    setLinkingRiskId(riskId);
+    setLinkingControlRiskId(riskId);
     setError(null);
 
     try {
@@ -572,7 +824,7 @@ export default function RisksPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to link control");
     } finally {
-      setLinkingRiskId(null);
+      setLinkingControlRiskId(null);
     }
   }
 
@@ -581,7 +833,7 @@ export default function RisksPage() {
       return;
     }
 
-    setUnlinkingLinkId(linkId);
+    setUnlinkingControlLinkId(linkId);
     setError(null);
 
     try {
@@ -599,7 +851,66 @@ export default function RisksPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to unlink control");
     } finally {
-      setUnlinkingLinkId(null);
+      setUnlinkingControlLinkId(null);
+    }
+  }
+
+  async function handleLinkIncident(riskId: string) {
+    const incidentId = incidentLinkSelections[riskId];
+
+    if (!incidentId || !user) {
+      return;
+    }
+
+    setLinkingIncidentRiskId(riskId);
+    setError(null);
+
+    try {
+      const supabase = getSupabaseClient();
+      const { error: linkError } = await supabase.from("incident_risks").insert({
+        incident_id: incidentId,
+        risk_id: riskId,
+        owner_id: user.id,
+      });
+
+      if (linkError) {
+        throw linkError;
+      }
+
+      setIncidentLinkSelections((current) => ({ ...current, [riskId]: "" }));
+      setIncidentSearchByRisk((current) => ({ ...current, [riskId]: "" }));
+      await fetchIncidentRiskLinks(user.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to link incident");
+    } finally {
+      setLinkingIncidentRiskId(null);
+    }
+  }
+
+  async function handleUnlinkIncident(linkId: string) {
+    if (!user) {
+      return;
+    }
+
+    setUnlinkingIncidentLinkId(linkId);
+    setError(null);
+
+    try {
+      const supabase = getSupabaseClient();
+      const { error: unlinkError } = await supabase
+        .from("incident_risks")
+        .delete()
+        .eq("id", linkId);
+
+      if (unlinkError) {
+        throw unlinkError;
+      }
+
+      await fetchIncidentRiskLinks(user.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to unlink incident");
+    } finally {
+      setUnlinkingIncidentLinkId(null);
     }
   }
 
@@ -713,7 +1024,9 @@ export default function RisksPage() {
                 <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
                   {risks.map((risk) => {
                     const linkedControls = linkedControlsByRisk[risk.id] ?? [];
-                    const isExpanded = expandedRiskId === risk.id;
+                    const linkedIncidents = linkedIncidentsByRisk[risk.id] ?? [];
+                    const controlsExpanded = expandedControlsRiskId === risk.id;
+                    const incidentsExpanded = expandedIncidentsRiskId === risk.id;
 
                     return (
                       <Fragment key={risk.id}>
@@ -740,9 +1053,18 @@ export default function RisksPage() {
                                 onClick={() => toggleLinkedControls(risk.id)}
                                 className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
                               >
-                                {isExpanded
+                                {controlsExpanded
                                   ? "Hide Controls"
                                   : `Linked Controls (${linkedControls.length})`}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => toggleLinkedIncidents(risk.id)}
+                                className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                              >
+                                {incidentsExpanded
+                                  ? "Hide Incidents"
+                                  : `Linked Incidents (${linkedIncidents.length})`}
                               </button>
                               <button
                                 type="button"
@@ -765,7 +1087,7 @@ export default function RisksPage() {
                             </div>
                           </td>
                         </tr>
-                        {isExpanded && (
+                        {controlsExpanded && (
                           <tr>
                             <td colSpan={6} className="p-0">
                               <LinkedControlsPanel
@@ -777,8 +1099,8 @@ export default function RisksPage() {
                                 controlSearch={
                                   controlSearchByRisk[risk.id] ?? ""
                                 }
-                                linking={linkingRiskId === risk.id}
-                                unlinkingLinkId={unlinkingLinkId}
+                                linking={linkingControlRiskId === risk.id}
+                                unlinkingLinkId={unlinkingControlLinkId}
                                 onControlSearchChange={(value) =>
                                   setControlSearchByRisk((current) => ({
                                     ...current,
@@ -794,6 +1116,40 @@ export default function RisksPage() {
                                 onLink={() => void handleLinkControl(risk.id)}
                                 onUnlink={(linkId) =>
                                   void handleUnlinkControl(linkId)
+                                }
+                              />
+                            </td>
+                          </tr>
+                        )}
+                        {incidentsExpanded && (
+                          <tr>
+                            <td colSpan={6} className="p-0">
+                              <LinkedIncidentsPanel
+                                links={linkedIncidents}
+                                userIncidents={userIncidents}
+                                selectedIncidentId={
+                                  incidentLinkSelections[risk.id] ?? ""
+                                }
+                                incidentSearch={
+                                  incidentSearchByRisk[risk.id] ?? ""
+                                }
+                                linking={linkingIncidentRiskId === risk.id}
+                                unlinkingLinkId={unlinkingIncidentLinkId}
+                                onIncidentSearchChange={(value) =>
+                                  setIncidentSearchByRisk((current) => ({
+                                    ...current,
+                                    [risk.id]: value,
+                                  }))
+                                }
+                                onSelectedIncidentChange={(incidentId) =>
+                                  setIncidentLinkSelections((current) => ({
+                                    ...current,
+                                    [risk.id]: incidentId,
+                                  }))
+                                }
+                                onLink={() => void handleLinkIncident(risk.id)}
+                                onUnlink={(linkId) =>
+                                  void handleUnlinkIncident(linkId)
                                 }
                               />
                             </td>
