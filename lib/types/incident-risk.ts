@@ -1,4 +1,5 @@
 import type { IncidentStatus, Severity } from "@/lib/types/incident";
+import { unwrapJoinRelation } from "@/lib/types/risk-control";
 
 export type IncidentRisk = {
   id: string;
@@ -25,28 +26,32 @@ export type LinkedIncident = {
   status: IncidentStatus;
 };
 
+type RiskJoin = {
+  title: string;
+  likelihood: number;
+  impact: number;
+  owner_email?: string;
+};
+
+type IncidentJoin = {
+  title: string;
+  date_occurred: string;
+  severity: Severity;
+  status: IncidentStatus;
+};
+
 export type IncidentRiskRow = {
   id: string;
   incident_id: string;
   risk_id: string;
-  risks: {
-    title: string;
-    likelihood: number;
-    impact: number;
-    owner_email?: string;
-  } | null;
+  risks: RiskJoin | RiskJoin[] | null;
 };
 
 export type IncidentRiskIncidentRow = {
   id: string;
   incident_id: string;
   risk_id: string;
-  incidents: {
-    title: string;
-    date_occurred: string;
-    severity: Severity;
-    status: IncidentStatus;
-  } | null;
+  incidents: IncidentJoin | IncidentJoin[] | null;
 };
 
 export function groupIncidentRiskRowsByIncident(
@@ -55,7 +60,9 @@ export function groupIncidentRiskRowsByIncident(
   const grouped: Record<string, LinkedRisk[]> = {};
 
   for (const row of rows) {
-    if (!row.risks) {
+    const risk = unwrapJoinRelation(row.risks);
+
+    if (!risk) {
       continue;
     }
 
@@ -66,10 +73,10 @@ export function groupIncidentRiskRowsByIncident(
     grouped[row.incident_id].push({
       linkId: row.id,
       riskId: row.risk_id,
-      title: row.risks.title,
-      likelihood: row.risks.likelihood,
-      impact: row.risks.impact,
-      owner_email: row.risks.owner_email,
+      title: risk.title,
+      likelihood: risk.likelihood,
+      impact: risk.impact,
+      owner_email: risk.owner_email,
     });
   }
 
@@ -82,7 +89,9 @@ export function groupIncidentRiskRowsByRisk(
   const grouped: Record<string, LinkedIncident[]> = {};
 
   for (const row of rows) {
-    if (!row.incidents) {
+    const incident = unwrapJoinRelation(row.incidents);
+
+    if (!incident) {
       continue;
     }
 
@@ -93,10 +102,10 @@ export function groupIncidentRiskRowsByRisk(
     grouped[row.risk_id].push({
       linkId: row.id,
       incidentId: row.incident_id,
-      title: row.incidents.title,
-      date_occurred: row.incidents.date_occurred,
-      severity: row.incidents.severity,
-      status: row.incidents.status,
+      title: incident.title,
+      date_occurred: incident.date_occurred,
+      severity: incident.severity,
+      status: incident.status,
     });
   }
 
