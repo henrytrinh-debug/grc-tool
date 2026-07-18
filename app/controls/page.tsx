@@ -306,7 +306,6 @@ export default function ControlsPage() {
   const [authLoading, setAuthLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [loggingOut, setLoggingOut] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -504,25 +503,6 @@ export default function ControlsPage() {
     }
   }
 
-  async function handleLogout() {
-    setLoggingOut(true);
-    setError(null);
-
-    try {
-      const supabase = getSupabaseClient();
-      const { error: signOutError } = await supabase.auth.signOut();
-
-      if (signOutError) {
-        throw signOutError;
-      }
-
-      router.replace("/login");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to log out");
-      setLoggingOut(false);
-    }
-  }
-
   async function handleDelete(control: Control) {
     const confirmed = window.confirm(
       `Delete "${control.title}"? This action cannot be undone.`,
@@ -640,28 +620,13 @@ export default function ControlsPage() {
   return (
     <div className="min-h-full bg-zinc-50 px-6 py-10 dark:bg-black">
       <main className="mx-auto flex w-full max-w-6xl flex-col gap-10">
-        <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h1 className="text-3xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-              Control Register
-            </h1>
-            <p className="mt-2 text-zinc-600 dark:text-zinc-400">
-              Manage and track your assigned controls.
-            </p>
-            {user?.email && (
-              <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-500">
-                Signed in as {user.email}
-              </p>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={() => void handleLogout()}
-            disabled={loggingOut}
-            className="self-start rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
-          >
-            {loggingOut ? "Logging out..." : "Log out"}
-          </button>
+        <header>
+          <h1 className="text-3xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
+            Control Register
+          </h1>
+          <p className="mt-2 text-zinc-600 dark:text-zinc-400">
+            Manage and track your assigned controls.
+          </p>
         </header>
 
         <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
