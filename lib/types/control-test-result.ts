@@ -1,4 +1,4 @@
-import type { Effectiveness } from "./control";
+import type { Effectiveness, TestResultEffectiveness } from "./control";
 
 export type ControlTestResult = {
   id: string;
@@ -11,10 +11,11 @@ export type ControlTestResult = {
   created_at?: string;
 };
 
-export type NewControlTestResult = Pick<
-  ControlTestResult,
-  "effectiveness" | "tested_at" | "notes"
->;
+export type NewControlTestResult = {
+  effectiveness: TestResultEffectiveness;
+  tested_at: string;
+  notes: string;
+};
 
 export function getTodayDateForInput() {
   return new Date().toISOString().slice(0, 10);

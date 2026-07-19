@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
@@ -129,21 +130,21 @@ export default function HomePage() {
 
   if (authLoading) {
     return (
-      <div className="flex min-h-full items-center justify-center bg-zinc-50 dark:bg-black">
-        <p className="text-zinc-600 dark:text-zinc-400">Loading...</p>
+      <div className="flex min-h-full items-center justify-center bg-slate-50 dark:bg-slate-950">
+        <p className="text-slate-600 dark:text-slate-400">Loading...</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-full bg-zinc-50 px-6 py-10 dark:bg-black">
+    <div className="min-h-full bg-slate-50 px-6 py-10 dark:bg-slate-950">
       <main className="mx-auto flex w-full max-w-6xl flex-col gap-10">
         <header>
-          <h1 className="text-3xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
+          <h1 className="text-3xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">
             Dashboard
           </h1>
           {user?.email && (
-            <p className="mt-2 text-zinc-600 dark:text-zinc-400">
+            <p className="mt-2 text-slate-600 dark:text-slate-400">
               Welcome back, {user.email}
             </p>
           )}
@@ -156,70 +157,91 @@ export default function HomePage() {
         )}
 
         {loading ? (
-          <p className="text-zinc-600 dark:text-zinc-400">Loading summary...</p>
+          <p className="text-slate-600 dark:text-slate-400">Loading summary...</p>
         ) : (
           <>
             <section className="grid gap-4 sm:grid-cols-3">
-              <div className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
-                <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
+              <Link
+                href="/risks"
+                className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm transition-colors hover:border-teal-300 hover:bg-teal-50/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-teal-700 dark:hover:bg-slate-800 dark:focus-visible:outline-teal-400"
+              >
+                <p className="text-sm font-medium text-slate-600 dark:text-slate-400">
                   Total Risks
                 </p>
-                <p className="mt-2 text-3xl font-semibold text-zinc-950 dark:text-zinc-50">
+                <p className="mt-2 text-3xl font-semibold text-slate-950 dark:text-slate-50">
                   {stats.riskCount}
                 </p>
-              </div>
+                <p className="mt-2 text-xs text-teal-700 dark:text-teal-300">
+                  View risk register →
+                </p>
+              </Link>
 
-              <div className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
-                <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
+              <Link
+                href="/controls?testingStatus=Overdue"
+                className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm transition-colors hover:border-teal-300 hover:bg-teal-50/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-teal-700 dark:hover:bg-slate-800 dark:focus-visible:outline-teal-400"
+              >
+                <p className="text-sm font-medium text-slate-600 dark:text-slate-400">
                   Overdue Controls
                 </p>
-                <p className="mt-2 text-3xl font-semibold text-zinc-950 dark:text-zinc-50">
+                <p className="mt-2 text-3xl font-semibold text-slate-950 dark:text-slate-50">
                   {stats.overdueControlCount}
                 </p>
-              </div>
+                <p className="mt-2 text-xs text-teal-700 dark:text-teal-300">
+                  View overdue controls →
+                </p>
+              </Link>
 
-              <div className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
-                <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
+              <Link
+                href="/incidents?status=open,investigating"
+                className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm transition-colors hover:border-teal-300 hover:bg-teal-50/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-teal-700 dark:hover:bg-slate-800 dark:focus-visible:outline-teal-400"
+              >
+                <p className="text-sm font-medium text-slate-600 dark:text-slate-400">
                   Open Incidents
                 </p>
-                <p className="mt-2 text-3xl font-semibold text-zinc-950 dark:text-zinc-50">
+                <p className="mt-2 text-3xl font-semibold text-slate-950 dark:text-slate-50">
                   {stats.openIncidentCount}
                 </p>
-                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-500">
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-500">
                   Status open or investigating
                 </p>
-              </div>
+                <p className="mt-2 text-xs text-teal-700 dark:text-teal-300">
+                  View open incidents →
+                </p>
+              </Link>
             </section>
 
             <section className="grid gap-6 lg:grid-cols-2">
-              <div className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
-                <h2 className="text-lg font-medium text-zinc-950 dark:text-zinc-50">
+              <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                <h2 className="text-lg font-medium text-slate-950 dark:text-slate-50">
                   Risk Heat Map
                 </h2>
-                <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                  Likelihood × impact matrix with risk counts per cell.
+                <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+                  Click a cell to filter risks by likelihood and impact.
                 </p>
                 <div className="mt-6">
                   <RiskHeatMap risks={charts.risks} />
                 </div>
               </div>
 
-              <div className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
-                <h2 className="text-lg font-medium text-zinc-950 dark:text-zinc-50">
+              <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                <h2 className="text-lg font-medium text-slate-950 dark:text-slate-50">
                   Risks by Severity Band
                 </h2>
-                <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                  Low (1–5), Medium (6–10), High (11–19), Critical (20–25).
+                <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+                  Click a bar to filter the risk register by severity.
                 </p>
                 <div className="mt-4">
                   <RiskSeverityBarChart data={charts.severityBands} />
                 </div>
               </div>
 
-              <div className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
-                <h2 className="text-lg font-medium text-zinc-950 dark:text-zinc-50">
+              <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                <h2 className="text-lg font-medium text-slate-950 dark:text-slate-50">
                   Controls by Effectiveness
                 </h2>
+                <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+                  Click a slice to filter controls.
+                </p>
                 <div className="mt-4">
                   <ControlsEffectivenessDonut
                     data={charts.controlEffectiveness}
@@ -227,10 +249,13 @@ export default function HomePage() {
                 </div>
               </div>
 
-              <div className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
-                <h2 className="text-lg font-medium text-zinc-950 dark:text-zinc-50">
+              <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                <h2 className="text-lg font-medium text-slate-950 dark:text-slate-50">
                   Incidents by Status
                 </h2>
+                <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+                  Click a slice to filter incidents.
+                </p>
                 <div className="mt-4">
                   <IncidentsStatusDonut data={charts.incidentStatus} />
                 </div>

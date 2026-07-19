@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import {
   Bar,
   BarChart,
@@ -24,6 +25,7 @@ type RiskSeverityBarChartProps = {
 };
 
 export function RiskSeverityBarChart({ data }: RiskSeverityBarChartProps) {
+  const router = useRouter();
   const chartData = data.map((item) => ({
     band: item.band,
     count: item.count,
@@ -32,27 +34,40 @@ export function RiskSeverityBarChart({ data }: RiskSeverityBarChartProps) {
   return (
     <ResponsiveContainer width="100%" height={280}>
       <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" className="stroke-zinc-200 dark:stroke-zinc-800" />
+        <CartesianGrid
+          strokeDasharray="3 3"
+          className="stroke-slate-200 dark:stroke-slate-800"
+        />
         <XAxis
           dataKey="band"
           tick={{ fill: "currentColor", fontSize: 12 }}
-          className="text-zinc-600 dark:text-zinc-400"
+          className="text-slate-600 dark:text-slate-400"
         />
         <YAxis
           allowDecimals={false}
           tick={{ fill: "currentColor", fontSize: 12 }}
-          className="text-zinc-600 dark:text-zinc-400"
+          className="text-slate-600 dark:text-slate-400"
         />
         <Tooltip
           contentStyle={{
-            backgroundColor: "rgb(24 24 27)",
-            border: "1px solid rgb(39 39 42)",
+            backgroundColor: "rgb(15 23 42)",
+            border: "1px solid rgb(51 65 85)",
             borderRadius: "0.5rem",
-            color: "rgb(250 250 250)",
+            color: "rgb(248 250 252)",
           }}
           formatter={(value) => [value, "Risks"]}
         />
-        <Bar dataKey="count" radius={[6, 6, 0, 0]}>
+        <Bar
+          dataKey="count"
+          radius={[6, 6, 0, 0]}
+          cursor="pointer"
+          onClick={(data) => {
+            const band = (data as { band?: string }).band;
+            if (band) {
+              router.push(`/risks?severity=${encodeURIComponent(band)}`);
+            }
+          }}
+        >
           {chartData.map((entry) => (
             <Cell key={entry.band} fill={BAND_COLORS[entry.band]} />
           ))}

@@ -34,6 +34,14 @@ export function LinkedControlsPanel({
   const linkedControlIds = new Set(links.map((link) => link.controlId));
   const search = controlSearch.trim().toLowerCase();
 
+  const filteredLinks = links.filter((link) => {
+    if (!search) {
+      return true;
+    }
+
+    return link.title.toLowerCase().includes(search);
+  });
+
   const availableControls = userControls.filter((control) => {
     if (linkedControlIds.has(control.id)) {
       return false;
@@ -47,19 +55,36 @@ export function LinkedControlsPanel({
   });
 
   return (
-    <div className="space-y-4 rounded-xl border border-zinc-200 bg-zinc-50 p-6 dark:border-zinc-800 dark:bg-zinc-900/50">
-      <h3 className="text-sm font-medium text-zinc-950 dark:text-zinc-50">
+    <div className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-6 dark:border-slate-800 dark:bg-slate-900/60">
+      <h3 className="text-sm font-medium text-slate-950 dark:text-slate-50">
         Linked Controls
       </h3>
 
+      <label className="flex flex-col gap-1">
+        <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+          Search controls
+        </span>
+        <input
+          type="search"
+          value={controlSearch}
+          onChange={(event) => onControlSearchChange(event.target.value)}
+          placeholder="Filter linked and available controls by title..."
+          className={inputClassName}
+        />
+      </label>
+
       {links.length === 0 ? (
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="text-sm text-slate-600 dark:text-slate-400">
           No controls linked to this risk yet.
         </p>
+      ) : filteredLinks.length === 0 ? (
+        <p className="text-sm text-slate-600 dark:text-slate-400">
+          No linked controls match “{controlSearch.trim()}”.
+        </p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+        <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
           <table className="min-w-full text-left text-sm">
-            <thead className="bg-zinc-50 text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
+            <thead className="bg-slate-50 text-slate-600 dark:bg-slate-900 dark:text-slate-400">
               <tr>
                 <th className="px-4 py-2 font-medium">Title</th>
                 <th className="px-4 py-2 font-medium">Effectiveness</th>
@@ -67,16 +92,16 @@ export function LinkedControlsPanel({
                 <th className="px-4 py-2 font-medium">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-              {links.map((link) => (
+            <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+              {filteredLinks.map((link) => (
                 <tr key={link.linkId}>
-                  <td className="px-4 py-3 font-medium text-zinc-950 dark:text-zinc-50">
+                  <td className="px-4 py-3 font-medium text-slate-950 dark:text-slate-50">
                     {link.title}
                   </td>
-                  <td className="px-4 py-3 text-zinc-950 dark:text-zinc-50">
+                  <td className="px-4 py-3 text-slate-950 dark:text-slate-50">
                     {formatEffectiveness(link.effectiveness)}
                   </td>
-                  <td className="px-4 py-3 text-zinc-950 dark:text-zinc-50">
+                  <td className="px-4 py-3 text-slate-950 dark:text-slate-50">
                     {getTestingStatus(link.last_tested_at)}
                   </td>
                   <td className="px-4 py-3">
@@ -100,20 +125,7 @@ export function LinkedControlsPanel({
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
         <label className="flex flex-1 flex-col gap-1">
-          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-            Search controls
-          </span>
-          <input
-            type="search"
-            value={controlSearch}
-            onChange={(event) => onControlSearchChange(event.target.value)}
-            placeholder="Filter by title..."
-            className={inputClassName}
-          />
-        </label>
-
-        <label className="flex flex-1 flex-col gap-1">
-          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+          <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
             Link control
           </span>
           <select
@@ -134,18 +146,18 @@ export function LinkedControlsPanel({
           type="button"
           onClick={onLink}
           disabled={!selectedControlId || linking}
-          className="rounded-lg bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-950 dark:hover:bg-zinc-200"
+          className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-600 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-teal-400 dark:text-slate-950 dark:hover:bg-teal-300"
         >
           {linking ? "Linking..." : "Link Control"}
         </button>
       </div>
 
       {userControls.length === 0 && (
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="text-sm text-slate-600 dark:text-slate-400">
           Create controls on the{" "}
           <a
             href="/controls"
-            className="font-medium text-zinc-950 underline underline-offset-2 dark:text-zinc-50"
+            className="font-medium text-teal-700 underline underline-offset-2 dark:text-teal-300"
           >
             controls page
           </a>{" "}
@@ -157,10 +169,16 @@ export function LinkedControlsPanel({
         availableControls.length === 0 &&
         links.length > 0 &&
         !search && (
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          <p className="text-sm text-slate-600 dark:text-slate-400">
             All of your controls are already linked to this risk.
           </p>
         )}
+
+      {userControls.length > 0 && availableControls.length === 0 && search && (
+        <p className="text-sm text-slate-600 dark:text-slate-400">
+          No available controls match “{controlSearch.trim()}”.
+        </p>
+      )}
     </div>
   );
 }

@@ -57,10 +57,13 @@ export function AppSidebar() {
   }
 
   return (
-    <aside className="flex w-56 shrink-0 flex-col border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
-      <div className="border-b border-zinc-200 px-5 py-6 dark:border-zinc-800">
-        <p className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">
+    <aside className="flex w-56 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+      <div className="border-b border-slate-200 px-5 py-6 dark:border-slate-800">
+        <p className="text-lg font-semibold tracking-tight text-slate-950 dark:text-slate-50">
           GRC Tool
+        </p>
+        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+          Governance · Risk · Compliance
         </p>
       </div>
 
@@ -74,8 +77,8 @@ export function AppSidebar() {
               href={item.href}
               className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                 active
-                  ? "bg-zinc-100 text-zinc-950 dark:bg-zinc-900 dark:text-zinc-50"
-                  : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
+                  ? "bg-teal-50 text-teal-900 dark:bg-teal-950 dark:text-teal-200"
+                  : "text-slate-600 hover:bg-slate-50 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-50"
               }`}
             >
               {item.label}
@@ -84,9 +87,9 @@ export function AppSidebar() {
         })}
       </nav>
 
-      <div className="border-t border-zinc-200 px-3 py-4 dark:border-zinc-800">
+      <div className="border-t border-slate-200 px-3 py-4 dark:border-slate-800">
         {email && (
-          <p className="mb-3 truncate px-3 text-xs text-zinc-500 dark:text-zinc-500">
+          <p className="mb-3 truncate px-3 text-xs text-slate-500 dark:text-slate-500">
             {email}
           </p>
         )}
@@ -94,7 +97,7 @@ export function AppSidebar() {
           type="button"
           onClick={() => void handleLogout()}
           disabled={loggingOut}
-          className="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
         >
           {loggingOut ? "Logging out..." : "Log out"}
         </button>

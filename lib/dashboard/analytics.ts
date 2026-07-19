@@ -12,6 +12,7 @@ export type SeverityBandCount = {
 export type ChartCount = {
   name: string;
   value: number;
+  filterValue: string;
 };
 
 export function getRiskScore(likelihood: number, impact: number) {
@@ -100,9 +101,21 @@ export function buildControlEffectivenessCounts(
   }
 
   return [
-    { name: formatEffectiveness("effective"), value: counts.effective },
-    { name: formatEffectiveness("ineffective"), value: counts.ineffective },
-    { name: formatEffectiveness("not_tested"), value: counts.not_tested },
+    {
+      name: formatEffectiveness("effective"),
+      value: counts.effective,
+      filterValue: "effective",
+    },
+    {
+      name: formatEffectiveness("ineffective"),
+      value: counts.ineffective,
+      filterValue: "ineffective",
+    },
+    {
+      name: formatEffectiveness("not_tested"),
+      value: counts.not_tested,
+      filterValue: "not_tested",
+    },
   ];
 }
 
@@ -118,11 +131,20 @@ export function buildIncidentStatusCounts(incidents: Incident[]): ChartCount[] {
   }
 
   return [
-    { name: formatIncidentStatus("open"), value: counts.open },
+    {
+      name: formatIncidentStatus("open"),
+      value: counts.open,
+      filterValue: "open",
+    },
     {
       name: formatIncidentStatus("investigating"),
       value: counts.investigating,
+      filterValue: "investigating",
     },
-    { name: formatIncidentStatus("resolved"), value: counts.resolved },
+    {
+      name: formatIncidentStatus("resolved"),
+      value: counts.resolved,
+      filterValue: "resolved",
+    },
   ];
 }

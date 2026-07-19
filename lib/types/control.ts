@@ -26,6 +26,16 @@ export const EFFECTIVENESS_OPTIONS: {
   { value: "not_tested", label: "Not Tested" },
 ];
 
+export type TestResultEffectiveness = "effective" | "ineffective";
+
+export const TEST_RESULT_EFFECTIVENESS_OPTIONS: {
+  value: TestResultEffectiveness;
+  label: string;
+}[] = [
+  { value: "effective", label: "Effective" },
+  { value: "ineffective", label: "Ineffective" },
+];
+
 export function formatEffectiveness(effectiveness: Effectiveness) {
   return (
     EFFECTIVENESS_OPTIONS.find((option) => option.value === effectiveness)
