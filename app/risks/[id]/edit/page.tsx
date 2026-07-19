@@ -412,16 +412,24 @@ export default function EditRiskPage() {
   return (
     <div className="min-h-full bg-zinc-50 px-6 py-10 dark:bg-black">
       <main className="mx-auto flex w-full max-w-5xl flex-col gap-8">
-        <header>
+        <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <Link
+              href="/risks"
+              className="text-sm font-medium text-zinc-600 transition-colors hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-50"
+            >
+              ← Back to risks
+            </Link>
+            <h1 className="mt-4 text-3xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
+              Edit Risk
+            </h1>
+          </div>
           <Link
-            href="/risks"
-            className="text-sm font-medium text-zinc-600 transition-colors hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-50"
+            href={`/rcsa/review?risk=${risk.id}`}
+            className="inline-flex shrink-0 items-center justify-center rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-600 dark:bg-teal-400 dark:text-slate-950 dark:hover:bg-teal-300"
           >
-            ← Back to risks
+            Review This Risk
           </Link>
-          <h1 className="mt-4 text-3xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
-            Edit Risk
-          </h1>
         </header>
 
         {error && (

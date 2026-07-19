@@ -225,10 +225,10 @@ export default function HomePage() {
 
               <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
                 <h2 className="text-lg font-medium text-slate-950 dark:text-slate-50">
-                  Risks by Severity Band
+                  Risks by Risk Score
                 </h2>
                 <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-                  Click a bar to filter the risk register by severity.
+                  Click a bar to filter the risk register by risk score.
                 </p>
                 <div className="mt-4">
                   <RiskSeverityBarChart data={charts.severityBands} />

@@ -36,6 +36,7 @@ export type RiskWithLastReviewed = {
   title: string;
   likelihood: number;
   impact: number;
+  owner_email?: string;
   lastReviewedAt: string | null;
 };
 

@@ -12,6 +12,9 @@ import {
 } from "@/lib/types/rcsa";
 import type { Risk } from "@/lib/types/risk";
 
+const filterInputClassName =
+  "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-600/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-50 dark:focus:border-teal-400 dark:focus:ring-teal-400/20";
+
 export default function RcsaStartPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
@@ -19,6 +22,7 @@ export default function RcsaStartPage() {
   const [selectedRiskIds, setSelectedRiskIds] = useState<Set<string>>(
     new Set(),
   );
+  const [filterText, setFilterText] = useState("");
   const [authLoading, setAuthLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -32,7 +36,7 @@ export default function RcsaStartPage() {
       const [risksResult, reviewsResult] = await Promise.all([
         supabase
           .from("risks")
-          .select("id, title, likelihood, impact")
+          .select("id, title, likelihood, impact, owner_email")
           .eq("owner_id", ownerId)
           .order("title", { ascending: true }),
         supabase
@@ -61,6 +65,7 @@ export default function RcsaStartPage() {
         title: risk.title,
         likelihood: risk.likelihood,
         impact: risk.impact,
+        owner_email: risk.owner_email,
         lastReviewedAt: lastReviewedByRisk[risk.id] ?? null,
       }));
 
@@ -68,7 +73,9 @@ export default function RcsaStartPage() {
       setSelectedRiskIds(new Set(checklist.map((risk) => risk.id)));
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to load RCSA checklist",
+        err instanceof Error
+          ? err.message
+          : "Failed to load risk assessment checklist",
       );
     } finally {
       setLoading(false);
@@ -111,8 +118,25 @@ export default function RcsaStartPage() {
     };
   }, [fetchChecklist, router]);
 
-  const allSelected =
-    risks.length > 0 && selectedRiskIds.size === risks.length;
+  const filteredRisks = useMemo(() => {
+    const query = filterText.trim().toLowerCase();
+
+    if (!query) {
+      return risks;
+    }
+
+    return risks.filter((risk) => {
+      const title = risk.title.toLowerCase();
+      const owner = (risk.owner_email ?? "").toLowerCase();
+      return title.includes(query) || owner.includes(query);
+    });
+  }, [filterText, risks]);
+
+  const visibleSelectedCount = useMemo(
+    () => filteredRisks.filter((risk) => selectedRiskIds.has(risk.id)).length,
+    [filteredRisks, selectedRiskIds],
+  );
+
   const someSelected = selectedRiskIds.size > 0;
 
   const selectedCountLabel = useMemo(() => {
@@ -120,8 +144,18 @@ export default function RcsaStartPage() {
       return "No risks available";
     }
 
+    if (filterText.trim()) {
+      return `${visibleSelectedCount} of ${filteredRisks.length} shown selected · ${selectedRiskIds.size} total selected`;
+    }
+
     return `${selectedRiskIds.size} of ${risks.length} selected`;
-  }, [risks.length, selectedRiskIds.size]);
+  }, [
+    filterText,
+    filteredRisks.length,
+    risks.length,
+    selectedRiskIds.size,
+    visibleSelectedCount,
+  ]);
 
   function toggleRisk(riskId: string) {
     setSelectedRiskIds((current) => {
@@ -137,13 +171,24 @@ export default function RcsaStartPage() {
     });
   }
 
-  function toggleAll() {
-    if (allSelected) {
-      setSelectedRiskIds(new Set());
-      return;
-    }
+  function selectAllVisible() {
+    setSelectedRiskIds((current) => {
+      const next = new Set(current);
+      for (const risk of filteredRisks) {
+        next.add(risk.id);
+      }
+      return next;
+    });
+  }
 
-    setSelectedRiskIds(new Set(risks.map((risk) => risk.id)));
+  function deselectAllVisible() {
+    setSelectedRiskIds((current) => {
+      const next = new Set(current);
+      for (const risk of filteredRisks) {
+        next.delete(risk.id);
+      }
+      return next;
+    });
   }
 
   async function handleStartReview(event: FormEvent<HTMLFormElement>) {
@@ -177,14 +222,16 @@ export default function RcsaStartPage() {
       }
 
       if (!data?.id) {
-        throw new Error("Failed to create RCSA session");
+        throw new Error("Failed to create risk assessment session");
       }
 
       const riskIds = Array.from(selectedRiskIds).join(",");
       router.push(`/rcsa/review?session=${data.id}&risks=${riskIds}`);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to start RCSA review",
+        err instanceof Error
+          ? err.message
+          : "Failed to start risk assessment",
       );
     } finally {
       setSubmitting(false);
@@ -204,7 +251,7 @@ export default function RcsaStartPage() {
       <main className="mx-auto flex w-full max-w-5xl flex-col gap-8">
         <header>
           <h1 className="text-3xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">
-            Start RCSA Review
+            Risk Assessment
           </h1>
           <p className="mt-2 text-slate-600 dark:text-slate-400">
             Select the risks you want to include in this review cycle.
@@ -221,33 +268,58 @@ export default function RcsaStartPage() {
           onSubmit={(event) => void handleStartReview(event)}
           className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900"
         >
-          <div className="flex flex-col gap-3 border-b border-slate-200 px-6 py-4 sm:flex-row sm:items-center sm:justify-between dark:border-slate-800">
-            <div>
-              <h2 className="text-lg font-medium text-slate-950 dark:text-slate-50">
-                Risk checklist
-              </h2>
-              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                {selectedCountLabel}
-              </p>
-            </div>
+          <div className="space-y-4 border-b border-slate-200 px-6 py-4 dark:border-slate-800">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-lg font-medium text-slate-950 dark:text-slate-50">
+                  Risk checklist
+                </h2>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                  {selectedCountLabel}
+                </p>
+              </div>
 
-            <div className="flex flex-wrap gap-3">
-              {risks.length > 0 && (
-                <button
-                  type="button"
-                  onClick={toggleAll}
-                  className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                >
-                  {allSelected ? "Deselect all" : "Select all"}
-                </button>
-              )}
               <button
                 type="submit"
                 disabled={!someSelected || submitting || loading}
                 className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-600 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-teal-400 dark:text-slate-950 dark:hover:bg-teal-300"
               >
-                {submitting ? "Starting..." : "Start Review"}
+                {submitting ? "Starting..." : "Review Selected"}
               </button>
+            </div>
+
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+              <label className="flex min-w-0 flex-1 flex-col gap-1">
+                <span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Filter
+                </span>
+                <input
+                  type="search"
+                  value={filterText}
+                  onChange={(event) => setFilterText(event.target.value)}
+                  placeholder="Filter by title or owner email..."
+                  className={filterInputClassName}
+                />
+              </label>
+
+              {risks.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={selectAllVisible}
+                    className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                  >
+                    Select All
+                  </button>
+                  <button
+                    type="button"
+                    onClick={deselectAllVisible}
+                    className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                  >
+                    Deselect All
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -257,8 +329,12 @@ export default function RcsaStartPage() {
             </p>
           ) : risks.length === 0 ? (
             <p className="px-6 py-8 text-slate-600 dark:text-slate-400">
-              No risks found. Add risks in the risk register before starting an
-              RCSA review.
+              No risks found. Add risks in the risk register before starting a
+              risk assessment.
+            </p>
+          ) : filteredRisks.length === 0 ? (
+            <p className="px-6 py-8 text-slate-600 dark:text-slate-400">
+              No risks match the current filter.
             </p>
           ) : (
             <div className="overflow-x-auto">
@@ -269,13 +345,12 @@ export default function RcsaStartPage() {
                       <span className="sr-only">Select</span>
                     </th>
                     <th className="px-6 py-3 font-medium">Title</th>
-                    <th className="px-6 py-3 font-medium">Likelihood</th>
-                    <th className="px-6 py-3 font-medium">Impact</th>
+                    <th className="px-6 py-3 font-medium">Owner</th>
                     <th className="px-6 py-3 font-medium">Last Reviewed</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                  {risks.map((risk) => {
+                  {filteredRisks.map((risk) => {
                     const checked = selectedRiskIds.has(risk.id);
 
                     return (
@@ -296,10 +371,7 @@ export default function RcsaStartPage() {
                           {risk.title}
                         </td>
                         <td className="px-6 py-4 text-slate-950 dark:text-slate-50">
-                          {risk.likelihood}
-                        </td>
-                        <td className="px-6 py-4 text-slate-950 dark:text-slate-50">
-                          {risk.impact}
+                          {risk.owner_email ?? "—"}
                         </td>
                         <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
                           {formatLastReviewedAt(risk.lastReviewedAt)}

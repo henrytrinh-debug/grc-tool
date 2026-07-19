@@ -35,16 +35,24 @@ const ratingSelectClassName =
 function RcsaReviewPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const sessionId = searchParams.get("session") ?? "";
+  const sessionFromUrl = searchParams.get("session") ?? "";
   const riskIds = useMemo(() => {
-    const raw = searchParams.get("risks") ?? "";
-    return raw
+    const multi = (searchParams.get("risks") ?? "")
       .split(",")
       .map((value) => value.trim())
       .filter(Boolean);
+    const single = (searchParams.get("risk") ?? "").trim();
+
+    if (multi.length > 0) {
+      return multi;
+    }
+
+    return single ? [single] : [];
   }, [searchParams]);
 
   const [user, setUser] = useState<User | null>(null);
+  const [sessionId, setSessionId] = useState(sessionFromUrl);
+  const [sessionReady, setSessionReady] = useState(Boolean(sessionFromUrl));
   const [currentIndex, setCurrentIndex] = useState(0);
   const [risk, setRisk] = useState<Risk | null>(null);
   const [linkedControls, setLinkedControls] = useState<LinkedControl[]>([]);
@@ -159,12 +167,82 @@ function RcsaReviewPageContent() {
   }, [router]);
 
   useEffect(() => {
-    if (!user || !currentRiskId || completed) {
+    if (sessionFromUrl) {
+      setSessionId(sessionFromUrl);
+      setSessionReady(true);
+      return;
+    }
+
+    if (!user || riskIds.length === 0 || sessionReady) {
+      return;
+    }
+
+    if (!user.email) {
+      setError("User email not available");
+      setSessionReady(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function ensureSession() {
+      try {
+        const supabase = getSupabaseClient();
+        const { data, error: insertError } = await supabase
+          .from("rcsa_sessions")
+          .insert({
+            owner_id: user!.id,
+            owner_email: user!.email,
+          })
+          .select("id")
+          .single();
+
+        if (insertError) {
+          throw insertError;
+        }
+
+        if (!data?.id) {
+          throw new Error("Failed to create risk assessment session");
+        }
+
+        if (cancelled) {
+          return;
+        }
+
+        setSessionId(data.id);
+        setSessionReady(true);
+
+        const params = new URLSearchParams(searchParams.toString());
+        params.set("session", data.id);
+        if (!params.get("risks") && !params.get("risk") && riskIds.length === 1) {
+          params.set("risk", riskIds[0]);
+        }
+        router.replace(`/rcsa/review?${params.toString()}`);
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Failed to start risk assessment session",
+          );
+        }
+      }
+    }
+
+    void ensureSession();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, riskIds, sessionFromUrl, sessionReady, router, searchParams]);
+
+  useEffect(() => {
+    if (!user || !currentRiskId || completed || !sessionReady) {
       return;
     }
 
     void loadCurrentRisk(user.id, currentRiskId);
-  }, [user, currentRiskId, completed, loadCurrentRisk]);
+  }, [user, currentRiskId, completed, sessionReady, loadCurrentRisk]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -238,23 +316,42 @@ function RcsaReviewPageContent() {
     );
   }
 
-  if (!sessionId || riskIds.length === 0) {
+  if (riskIds.length === 0) {
     return (
       <div className="min-h-full bg-slate-50 px-6 py-10 dark:bg-slate-950">
         <main className="mx-auto flex w-full max-w-3xl flex-col gap-4">
           <h1 className="text-3xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">
-            RCSA Review
+            Risk Assessment
           </h1>
           <p className="text-slate-600 dark:text-slate-400">
-            No active review session found. Start from the checklist to begin.
+            No risk selected for review. Choose risks from the assessment
+            checklist or open a risk and click Review This Risk.
           </p>
-          <Link
-            href="/rcsa/start"
-            className="inline-flex w-fit rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-600 dark:bg-teal-400 dark:text-slate-950 dark:hover:bg-teal-300"
-          >
-            Go to Start Review
-          </Link>
+          <div className="flex flex-wrap gap-3">
+            <Link
+              href="/rcsa/start"
+              className="inline-flex w-fit rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-600 dark:bg-teal-400 dark:text-slate-950 dark:hover:bg-teal-300"
+            >
+              Go to Risk Assessment
+            </Link>
+            <Link
+              href="/risks"
+              className="inline-flex w-fit rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              Back to risks
+            </Link>
+          </div>
         </main>
+      </div>
+    );
+  }
+
+  if (!sessionReady || !sessionId) {
+    return (
+      <div className="flex min-h-full items-center justify-center bg-slate-50 dark:bg-slate-950">
+        <p className="text-slate-600 dark:text-slate-400">
+          {error ?? "Preparing review session..."}
+        </p>
       </div>
     );
   }
@@ -265,7 +362,7 @@ function RcsaReviewPageContent() {
         <main className="mx-auto flex w-full max-w-3xl flex-col gap-6">
           <header>
             <h1 className="text-3xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">
-              RCSA Review Complete
+              Risk Assessment Complete
             </h1>
             <p className="mt-2 text-slate-600 dark:text-slate-400">
               You reviewed {riskIds.length} risk
@@ -284,7 +381,7 @@ function RcsaReviewPageContent() {
               href="/rcsa/start"
               className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
             >
-              Start another review
+              Start another assessment
             </Link>
           </div>
         </main>
@@ -301,7 +398,7 @@ function RcsaReviewPageContent() {
               Risk {currentIndex + 1} of {riskIds.length}
             </p>
             <h1 className="mt-1 text-3xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">
-              RCSA Review
+              Risk Assessment
             </h1>
           </div>
           <Link

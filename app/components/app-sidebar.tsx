@@ -10,7 +10,7 @@ const navItems = [
   { href: "/risks", label: "Risks" },
   { href: "/controls", label: "Controls" },
   { href: "/incidents", label: "Incidents" },
-  { href: "/rcsa/start", label: "RCSA" },
+  { href: "/rcsa/start", label: "Risk Assessment" },
 ] as const;
 
 function isActivePath(href: string, pathname: string) {

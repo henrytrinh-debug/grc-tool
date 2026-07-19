@@ -229,7 +229,7 @@ function RisksPageContent() {
             onClear={clearFilters}
           >
             <FilterSelect
-              label="Severity"
+              label="Risk Score"
               value={filters.severity}
               onChange={(value) => updateFilters({ severity: value })}
               options={[
@@ -287,10 +287,11 @@ function RisksPageContent() {
                     <th className="px-6 py-3 font-medium">Description</th>
                     <th className="px-6 py-3 font-medium">Likelihood</th>
                     <th className="px-6 py-3 font-medium">Impact</th>
-                    <th className="px-6 py-3 font-medium">Severity</th>
+                    <th className="px-6 py-3 font-medium">Risk Score</th>
                     <th className="px-6 py-3 font-medium">Linked Controls</th>
                     <th className="px-6 py-3 font-medium">Linked Incidents</th>
                     <th className="px-6 py-3 font-medium">Owner</th>
+                    <th className="px-6 py-3 font-medium">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -328,6 +329,18 @@ function RisksPageContent() {
                         </td>
                         <td className="px-6 py-4 text-slate-950 dark:text-slate-50">
                           {risk.owner_email}
+                        </td>
+                        <td className="px-6 py-4">
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              router.push(`/rcsa/review?risk=${risk.id}`);
+                            }}
+                            className="rounded-lg border border-teal-700 px-3 py-1.5 text-sm font-medium text-teal-800 transition-colors hover:bg-teal-50 dark:border-teal-400 dark:text-teal-200 dark:hover:bg-teal-950"
+                          >
+                            Review This Risk
+                          </button>
                         </td>
                       </tr>
                     );
