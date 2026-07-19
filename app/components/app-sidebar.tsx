@@ -10,11 +10,16 @@ const navItems = [
   { href: "/risks", label: "Risks" },
   { href: "/controls", label: "Controls" },
   { href: "/incidents", label: "Incidents" },
+  { href: "/rcsa/start", label: "RCSA" },
 ] as const;
 
 function isActivePath(href: string, pathname: string) {
   if (href === "/") {
     return pathname === "/";
+  }
+
+  if (href.startsWith("/rcsa")) {
+    return pathname.startsWith("/rcsa");
   }
 
   return pathname.startsWith(href);
