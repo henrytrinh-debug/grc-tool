@@ -216,18 +216,6 @@ function RcsaReviewPageContent() {
       }
 
       if (isLastRisk) {
-        const { error: sessionError } = await supabase
-          .from("rcsa_sessions")
-          .update({
-            status: "completed",
-            completed_at: new Date().toISOString(),
-          })
-          .eq("id", sessionId);
-
-        if (sessionError) {
-          throw sessionError;
-        }
-
         setCompleted(true);
         setRisk(null);
       } else {

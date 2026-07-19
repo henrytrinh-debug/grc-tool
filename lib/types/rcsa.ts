@@ -1,12 +1,8 @@
-export type RcsaSessionStatus = "in_progress" | "completed";
-
 export type RcsaSession = {
   id: string;
-  status: RcsaSessionStatus;
   owner_id?: string;
   owner_email?: string;
   created_at?: string;
-  completed_at?: string | null;
 };
 
 export type RcsaReview = {

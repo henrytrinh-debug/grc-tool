@@ -166,7 +166,6 @@ export default function RcsaStartPage() {
       const { data, error: insertError } = await supabase
         .from("rcsa_sessions")
         .insert({
-          status: "in_progress",
           owner_id: user.id,
           owner_email: user.email,
         })
