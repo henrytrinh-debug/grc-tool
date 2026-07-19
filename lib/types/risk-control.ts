@@ -23,6 +23,7 @@ export type LinkedControl = {
   title: string;
   effectiveness: Effectiveness;
   last_tested_at: string | null;
+  is_key: boolean;
 };
 
 export type LinkedRisk = {
@@ -38,6 +39,7 @@ type ControlJoin = {
   title: string;
   effectiveness: Effectiveness;
   last_tested_at: string | null;
+  is_key: boolean;
 };
 
 type RiskJoin = {
@@ -83,6 +85,7 @@ export function groupRiskControlRows(
       title: control.title,
       effectiveness: control.effectiveness,
       last_tested_at: control.last_tested_at,
+      is_key: Boolean(control.is_key),
     });
   }
 

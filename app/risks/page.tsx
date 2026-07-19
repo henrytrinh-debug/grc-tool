@@ -91,7 +91,7 @@ function RisksPageContent() {
           supabase
             .from("risk_controls")
             .select(
-              "id, risk_id, control_id, controls(title, effectiveness, last_tested_at)",
+              "id, risk_id, control_id, controls(title, effectiveness, last_tested_at, is_key)",
             )
             .eq("owner_id", ownerId),
           supabase

@@ -91,7 +91,7 @@ export default function EditRiskPage() {
     const { data, error: fetchError } = await supabase
       .from("risk_controls")
       .select(
-        "id, risk_id, control_id, controls(title, effectiveness, last_tested_at)",
+        "id, risk_id, control_id, controls(title, effectiveness, last_tested_at, is_key)",
       )
       .eq("owner_id", ownerId)
       .eq("risk_id", riskId);
