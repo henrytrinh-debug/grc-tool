@@ -1,8 +1,5 @@
-import {
-  EFFECTIVENESS_OPTIONS,
-  type NewControl,
-} from "@/lib/types/control";
-import { inputClassName } from "./constants";
+import { inputClassName, labelClassName } from "@/app/components/ui";
+import { EFFECTIVENESS_OPTIONS, type NewControl } from "@/lib/types/control";
 
 type ControlFormFieldsProps = {
   form: NewControl;
@@ -13,7 +10,7 @@ export function ControlFormFields({ form, onChange }: ControlFormFieldsProps) {
   return (
     <>
       <label className="flex flex-col gap-1 sm:col-span-2">
-        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+        <span className={labelClassName}>
           Title
         </span>
         <input
@@ -25,7 +22,7 @@ export function ControlFormFields({ form, onChange }: ControlFormFieldsProps) {
       </label>
 
       <label className="flex flex-col gap-1 sm:col-span-2">
-        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+        <span className={labelClassName}>
           Description
         </span>
         <textarea
@@ -42,15 +39,15 @@ export function ControlFormFields({ form, onChange }: ControlFormFieldsProps) {
           type="checkbox"
           checked={form.is_key}
           onChange={(event) => onChange({ is_key: event.target.checked })}
-          className="h-4 w-4 rounded border-zinc-300 dark:border-zinc-700"
+          className="h-4 w-4 rounded border-slate-300 dark:border-slate-700"
         />
-        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+        <span className={labelClassName}>
           Key control
         </span>
       </label>
 
       <label className="flex flex-col gap-1">
-        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+        <span className={labelClassName}>
           Effectiveness
         </span>
         <select
@@ -71,7 +68,7 @@ export function ControlFormFields({ form, onChange }: ControlFormFieldsProps) {
       </label>
 
       <label className="flex flex-col gap-1">
-        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+        <span className={labelClassName}>
           Last Tested At
         </span>
         <input

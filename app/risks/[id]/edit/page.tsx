@@ -1,25 +1,52 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import type { User } from "@supabase/supabase-js";
+import { LinkedEntitiesPanel } from "@/app/components/linked-entities-panel";
+import {
+  buildControlRows,
+  buildIncidentRows,
+  CONTROL_COLUMNS,
+  INCIDENT_COLUMNS,
+} from "@/app/components/linked-entity-rows";
+import {
+  BackLink,
+  ErrorBanner,
+  PageLoading,
+} from "@/app/components/page-parts";
+import { RelatedIssuesCard } from "@/app/components/related-issues-card";
+import {
+  dangerButtonClassName,
+  primaryButtonClassName,
+  secondaryButtonClassName,
+} from "@/app/components/ui";
+import { useEntityLinks } from "@/lib/hooks/use-entity-links";
+import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import type { Control } from "@/lib/types/control";
 import type { Incident } from "@/lib/types/incident";
 import {
   groupIncidentRiskRowsByRisk,
+  INCIDENT_RISK_INCIDENT_SELECT,
   type IncidentRiskIncidentRow,
-  type LinkedIncident,
 } from "@/lib/types/incident-risk";
 import {
+  groupIssuesByRisk,
+  ISSUE_RISK_ISSUE_SELECT,
+  type IssueRiskIssueRow,
+} from "@/lib/types/issue-links";
+import type {
+  LinkedControl,
+  LinkedIncident,
+  LinkedIssue,
+} from "@/lib/types/linked-entities";
+import { toRiskFormPayload, type NewRisk, type Risk } from "@/lib/types/risk";
+import {
   groupRiskControlRows,
-  type LinkedControl,
+  RISK_CONTROL_SELECT,
   type RiskControlRow,
 } from "@/lib/types/risk-control";
-import { toRiskFormPayload, type NewRisk, type Risk } from "@/lib/types/risk";
-import { LinkedControlsPanel } from "../../_components/linked-controls-panel";
-import { LinkedIncidentsPanel } from "../../_components/linked-incidents-panel";
 import { RiskFormFields } from "../../_components/risk-form-fields";
 
 export default function EditRiskPage() {
@@ -27,130 +54,90 @@ export default function EditRiskPage() {
   const params = useParams<{ id: string }>();
   const riskId = params.id;
 
-  const [user, setUser] = useState<User | null>(null);
   const [risk, setRisk] = useState<Risk | null>(null);
   const [form, setForm] = useState<NewRisk | null>(null);
   const [userControls, setUserControls] = useState<Control[]>([]);
-  const [linkedControls, setLinkedControls] = useState<LinkedControl[]>([]);
   const [userIncidents, setUserIncidents] = useState<Incident[]>([]);
-  const [linkedIncidents, setLinkedIncidents] = useState<LinkedIncident[]>([]);
-  const [selectedControlId, setSelectedControlId] = useState("");
-  const [selectedIncidentId, setSelectedIncidentId] = useState("");
-  const [controlSearch, setControlSearch] = useState("");
-  const [incidentSearch, setIncidentSearch] = useState("");
-  const [linkingControl, setLinkingControl] = useState(false);
-  const [linkingIncident, setLinkingIncident] = useState(false);
-  const [unlinkingControlLinkId, setUnlinkingControlLinkId] = useState<
-    string | null
-  >(null);
-  const [unlinkingIncidentLinkId, setUnlinkingIncidentLinkId] = useState<
-    string | null
-  >(null);
-  const [authLoading, setAuthLoading] = useState(true);
+  const [relatedIssues, setRelatedIssues] = useState<LinkedIssue[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchRisk = useCallback(async () => {
-    const supabase = getSupabaseClient();
-    const { data, error: fetchError } = await supabase
-      .from("risks")
-      .select("*")
-      .eq("id", riskId)
-      .maybeSingle();
+  const {
+    linked: linkedControls,
+    refresh: refreshControlLinks,
+    panelProps: controlPanelProps,
+  } = useEntityLinks<RiskControlRow, LinkedControl>({
+    table: "risk_controls",
+    select: RISK_CONTROL_SELECT,
+    parentColumn: "risk_id",
+    parentId: riskId,
+    childColumn: "control_id",
+    parse: (rows) => groupRiskControlRows(rows)[riskId] ?? [],
+    label: "control",
+    onError: setError,
+  });
 
-    if (fetchError) {
-      throw fetchError;
-    }
+  const {
+    linked: linkedIncidents,
+    refresh: refreshIncidentLinks,
+    panelProps: incidentPanelProps,
+  } = useEntityLinks<IncidentRiskIncidentRow, LinkedIncident>(
+    {
+      table: "incident_risks",
+      select: INCIDENT_RISK_INCIDENT_SELECT,
+      parentColumn: "risk_id",
+      parentId: riskId,
+      childColumn: "incident_id",
+      parse: (rows) => groupIncidentRiskRowsByRisk(rows)[riskId] ?? [],
+      label: "incident",
+      onError: setError,
+    },
+  );
 
-    if (!data) {
-      return null;
-    }
+  const fetchRelatedIssues = useCallback(
+    async (ownerId: string) => {
+      const supabase = getSupabaseClient();
+      const { data, error: fetchError } = await supabase
+        .from("issue_risks")
+        .select(ISSUE_RISK_ISSUE_SELECT)
+        .eq("owner_id", ownerId)
+        .eq("risk_id", riskId);
 
-    return data as Risk;
-  }, [riskId]);
+      if (fetchError) {
+        throw fetchError;
+      }
 
-  const fetchUserControls = useCallback(async (ownerId: string) => {
-    const supabase = getSupabaseClient();
-    const { data, error: fetchError } = await supabase
-      .from("controls")
-      .select("*")
-      .eq("owner_id", ownerId)
-      .order("title", { ascending: true });
-
-    if (fetchError) {
-      throw fetchError;
-    }
-
-    setUserControls(data ?? []);
-  }, []);
-
-  const fetchRiskControlLinks = useCallback(async (ownerId: string) => {
-    const supabase = getSupabaseClient();
-    const { data, error: fetchError } = await supabase
-      .from("risk_controls")
-      .select(
-        "id, risk_id, control_id, controls(title, effectiveness, last_tested_at, is_key)",
-      )
-      .eq("owner_id", ownerId)
-      .eq("risk_id", riskId);
-
-    if (fetchError) {
-      throw fetchError;
-    }
-
-    const grouped = groupRiskControlRows((data ?? []) as RiskControlRow[]);
-    setLinkedControls(grouped[riskId] ?? []);
-  }, [riskId]);
-
-  const fetchUserIncidents = useCallback(async (ownerId: string) => {
-    const supabase = getSupabaseClient();
-    const { data, error: fetchError } = await supabase
-      .from("incidents")
-      .select("*")
-      .eq("owner_id", ownerId)
-      .order("title", { ascending: true });
-
-    if (fetchError) {
-      throw fetchError;
-    }
-
-    setUserIncidents(data ?? []);
-  }, []);
-
-  const fetchIncidentRiskLinks = useCallback(async (ownerId: string) => {
-    const supabase = getSupabaseClient();
-    const { data, error: fetchError } = await supabase
-      .from("incident_risks")
-      .select(
-        "id, incident_id, risk_id, incidents(title, date_occurred, severity, status)",
-      )
-      .eq("owner_id", ownerId)
-      .eq("risk_id", riskId);
-
-    if (fetchError) {
-      throw fetchError;
-    }
-
-    const grouped = groupIncidentRiskRowsByRisk(
-      (data ?? []) as IncidentRiskIncidentRow[],
-    );
-    setLinkedIncidents(grouped[riskId] ?? []);
-  }, [riskId]);
+      const grouped = groupIssuesByRisk((data ?? []) as IssueRiskIssueRow[]);
+      setRelatedIssues(grouped[riskId] ?? []);
+    },
+    [riskId],
+  );
 
   const loadPageData = useCallback(
     async (ownerId: string) => {
       setError(null);
 
       try {
-        const loadedRisk = await fetchRisk();
+        const supabase = getSupabaseClient();
+        const { data, error: fetchError } = await supabase
+          .from("risks")
+          .select("*")
+          .eq("id", riskId)
+          .eq("owner_id", ownerId)
+          .maybeSingle();
 
-        if (!loadedRisk) {
+        if (fetchError) {
+          throw fetchError;
+        }
+
+        if (!data) {
           router.replace("/risks");
           return;
         }
 
+        const loadedRisk = data as Risk;
         setRisk(loadedRisk);
         setForm({
           title: loadedRisk.title,
@@ -159,65 +146,51 @@ export default function EditRiskPage() {
           impact: loadedRisk.impact,
         });
 
+        const [controlsResult, incidentsResult] = await Promise.all([
+          supabase
+            .from("controls")
+            .select("*")
+            .eq("owner_id", ownerId)
+            .order("title", { ascending: true }),
+          supabase
+            .from("incidents")
+            .select("*")
+            .eq("owner_id", ownerId)
+            .order("title", { ascending: true }),
+        ]);
+
+        if (controlsResult.error) {
+          throw controlsResult.error;
+        }
+
+        if (incidentsResult.error) {
+          throw incidentsResult.error;
+        }
+
+        setUserControls((controlsResult.data ?? []) as Control[]);
+        setUserIncidents((incidentsResult.data ?? []) as Incident[]);
+
         await Promise.all([
-          fetchUserControls(ownerId),
-          fetchRiskControlLinks(ownerId),
-          fetchUserIncidents(ownerId),
-          fetchIncidentRiskLinks(ownerId),
+          refreshControlLinks(ownerId),
+          refreshIncidentLinks(ownerId),
+          fetchRelatedIssues(ownerId),
         ]);
       } catch (err) {
-        setError(
-          err instanceof Error ? err.message : "Failed to load risk",
-        );
+        setError(err instanceof Error ? err.message : "Failed to load risk");
       } finally {
         setLoading(false);
       }
     },
     [
-      fetchIncidentRiskLinks,
-      fetchRisk,
-      fetchRiskControlLinks,
-      fetchUserControls,
-      fetchUserIncidents,
+      fetchRelatedIssues,
+      refreshControlLinks,
+      refreshIncidentLinks,
+      riskId,
       router,
     ],
   );
 
-  useEffect(() => {
-    const supabase = getSupabaseClient();
-
-    async function checkAuth() {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session) {
-        router.replace("/login");
-        return;
-      }
-
-      setUser(session.user);
-      setAuthLoading(false);
-      await loadPageData(session.user.id);
-    }
-
-    void checkAuth();
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) {
-        router.replace("/login");
-        return;
-      }
-
-      setUser(session.user);
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [loadPageData, router]);
+  const { authLoading } = useRequireAuth(loadPageData);
 
   function updateForm(updates: Partial<NewRisk>) {
     setForm((current) => (current ? { ...current, ...updates } : current));
@@ -247,7 +220,6 @@ export default function EditRiskPage() {
       router.push("/risks");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update risk");
-    } finally {
       setSubmitting(false);
     }
   }
@@ -282,163 +254,41 @@ export default function EditRiskPage() {
       router.push("/risks");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete risk");
-    } finally {
       setDeleting(false);
     }
   }
 
-  async function handleLinkControl() {
-    if (!selectedControlId || !user) {
-      return;
-    }
-
-    setLinkingControl(true);
-    setError(null);
-
-    try {
-      const supabase = getSupabaseClient();
-      const { error: linkError } = await supabase.from("risk_controls").insert({
-        risk_id: riskId,
-        control_id: selectedControlId,
-        owner_id: user.id,
-      });
-
-      if (linkError) {
-        throw linkError;
-      }
-
-      setSelectedControlId("");
-      setControlSearch("");
-      await fetchRiskControlLinks(user.id);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to link control");
-    } finally {
-      setLinkingControl(false);
-    }
-  }
-
-  async function handleUnlinkControl(linkId: string) {
-    if (!user) {
-      return;
-    }
-
-    setUnlinkingControlLinkId(linkId);
-    setError(null);
-
-    try {
-      const supabase = getSupabaseClient();
-      const { error: unlinkError } = await supabase
-        .from("risk_controls")
-        .delete()
-        .eq("id", linkId);
-
-      if (unlinkError) {
-        throw unlinkError;
-      }
-
-      await fetchRiskControlLinks(user.id);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to unlink control");
-    } finally {
-      setUnlinkingControlLinkId(null);
-    }
-  }
-
-  async function handleLinkIncident() {
-    if (!selectedIncidentId || !user) {
-      return;
-    }
-
-    setLinkingIncident(true);
-    setError(null);
-
-    try {
-      const supabase = getSupabaseClient();
-      const { error: linkError } = await supabase.from("incident_risks").insert({
-        incident_id: selectedIncidentId,
-        risk_id: riskId,
-        owner_id: user.id,
-      });
-
-      if (linkError) {
-        throw linkError;
-      }
-
-      setSelectedIncidentId("");
-      setIncidentSearch("");
-      await fetchIncidentRiskLinks(user.id);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to link incident");
-    } finally {
-      setLinkingIncident(false);
-    }
-  }
-
-  async function handleUnlinkIncident(linkId: string) {
-    if (!user) {
-      return;
-    }
-
-    setUnlinkingIncidentLinkId(linkId);
-    setError(null);
-
-    try {
-      const supabase = getSupabaseClient();
-      const { error: unlinkError } = await supabase
-        .from("incident_risks")
-        .delete()
-        .eq("id", linkId);
-
-      if (unlinkError) {
-        throw unlinkError;
-      }
-
-      await fetchIncidentRiskLinks(user.id);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to unlink incident");
-    } finally {
-      setUnlinkingIncidentLinkId(null);
-    }
-  }
-
   if (authLoading || loading || !form || !risk) {
-    return (
-      <div className="flex min-h-full items-center justify-center bg-zinc-50 dark:bg-black">
-        <p className="text-zinc-600 dark:text-zinc-400">Loading...</p>
-      </div>
-    );
+    return <PageLoading />;
   }
+
+  const raiseIssueHref = `/issues/new?${new URLSearchParams({
+    source: "risk_assessment",
+    risk: riskId,
+    title: `Issue identified for risk: ${risk.title}`,
+  }).toString()}`;
 
   return (
-    <div className="min-h-full bg-zinc-50 px-6 py-10 dark:bg-black">
+    <div className="min-h-full bg-slate-50 px-6 py-10 dark:bg-slate-950">
       <main className="mx-auto flex w-full max-w-5xl flex-col gap-8">
         <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <Link
-              href="/risks"
-              className="text-sm font-medium text-zinc-600 transition-colors hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-50"
-            >
-              ← Back to risks
-            </Link>
-            <h1 className="mt-4 text-3xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
+            <BackLink href="/risks">← Back to risks</BackLink>
+            <h1 className="mt-4 text-3xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">
               Edit Risk
             </h1>
           </div>
           <Link
             href={`/rcsa/review?risk=${risk.id}`}
-            className="inline-flex shrink-0 items-center justify-center rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-600 dark:bg-teal-400 dark:text-slate-950 dark:hover:bg-teal-300"
+            className={`${primaryButtonClassName} shrink-0`}
           >
             Review This Risk
           </Link>
         </header>
 
-        {error && (
-          <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
-            {error}
-          </p>
-        )}
+        <ErrorBanner message={error} />
 
-        <section className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
+        <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2">
             <RiskFormFields form={form} onChange={updateForm} />
 
@@ -446,21 +296,18 @@ export default function EditRiskPage() {
               <button
                 type="submit"
                 disabled={submitting || deleting}
-                className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-600 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-teal-400 dark:text-slate-950 dark:hover:bg-teal-300"
+                className={primaryButtonClassName}
               >
                 {submitting ? "Saving..." : "Save Changes"}
               </button>
-              <Link
-                href="/risks"
-                className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
-              >
+              <Link href="/risks" className={secondaryButtonClassName}>
                 Cancel
               </Link>
               <button
                 type="button"
                 onClick={() => void handleDelete()}
                 disabled={submitting || deleting}
-                className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-700 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950"
+                className={dangerButtonClassName}
               >
                 {deleting ? "Deleting..." : "Delete Risk"}
               </button>
@@ -468,30 +315,32 @@ export default function EditRiskPage() {
           </form>
         </section>
 
-        <LinkedControlsPanel
-          links={linkedControls}
-          userControls={userControls}
-          selectedControlId={selectedControlId}
-          controlSearch={controlSearch}
-          linking={linkingControl}
-          unlinkingLinkId={unlinkingControlLinkId}
-          onControlSearchChange={setControlSearch}
-          onSelectedControlChange={setSelectedControlId}
-          onLink={() => void handleLinkControl()}
-          onUnlink={(linkId) => void handleUnlinkControl(linkId)}
+        <RelatedIssuesCard
+          issues={relatedIssues}
+          raiseIssueHref={raiseIssueHref}
+          emptyMessage="No issues have been raised against this risk."
         />
 
-        <LinkedIncidentsPanel
-          links={linkedIncidents}
-          userIncidents={userIncidents}
-          selectedIncidentId={selectedIncidentId}
-          incidentSearch={incidentSearch}
-          linking={linkingIncident}
-          unlinkingLinkId={unlinkingIncidentLinkId}
-          onIncidentSearchChange={setIncidentSearch}
-          onSelectedIncidentChange={setSelectedIncidentId}
-          onLink={() => void handleLinkIncident()}
-          onUnlink={(linkId) => void handleUnlinkIncident(linkId)}
+        <LinkedEntitiesPanel
+          title="Linked Controls"
+          entityLabel="Control"
+          parentLabel="risk"
+          createHref="/controls"
+          columnHeaders={CONTROL_COLUMNS}
+          rows={buildControlRows(linkedControls)}
+          options={userControls}
+          {...controlPanelProps}
+        />
+
+        <LinkedEntitiesPanel
+          title="Linked Incidents"
+          entityLabel="Incident"
+          parentLabel="risk"
+          createHref="/incidents"
+          columnHeaders={INCIDENT_COLUMNS}
+          rows={buildIncidentRows(linkedIncidents)}
+          options={userIncidents}
+          {...incidentPanelProps}
         />
       </main>
     </div>

@@ -1,113 +1,48 @@
-import type { IncidentStatus, Severity } from "@/lib/types/incident";
-import { unwrapJoinRelation } from "@/lib/types/risk-control";
+import { groupJoinRows } from "@/lib/types/join-utils";
+import {
+  INCIDENT_JOIN_COLUMNS,
+  RISK_JOIN_COLUMNS,
+  toLinkedIncident,
+  toLinkedRisk,
+  type IncidentJoin,
+  type JoinRelation,
+  type RiskJoin,
+} from "@/lib/types/linked-entities";
 
-export type IncidentRisk = {
-  id: string;
-  incident_id: string;
-  risk_id: string;
-  owner_id?: string;
-};
+export const INCIDENT_RISK_RISK_SELECT = `id, incident_id, risk_id, ${RISK_JOIN_COLUMNS}`;
 
-export type LinkedRisk = {
-  linkId: string;
-  riskId: string;
-  title: string;
-  likelihood: number;
-  impact: number;
-  owner_email?: string;
-};
-
-export type LinkedIncident = {
-  linkId: string;
-  incidentId: string;
-  title: string;
-  date_occurred: string;
-  severity: Severity;
-  status: IncidentStatus;
-};
-
-type RiskJoin = {
-  title: string;
-  likelihood: number;
-  impact: number;
-  owner_email?: string;
-};
-
-type IncidentJoin = {
-  title: string;
-  date_occurred: string;
-  severity: Severity;
-  status: IncidentStatus;
-};
+export const INCIDENT_RISK_INCIDENT_SELECT = `id, incident_id, risk_id, ${INCIDENT_JOIN_COLUMNS}`;
 
 export type IncidentRiskRow = {
   id: string;
   incident_id: string;
   risk_id: string;
-  risks: RiskJoin | RiskJoin[] | null;
+  risks: JoinRelation<RiskJoin>;
 };
 
 export type IncidentRiskIncidentRow = {
   id: string;
   incident_id: string;
   risk_id: string;
-  incidents: IncidentJoin | IncidentJoin[] | null;
+  incidents: JoinRelation<IncidentJoin>;
 };
 
-export function groupIncidentRiskRowsByIncident(
-  rows: IncidentRiskRow[],
-): Record<string, LinkedRisk[]> {
-  const grouped: Record<string, LinkedRisk[]> = {};
-
-  for (const row of rows) {
-    const risk = unwrapJoinRelation(row.risks);
-
-    if (!risk) {
-      continue;
-    }
-
-    if (!grouped[row.incident_id]) {
-      grouped[row.incident_id] = [];
-    }
-
-    grouped[row.incident_id].push({
-      linkId: row.id,
-      riskId: row.risk_id,
-      title: risk.title,
-      likelihood: risk.likelihood,
-      impact: risk.impact,
-      owner_email: risk.owner_email,
-    });
-  }
-
-  return grouped;
+/** Risks linked to each incident, keyed by incident id. */
+export function groupIncidentRiskRowsByIncident(rows: IncidentRiskRow[]) {
+  return groupJoinRows(
+    rows,
+    (row) => row.incident_id,
+    (row) => row.risks,
+    (row, risk) => toLinkedRisk(row.id, row.risk_id, risk),
+  );
 }
 
-export function groupIncidentRiskRowsByRisk(
-  rows: IncidentRiskIncidentRow[],
-): Record<string, LinkedIncident[]> {
-  const grouped: Record<string, LinkedIncident[]> = {};
-
-  for (const row of rows) {
-    const incident = unwrapJoinRelation(row.incidents);
-
-    if (!incident) {
-      continue;
-    }
-
-    if (!grouped[row.risk_id]) {
-      grouped[row.risk_id] = [];
-    }
-
-    grouped[row.risk_id].push({
-      linkId: row.id,
-      incidentId: row.incident_id,
-      title: incident.title,
-      date_occurred: incident.date_occurred,
-      severity: incident.severity,
-      status: incident.status,
-    });
-  }
-
-  return grouped;
+/** Incidents linked to each risk, keyed by risk id. */
+export function groupIncidentRiskRowsByRisk(rows: IncidentRiskIncidentRow[]) {
+  return groupJoinRows(
+    rows,
+    (row) => row.risk_id,
+    (row) => row.incidents,
+    (row, incident) => toLinkedIncident(row.id, row.incident_id, incident),
+  );
 }

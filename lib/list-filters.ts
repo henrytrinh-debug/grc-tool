@@ -9,6 +9,13 @@ import {
   type Effectiveness,
 } from "@/lib/types/control";
 import type { Incident, IncidentStatus, Severity } from "@/lib/types/incident";
+import {
+  isIssueOverdue,
+  type Issue,
+  type IssueSeverity,
+  type IssueSource,
+  type IssueStatus,
+} from "@/lib/types/issue";
 import type { Risk } from "@/lib/types/risk";
 
 export type RiskListFilters = {
@@ -30,6 +37,33 @@ export type IncidentListFilters = {
   severity: Severity | "";
   status: IncidentStatus[];
 };
+
+export type IssueListFilters = {
+  q: string;
+  severity: IssueSeverity | "";
+  status: IssueStatus[];
+  source: IssueSource | "";
+  overdue: boolean;
+};
+
+const ISSUE_SEVERITIES: IssueSeverity[] = ["low", "medium", "high", "critical"];
+
+const ISSUE_STATUSES: IssueStatus[] = [
+  "open",
+  "in_progress",
+  "pending_review",
+  "closed",
+];
+
+const ISSUE_SOURCES: IssueSource[] = [
+  "internal_audit",
+  "external_audit",
+  "regulatory_exam",
+  "control_failure",
+  "incident",
+  "risk_assessment",
+  "self_identified",
+];
 
 function getParam(params: URLSearchParams, key: string) {
   return params.get(key)?.trim() ?? "";
@@ -112,12 +146,71 @@ export function parseIncidentFilters(
   };
 }
 
+export function parseIssueFilters(params: URLSearchParams): IssueListFilters {
+  const severityRaw = getParam(params, "severity") as IssueSeverity;
+  const sourceRaw = getParam(params, "source") as IssueSource;
+  const statusRaw = getParam(params, "status");
+
+  const statuses = statusRaw
+    ? statusRaw
+        .split(",")
+        .map((value) => value.trim())
+        .filter((value): value is IssueStatus =>
+          ISSUE_STATUSES.includes(value as IssueStatus),
+        )
+    : [];
+
+  return {
+    q: getParam(params, "q"),
+    severity: ISSUE_SEVERITIES.includes(severityRaw) ? severityRaw : "",
+    status: statuses,
+    source: ISSUE_SOURCES.includes(sourceRaw) ? sourceRaw : "",
+    overdue: getParam(params, "overdue") === "true",
+  };
+}
+
+export function filterIssues(issues: Issue[], filters: IssueListFilters) {
+  const query = filters.q.toLowerCase();
+
+  return issues.filter((issue) => {
+    if (query) {
+      const haystack =
+        `${issue.title} ${issue.description} ${issue.root_cause} ${issue.remediation_plan}`.toLowerCase();
+      if (!haystack.includes(query)) {
+        return false;
+      }
+    }
+
+    if (filters.severity && issue.severity !== filters.severity) {
+      return false;
+    }
+
+    if (filters.status.length > 0 && !filters.status.includes(issue.status)) {
+      return false;
+    }
+
+    if (filters.source && issue.source !== filters.source) {
+      return false;
+    }
+
+    if (filters.overdue && !isIssueOverdue(issue)) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
 export function hasActiveFilters(
-  values: Record<string, string | number | null | string[]>,
+  values: Record<string, string | number | boolean | null | string[]>,
 ) {
   return Object.values(values).some((value) => {
     if (Array.isArray(value)) {
       return value.length > 0;
+    }
+
+    if (typeof value === "boolean") {
+      return value;
     }
 
     return value !== "" && value !== null;

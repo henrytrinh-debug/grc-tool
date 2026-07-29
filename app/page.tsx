@@ -1,55 +1,72 @@
 "use client";
 
-import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import type { User } from "@supabase/supabase-js";
+import { useCallback, useState } from "react";
+import { ChartCard } from "@/app/components/dashboard/chart-card";
 import {
   ControlsEffectivenessDonut,
   IncidentsStatusDonut,
+  IssuesStatusDonut,
 } from "@/app/components/dashboard/donut-charts";
+import { RemediationHealth } from "@/app/components/dashboard/remediation-health";
 import { RiskHeatMap } from "@/app/components/dashboard/risk-heat-map";
 import { RiskSeverityBarChart } from "@/app/components/dashboard/risk-severity-bar-chart";
+import { StatCard } from "@/app/components/dashboard/stat-card";
+import { ErrorBanner, PageHeader, PageLoading } from "@/app/components/page-parts";
+import { mutedTextClassName } from "@/app/components/ui";
 import {
   buildControlEffectivenessCounts,
   buildIncidentStatusCounts,
+  buildIssueStatusCounts,
+  buildOpenIssueSeverityBreakdown,
   buildSeverityBandCounts,
+  summariseIssues,
   type ChartCount,
+  type IssueSeverityBreakdown,
+  type IssueSummary,
   type SeverityBandCount,
 } from "@/lib/dashboard/analytics";
+import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { getTestingStatus, type Control } from "@/lib/types/control";
 import type { Incident } from "@/lib/types/incident";
+import type { Issue } from "@/lib/types/issue";
+import type { IssueAction } from "@/lib/types/issue-action";
 import type { Risk } from "@/lib/types/risk";
 
-type DashboardStats = {
+type DashboardData = {
   riskCount: number;
   overdueControlCount: number;
   openIncidentCount: number;
-};
-
-type DashboardCharts = {
+  issues: IssueSummary;
   risks: Risk[];
   severityBands: SeverityBandCount[];
   controlEffectiveness: ChartCount[];
   incidentStatus: ChartCount[];
+  issueStatus: ChartCount[];
+  issueSeverityBreakdown: IssueSeverityBreakdown[];
+};
+
+const emptyDashboard: DashboardData = {
+  riskCount: 0,
+  overdueControlCount: 0,
+  openIncidentCount: 0,
+  issues: {
+    total: 0,
+    open: 0,
+    overdue: 0,
+    awaitingReview: 0,
+    actionCompletionPercent: 0,
+  },
+  risks: [],
+  severityBands: [],
+  controlEffectiveness: [],
+  incidentStatus: [],
+  issueStatus: [],
+  issueSeverityBreakdown: [],
 };
 
 export default function HomePage() {
-  const router = useRouter();
-  const [user, setUser] = useState<User | null>(null);
-  const [stats, setStats] = useState<DashboardStats>({
-    riskCount: 0,
-    overdueControlCount: 0,
-    openIncidentCount: 0,
-  });
-  const [charts, setCharts] = useState<DashboardCharts>({
-    risks: [],
-    severityBands: [],
-    controlEffectiveness: [],
-    incidentStatus: [],
-  });
-  const [authLoading, setAuthLoading] = useState(true);
+  const [data, setData] = useState<DashboardData>(emptyDashboard);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,29 +76,29 @@ export default function HomePage() {
     try {
       const supabase = getSupabaseClient();
 
-      const [risksResult, controlsResult, incidentsResult] = await Promise.all([
+      const results = await Promise.all([
         supabase.from("risks").select("*").eq("owner_id", ownerId),
         supabase.from("controls").select("*").eq("owner_id", ownerId),
         supabase.from("incidents").select("*").eq("owner_id", ownerId),
+        supabase.from("issues").select("*").eq("owner_id", ownerId),
+        supabase.from("issue_actions").select("*").eq("owner_id", ownerId),
       ]);
 
-      if (risksResult.error) {
-        throw risksResult.error;
+      const failed = results.find((result) => result.error);
+      if (failed?.error) {
+        throw failed.error;
       }
 
-      if (controlsResult.error) {
-        throw controlsResult.error;
-      }
-
-      if (incidentsResult.error) {
-        throw incidentsResult.error;
-      }
+      const [risksResult, controlsResult, incidentsResult, issuesResult, actionsResult] =
+        results;
 
       const risks = (risksResult.data ?? []) as Risk[];
       const controls = (controlsResult.data ?? []) as Control[];
       const incidents = (incidentsResult.data ?? []) as Incident[];
+      const issues = (issuesResult.data ?? []) as Issue[];
+      const actions = (actionsResult.data ?? []) as IssueAction[];
 
-      setStats({
+      setData({
         riskCount: risks.length,
         overdueControlCount: controls.filter(
           (control) => getTestingStatus(control.last_tested_at) === "Overdue",
@@ -90,13 +107,13 @@ export default function HomePage() {
           (incident) =>
             incident.status === "open" || incident.status === "investigating",
         ).length,
-      });
-
-      setCharts({
+        issues: summariseIssues(issues, actions),
         risks,
         severityBands: buildSeverityBandCounts(risks),
         controlEffectiveness: buildControlEffectivenessCounts(controls),
         incidentStatus: buildIncidentStatusCounts(incidents),
+        issueStatus: buildIssueStatusCounts(issues),
+        issueSeverityBreakdown: buildOpenIssueSeverityBreakdown(issues),
       });
     } catch (err) {
       setError(
@@ -107,159 +124,108 @@ export default function HomePage() {
     }
   }, []);
 
-  useEffect(() => {
-    const supabase = getSupabaseClient();
-
-    async function checkAuth() {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session) {
-        router.replace("/login");
-        return;
-      }
-
-      setUser(session.user);
-      setAuthLoading(false);
-      await fetchDashboardData(session.user.id);
-    }
-
-    void checkAuth();
-  }, [fetchDashboardData, router]);
+  const { user, authLoading } = useRequireAuth(fetchDashboardData);
 
   if (authLoading) {
-    return (
-      <div className="flex min-h-full items-center justify-center bg-slate-50 dark:bg-slate-950">
-        <p className="text-slate-600 dark:text-slate-400">Loading...</p>
-      </div>
-    );
+    return <PageLoading />;
   }
 
   return (
     <div className="min-h-full bg-slate-50 px-6 py-10 dark:bg-slate-950">
       <main className="mx-auto flex w-full max-w-6xl flex-col gap-10">
-        <header>
-          <h1 className="text-3xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">
-            Dashboard
-          </h1>
-          {user?.email && (
-            <p className="mt-2 text-slate-600 dark:text-slate-400">
-              Welcome back, {user.email}
-            </p>
-          )}
-        </header>
+        <PageHeader
+          title="Dashboard"
+          description={user?.email ? `Welcome back, ${user.email}` : undefined}
+        />
 
-        {error && (
-          <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
-            {error}
-          </p>
-        )}
+        <ErrorBanner message={error} />
 
         {loading ? (
-          <p className="text-slate-600 dark:text-slate-400">Loading summary...</p>
+          <p className={mutedTextClassName}>Loading summary...</p>
         ) : (
           <>
-            <section className="grid gap-4 sm:grid-cols-3">
-              <Link
+            <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <StatCard
+                label="Total Risks"
+                value={data.riskCount}
                 href="/risks"
-                className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm transition-colors hover:border-teal-300 hover:bg-teal-50/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-teal-700 dark:hover:bg-slate-800 dark:focus-visible:outline-teal-400"
-              >
-                <p className="text-sm font-medium text-slate-600 dark:text-slate-400">
-                  Total Risks
-                </p>
-                <p className="mt-2 text-3xl font-semibold text-slate-950 dark:text-slate-50">
-                  {stats.riskCount}
-                </p>
-                <p className="mt-2 text-xs text-teal-700 dark:text-teal-300">
-                  View risk register →
-                </p>
-              </Link>
-
-              <Link
+                linkLabel="View risk register"
+              />
+              <StatCard
+                label="Overdue Controls"
+                value={data.overdueControlCount}
                 href="/controls?testingStatus=Overdue"
-                className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm transition-colors hover:border-teal-300 hover:bg-teal-50/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-teal-700 dark:hover:bg-slate-800 dark:focus-visible:outline-teal-400"
-              >
-                <p className="text-sm font-medium text-slate-600 dark:text-slate-400">
-                  Overdue Controls
-                </p>
-                <p className="mt-2 text-3xl font-semibold text-slate-950 dark:text-slate-50">
-                  {stats.overdueControlCount}
-                </p>
-                <p className="mt-2 text-xs text-teal-700 dark:text-teal-300">
-                  View overdue controls →
-                </p>
-              </Link>
-
-              <Link
+                linkLabel="View overdue controls"
+                tone={data.overdueControlCount > 0 ? "alert" : "default"}
+              />
+              <StatCard
+                label="Open Incidents"
+                value={data.openIncidentCount}
                 href="/incidents?status=open,investigating"
-                className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm transition-colors hover:border-teal-300 hover:bg-teal-50/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-teal-700 dark:hover:bg-slate-800 dark:focus-visible:outline-teal-400"
-              >
-                <p className="text-sm font-medium text-slate-600 dark:text-slate-400">
-                  Open Incidents
-                </p>
-                <p className="mt-2 text-3xl font-semibold text-slate-950 dark:text-slate-50">
-                  {stats.openIncidentCount}
-                </p>
-                <p className="mt-1 text-xs text-slate-500 dark:text-slate-500">
-                  Status open or investigating
-                </p>
-                <p className="mt-2 text-xs text-teal-700 dark:text-teal-300">
-                  View open incidents →
-                </p>
-              </Link>
+                linkLabel="View open incidents"
+                hint="Status open or investigating"
+              />
+              <StatCard
+                label="Open Issues"
+                value={data.issues.open}
+                href="/issues?status=open,in_progress,pending_review"
+                linkLabel={
+                  data.issues.overdue > 0
+                    ? `${data.issues.overdue} past target date`
+                    : "View open issues"
+                }
+                hint="Findings awaiting remediation"
+                tone={data.issues.overdue > 0 ? "alert" : "default"}
+              />
             </section>
 
             <section className="grid gap-6 lg:grid-cols-2">
-              <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-                <h2 className="text-lg font-medium text-slate-950 dark:text-slate-50">
-                  Risk Heat Map
-                </h2>
-                <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-                  Click a cell to filter risks by likelihood and impact.
-                </p>
-                <div className="mt-6">
-                  <RiskHeatMap risks={charts.risks} />
+              <ChartCard
+                title="Risk Heat Map"
+                description="Click a cell to filter risks by likelihood and impact."
+              >
+                <div className="mt-2">
+                  <RiskHeatMap risks={data.risks} />
                 </div>
-              </div>
+              </ChartCard>
 
-              <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-                <h2 className="text-lg font-medium text-slate-950 dark:text-slate-50">
-                  Risks by Risk Score
-                </h2>
-                <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-                  Click a bar to filter the risk register by risk score.
-                </p>
-                <div className="mt-4">
-                  <RiskSeverityBarChart data={charts.severityBands} />
-                </div>
-              </div>
+              <ChartCard
+                title="Risks by Risk Score"
+                description="Click a bar to filter the risk register by risk score."
+              >
+                <RiskSeverityBarChart data={data.severityBands} />
+              </ChartCard>
 
-              <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-                <h2 className="text-lg font-medium text-slate-950 dark:text-slate-50">
-                  Controls by Effectiveness
-                </h2>
-                <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-                  Click a slice to filter controls.
-                </p>
-                <div className="mt-4">
-                  <ControlsEffectivenessDonut
-                    data={charts.controlEffectiveness}
-                  />
-                </div>
-              </div>
+              <ChartCard
+                title="Issues by Status"
+                description="Click a slice to filter the issue log."
+              >
+                <IssuesStatusDonut data={data.issueStatus} />
+              </ChartCard>
 
-              <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-                <h2 className="text-lg font-medium text-slate-950 dark:text-slate-50">
-                  Incidents by Status
-                </h2>
-                <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-                  Click a slice to filter incidents.
-                </p>
-                <div className="mt-4">
-                  <IncidentsStatusDonut data={charts.incidentStatus} />
-                </div>
-              </div>
+              <ChartCard
+                title="Remediation Health"
+                description="Open issues by severity, and how far their action plans have progressed."
+              >
+                <RemediationHealth
+                  summary={data.issues}
+                  breakdown={data.issueSeverityBreakdown}
+                />
+              </ChartCard>
+
+              <ChartCard
+                title="Controls by Effectiveness"
+                description="Click a slice to filter controls."
+              >
+                <ControlsEffectivenessDonut data={data.controlEffectiveness} />
+              </ChartCard>
+
+              <ChartCard
+                title="Incidents by Status"
+                description="Click a slice to filter incidents."
+              >
+                <IncidentsStatusDonut data={data.incidentStatus} />
+              </ChartCard>
             </section>
           </>
         )}

@@ -2,10 +2,13 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ErrorBanner, PageLoading } from "@/app/components/page-parts";
+import {
+  inputClassName,
+  labelClassName,
+  primaryButtonClassName,
+} from "@/app/components/ui";
 import { getSupabaseClient } from "@/lib/supabase/client";
-
-const inputClassName =
-  "rounded-lg border border-zinc-300 px-3 py-2 text-zinc-950 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -25,7 +28,7 @@ export default function LoginPage() {
       } = await supabase.auth.getSession();
 
       if (session) {
-        router.replace("/risks");
+        router.replace("/");
         return;
       }
 
@@ -54,7 +57,7 @@ export default function LoginPage() {
           throw signInError;
         }
 
-        router.replace("/risks");
+        router.replace("/");
       } else {
         const { error: signUpError } = await supabase.auth.signUp({
           email,
@@ -77,30 +80,27 @@ export default function LoginPage() {
   }
 
   if (loading) {
-    return (
-      <div className="flex min-h-full items-center justify-center bg-zinc-50 dark:bg-black">
-        <p className="text-zinc-600 dark:text-zinc-400">Loading...</p>
-      </div>
-    );
+    return <PageLoading />;
   }
 
   return (
-    <div className="flex min-h-full items-center justify-center bg-zinc-50 px-6 py-10 dark:bg-black">
-      <main className="w-full max-w-md rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
+    <div className="flex min-h-full items-center justify-center bg-slate-50 px-6 py-10 dark:bg-slate-950">
+      <main className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <header className="mb-6">
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
+          <p className="text-xs font-medium uppercase tracking-wide text-teal-700 dark:text-teal-300">
+            GRC Tool
+          </p>
+          <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">
             {mode === "sign-in" ? "Sign in" : "Create account"}
           </h1>
-          <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-            Access the risk register with your email and password.
+          <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+            Manage risks, controls, incidents, and issues in one place.
           </p>
         </header>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <label className="flex flex-col gap-1">
-            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              Email
-            </span>
+            <span className={labelClassName}>Email</span>
             <input
               required
               type="email"
@@ -112,9 +112,7 @@ export default function LoginPage() {
           </label>
 
           <label className="flex flex-col gap-1">
-            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              Password
-            </span>
+            <span className={labelClassName}>Password</span>
             <input
               required
               type="password"
@@ -131,7 +129,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={submitting}
-            className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-600 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-teal-400 dark:text-slate-950 dark:hover:bg-teal-300"
+            className={primaryButtonClassName}
           >
             {submitting
               ? mode === "sign-in"
@@ -143,7 +141,7 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <p className="mt-4 text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="mt-4 text-sm text-slate-600 dark:text-slate-400">
           {mode === "sign-in" ? "Need an account?" : "Already have an account?"}{" "}
           <button
             type="button"
@@ -152,23 +150,21 @@ export default function LoginPage() {
               setError(null);
               setMessage(null);
             }}
-            className="font-medium text-zinc-950 underline underline-offset-2 dark:text-zinc-50"
+            className="font-medium text-teal-700 underline underline-offset-2 dark:text-teal-300"
           >
             {mode === "sign-in" ? "Sign up" : "Sign in"}
           </button>
         </p>
 
         {message && (
-          <p className="mt-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
+          <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
             {message}
           </p>
         )}
 
-        {error && (
-          <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
-            {error}
-          </p>
-        )}
+        <div className="mt-4">
+          <ErrorBanner message={error} />
+        </div>
       </main>
     </div>
   );

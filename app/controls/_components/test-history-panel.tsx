@@ -1,4 +1,14 @@
+"use client";
+
+import Link from "next/link";
 import { FormEvent, useState } from "react";
+import { EffectivenessBadge } from "@/app/components/status-badge";
+import {
+  inputClassName,
+  labelClassName,
+  primaryButtonClassName,
+  secondaryButtonClassName,
+} from "@/app/components/ui";
 import {
   TEST_RESULT_EFFECTIVENESS_OPTIONS,
   formatEffectiveness,
@@ -9,9 +19,10 @@ import {
   type ControlTestResult,
   type NewControlTestResult,
 } from "@/lib/types/control-test-result";
-import { inputClassName } from "./constants";
 
 type TestHistoryPanelProps = {
+  controlId: string;
+  controlTitle: string;
   testResults: ControlTestResult[];
   loading: boolean;
   recording: boolean;
@@ -24,7 +35,33 @@ const emptyRecordForm: NewControlTestResult = {
   notes: "",
 };
 
+/**
+ * Deep-links into the issue intake form with the control failure pre-filled.
+ */
+function buildRaiseIssueHref(
+  controlId: string,
+  controlTitle: string,
+  result: ControlTestResult,
+) {
+  const params = new URLSearchParams({
+    source: "control_failure",
+    control: controlId,
+    severity: "high",
+    title: `Control failure: ${controlTitle}`,
+    description: [
+      `Testing on ${formatTestedAt(result.tested_at)} found this control ineffective.`,
+      result.notes,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  });
+
+  return `/issues/new?${params.toString()}`;
+}
+
 export function TestHistoryPanel({
+  controlId,
+  controlTitle,
   testResults,
   loading,
   recording,
@@ -62,32 +99,48 @@ export function TestHistoryPanel({
     }
   }
 
+  const latestResult = testResults[0];
+  const latestFailed = latestResult?.effectiveness === "ineffective";
+
   return (
-    <div className="space-y-4 rounded-xl border border-zinc-200 bg-zinc-50 p-6 dark:border-zinc-800 dark:bg-zinc-900/50">
+    <section className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-6 dark:border-slate-800 dark:bg-slate-900/60">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h3 className="text-sm font-medium text-zinc-950 dark:text-zinc-50">
+        <h3 className="text-sm font-medium text-slate-950 dark:text-slate-50">
           Test History
         </h3>
         {!showRecordForm && (
           <button
             type="button"
             onClick={openRecordForm}
-            className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-600 dark:bg-teal-400 dark:text-slate-950 dark:hover:bg-teal-300"
+            className={primaryButtonClassName}
           >
             Record Test Result
           </button>
         )}
       </div>
 
+      {latestFailed && (
+        <div className="flex flex-col gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 sm:flex-row sm:items-center sm:justify-between dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+          <p>
+            The most recent test found this control ineffective. Raise an issue
+            to track remediation.
+          </p>
+          <Link
+            href={buildRaiseIssueHref(controlId, controlTitle, latestResult)}
+            className={`${secondaryButtonClassName} shrink-0 bg-white dark:bg-slate-900`}
+          >
+            Raise Issue
+          </Link>
+        </div>
+      )}
+
       {showRecordForm && (
         <form
           onSubmit={(event) => void handleRecordSubmit(event)}
-          className="grid gap-4 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950 sm:grid-cols-2"
+          className="grid gap-4 rounded-lg border border-slate-200 bg-white p-4 sm:grid-cols-2 dark:border-slate-800 dark:bg-slate-950"
         >
           <label className="flex flex-col gap-1">
-            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              Effectiveness
-            </span>
+            <span className={labelClassName}>Effectiveness</span>
             <select
               required
               value={recordForm.effectiveness}
@@ -108,9 +161,7 @@ export function TestHistoryPanel({
           </label>
 
           <label className="flex flex-col gap-1">
-            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              Tested At
-            </span>
+            <span className={labelClassName}>Tested At</span>
             <input
               required
               type="date"
@@ -123,9 +174,7 @@ export function TestHistoryPanel({
           </label>
 
           <label className="flex flex-col gap-1 sm:col-span-2">
-            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              Notes
-            </span>
+            <span className={labelClassName}>Notes</span>
             <textarea
               rows={3}
               value={recordForm.notes}
@@ -140,7 +189,7 @@ export function TestHistoryPanel({
             <button
               type="submit"
               disabled={recording}
-              className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-600 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-teal-400 dark:text-slate-950 dark:hover:bg-teal-300"
+              className={primaryButtonClassName}
             >
               {recording ? "Saving..." : "Save Test Result"}
             </button>
@@ -148,7 +197,7 @@ export function TestHistoryPanel({
               type="button"
               onClick={closeRecordForm}
               disabled={recording}
-              className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+              className={secondaryButtonClassName}
             >
               Cancel
             </button>
@@ -157,34 +206,52 @@ export function TestHistoryPanel({
       )}
 
       {loading ? (
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="text-sm text-slate-600 dark:text-slate-400">
           Loading test history...
         </p>
       ) : testResults.length === 0 ? (
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        <p className="text-sm text-slate-600 dark:text-slate-400">
           No test results recorded yet.
         </p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+        <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
           <table className="min-w-full text-left text-sm">
-            <thead className="bg-zinc-50 text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
+            <thead className="bg-slate-50 text-slate-600 dark:bg-slate-900 dark:text-slate-400">
               <tr>
                 <th className="px-4 py-2 font-medium">Date</th>
                 <th className="px-4 py-2 font-medium">Effectiveness</th>
                 <th className="px-4 py-2 font-medium">Notes</th>
+                <th className="px-4 py-2 font-medium">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+            <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
               {testResults.map((result) => (
                 <tr key={result.id}>
-                  <td className="px-4 py-3 text-zinc-950 dark:text-zinc-50">
+                  <td className="px-4 py-3 text-slate-950 dark:text-slate-50">
                     {formatTestedAt(result.tested_at)}
                   </td>
-                  <td className="px-4 py-3 text-zinc-950 dark:text-zinc-50">
-                    {formatEffectiveness(result.effectiveness)}
+                  <td className="px-4 py-3">
+                    <EffectivenessBadge
+                      effectiveness={result.effectiveness}
+                      label={formatEffectiveness(result.effectiveness)}
+                    />
                   </td>
-                  <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">
+                  <td className="px-4 py-3 text-slate-600 dark:text-slate-400">
                     {result.notes || "—"}
+                  </td>
+                  <td className="px-4 py-3">
+                    {result.effectiveness === "ineffective" && (
+                      <Link
+                        href={buildRaiseIssueHref(
+                          controlId,
+                          controlTitle,
+                          result,
+                        )}
+                        className="font-medium text-teal-700 underline underline-offset-2 dark:text-teal-300"
+                      >
+                        Raise Issue
+                      </Link>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -192,6 +259,6 @@ export function TestHistoryPanel({
           </table>
         </div>
       )}
-    </div>
+    </section>
   );
 }

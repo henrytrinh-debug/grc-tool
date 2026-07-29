@@ -1,5 +1,5 @@
+import { inputClassName, labelClassName } from "@/app/components/ui";
 import type { NewRisk } from "@/lib/types/risk";
-import { inputClassName } from "./constants";
 
 type RiskFormFieldsProps = {
   form: NewRisk;
@@ -10,7 +10,7 @@ export function RiskFormFields({ form, onChange }: RiskFormFieldsProps) {
   return (
     <>
       <label className="flex flex-col gap-1 sm:col-span-2">
-        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+        <span className={labelClassName}>
           Title
         </span>
         <input
@@ -22,7 +22,7 @@ export function RiskFormFields({ form, onChange }: RiskFormFieldsProps) {
       </label>
 
       <label className="flex flex-col gap-1 sm:col-span-2">
-        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+        <span className={labelClassName}>
           Description
         </span>
         <textarea
@@ -35,7 +35,7 @@ export function RiskFormFields({ form, onChange }: RiskFormFieldsProps) {
       </label>
 
       <label className="flex flex-col gap-1">
-        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+        <span className={labelClassName}>
           Likelihood (1-5)
         </span>
         <select
@@ -54,7 +54,7 @@ export function RiskFormFields({ form, onChange }: RiskFormFieldsProps) {
       </label>
 
       <label className="flex flex-col gap-1">
-        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+        <span className={labelClassName}>
           Impact (1-5)
         </span>
         <select

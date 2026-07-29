@@ -10,6 +10,7 @@ const navItems = [
   { href: "/risks", label: "Risks" },
   { href: "/controls", label: "Controls" },
   { href: "/incidents", label: "Incidents" },
+  { href: "/issues", label: "Issues" },
   { href: "/rcsa/start", label: "Risk Assessment" },
 ] as const;
 

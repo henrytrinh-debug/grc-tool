@@ -1,9 +1,9 @@
+import { inputClassName, labelClassName } from "@/app/components/ui";
 import {
   SEVERITY_OPTIONS,
   STATUS_OPTIONS,
   type NewIncident,
 } from "@/lib/types/incident";
-import { inputClassName } from "./constants";
 
 type IncidentFormFieldsProps = {
   form: NewIncident;
@@ -14,7 +14,7 @@ export function IncidentFormFields({ form, onChange }: IncidentFormFieldsProps) 
   return (
     <>
       <label className="flex flex-col gap-1 sm:col-span-2">
-        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+        <span className={labelClassName}>
           Title
         </span>
         <input
@@ -26,7 +26,7 @@ export function IncidentFormFields({ form, onChange }: IncidentFormFieldsProps) 
       </label>
 
       <label className="flex flex-col gap-1 sm:col-span-2">
-        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+        <span className={labelClassName}>
           Description
         </span>
         <textarea
@@ -39,7 +39,7 @@ export function IncidentFormFields({ form, onChange }: IncidentFormFieldsProps) 
       </label>
 
       <label className="flex flex-col gap-1">
-        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+        <span className={labelClassName}>
           Date Occurred
         </span>
         <input
@@ -54,7 +54,7 @@ export function IncidentFormFields({ form, onChange }: IncidentFormFieldsProps) 
       </label>
 
       <label className="flex flex-col gap-1">
-        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+        <span className={labelClassName}>
           Severity
         </span>
         <select
@@ -75,7 +75,7 @@ export function IncidentFormFields({ form, onChange }: IncidentFormFieldsProps) 
       </label>
 
       <label className="flex flex-col gap-1">
-        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+        <span className={labelClassName}>
           Status
         </span>
         <select
@@ -96,7 +96,7 @@ export function IncidentFormFields({ form, onChange }: IncidentFormFieldsProps) 
       </label>
 
       <label className="flex flex-col gap-1 sm:col-span-2">
-        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+        <span className={labelClassName}>
           Root Cause
         </span>
         <textarea

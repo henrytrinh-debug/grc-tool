@@ -7,30 +7,45 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import type { User } from "@supabase/supabase-js";
+import {
+  ErrorBanner,
+  PageHeader,
+  PageLoading,
+} from "@/app/components/page-parts";
+import {
+  inputClassName,
+  labelClassName,
+  mutedTextClassName,
+  pageClassName,
+  primaryButtonClassName,
+  secondaryButtonClassName,
+} from "@/app/components/ui";
 import { ControlsSummaryCard } from "@/app/rcsa/_components/controls-summary-card";
 import { IncidentsSummaryCard } from "@/app/rcsa/_components/incidents-summary-card";
+import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import {
-  toRcsaReviewInsertPayload,
-} from "@/lib/types/rcsa";
+  groupIncidentRiskRowsByRisk,
+  INCIDENT_RISK_INCIDENT_SELECT,
+  type IncidentRiskIncidentRow,
+} from "@/lib/types/incident-risk";
+import type {
+  LinkedControl,
+  LinkedIncident,
+} from "@/lib/types/linked-entities";
+import { toRcsaReviewInsertPayload } from "@/lib/types/rcsa";
 import type { Risk } from "@/lib/types/risk";
 import {
-  groupIncidentRiskRowsByRisk,
-  type IncidentRiskIncidentRow,
-  type LinkedIncident,
-} from "@/lib/types/incident-risk";
-import {
   groupRiskControlRows,
-  type LinkedControl,
+  RISK_CONTROL_SELECT,
   type RiskControlRow,
 } from "@/lib/types/risk-control";
 
-const ratingSelectClassName =
-  "rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-950 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-600/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-50 dark:focus:border-teal-400 dark:focus:ring-teal-400/20";
+const RATING_VALUES = [1, 2, 3, 4, 5];
 
 function RcsaReviewPageContent() {
   const router = useRouter();
@@ -50,33 +65,28 @@ function RcsaReviewPageContent() {
     return single ? [single] : [];
   }, [searchParams]);
 
-  const [user, setUser] = useState<User | null>(null);
-  const [sessionId, setSessionId] = useState(sessionFromUrl);
-  const [sessionReady, setSessionReady] = useState(Boolean(sessionFromUrl));
+  const creatingSessionRef = useRef(false);
+  const [createdSessionId, setCreatedSessionId] = useState("");
   const [currentIndex, setCurrentIndex] = useState(0);
   const [risk, setRisk] = useState<Risk | null>(null);
   const [linkedControls, setLinkedControls] = useState<LinkedControl[]>([]);
   const [linkedIncidents, setLinkedIncidents] = useState<LinkedIncident[]>([]);
   const [likelihood, setLikelihood] = useState(3);
   const [impact, setImpact] = useState(3);
-  const [controlsExpanded, setControlsExpanded] = useState(false);
-  const [incidentsExpanded, setIncidentsExpanded] = useState(false);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [loadingRisk, setLoadingRisk] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [completed, setCompleted] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const { user, authLoading } = useRequireAuth();
+
+  // The session id lives in the URL once created, so a refresh resumes it.
+  const sessionId = sessionFromUrl || createdSessionId;
   const currentRiskId = riskIds[currentIndex] ?? null;
   const isLastRisk = currentIndex >= riskIds.length - 1;
+  const loadingRisk = !risk || risk.id !== currentRiskId;
 
   const loadCurrentRisk = useCallback(
     async (ownerId: string, riskId: string) => {
-      setLoadingRisk(true);
-      setError(null);
-      setControlsExpanded(false);
-      setIncidentsExpanded(false);
-
       try {
         const supabase = getSupabaseClient();
         const [riskResult, controlsResult, incidentsResult] = await Promise.all([
@@ -88,16 +98,12 @@ function RcsaReviewPageContent() {
             .maybeSingle(),
           supabase
             .from("risk_controls")
-            .select(
-              "id, risk_id, control_id, controls(title, effectiveness, last_tested_at, is_key)",
-            )
+            .select(RISK_CONTROL_SELECT)
             .eq("owner_id", ownerId)
             .eq("risk_id", riskId),
           supabase
             .from("incident_risks")
-            .select(
-              "id, incident_id, risk_id, incidents(title, date_occurred, severity, status)",
-            )
+            .select(INCIDENT_RISK_INCIDENT_SELECT)
             .eq("owner_id", ownerId)
             .eq("risk_id", riskId),
         ]);
@@ -119,19 +125,20 @@ function RcsaReviewPageContent() {
         }
 
         const loadedRisk = riskResult.data as Risk;
-        setRisk(loadedRisk);
         setLikelihood(loadedRisk.likelihood);
         setImpact(loadedRisk.impact);
-
-        const controlGrouped = groupRiskControlRows(
-          (controlsResult.data ?? []) as RiskControlRow[],
+        setLinkedControls(
+          groupRiskControlRows(
+            (controlsResult.data ?? []) as RiskControlRow[],
+          )[riskId] ?? [],
         );
-        setLinkedControls(controlGrouped[riskId] ?? []);
-
-        const incidentGrouped = groupIncidentRiskRowsByRisk(
-          (incidentsResult.data ?? []) as IncidentRiskIncidentRow[],
+        setLinkedIncidents(
+          groupIncidentRiskRowsByRisk(
+            (incidentsResult.data ?? []) as IncidentRiskIncidentRow[],
+          )[riskId] ?? [],
         );
-        setLinkedIncidents(incidentGrouped[riskId] ?? []);
+        setError(null);
+        setRisk(loadedRisk);
       } catch (err) {
         setRisk(null);
         setLinkedControls([]);
@@ -139,61 +146,25 @@ function RcsaReviewPageContent() {
         setError(
           err instanceof Error ? err.message : "Failed to load risk for review",
         );
-      } finally {
-        setLoadingRisk(false);
       }
     },
     [],
   );
 
-  useEffect(() => {
-    const supabase = getSupabaseClient();
-
-    async function checkAuth() {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session) {
-        router.replace("/login");
+  const createSession = useCallback(
+    async (ownerId: string, ownerEmail: string | undefined) => {
+      // Guard against a second insert while the first is still in flight.
+      if (creatingSessionRef.current) {
         return;
       }
 
-      setUser(session.user);
-      setAuthLoading(false);
-    }
+      creatingSessionRef.current = true;
 
-    void checkAuth();
-  }, [router]);
-
-  useEffect(() => {
-    if (sessionFromUrl) {
-      setSessionId(sessionFromUrl);
-      setSessionReady(true);
-      return;
-    }
-
-    if (!user || riskIds.length === 0 || sessionReady) {
-      return;
-    }
-
-    if (!user.email) {
-      setError("User email not available");
-      setSessionReady(false);
-      return;
-    }
-
-    let cancelled = false;
-
-    async function ensureSession() {
       try {
         const supabase = getSupabaseClient();
         const { data, error: insertError } = await supabase
           .from("rcsa_sessions")
-          .insert({
-            owner_id: user!.id,
-            owner_email: user!.email,
-          })
+          .insert({ owner_id: ownerId, owner_email: ownerEmail })
           .select("id")
           .single();
 
@@ -205,49 +176,48 @@ function RcsaReviewPageContent() {
           throw new Error("Failed to create risk assessment session");
         }
 
-        if (cancelled) {
-          return;
-        }
-
-        setSessionId(data.id);
-        setSessionReady(true);
+        setCreatedSessionId(data.id as string);
 
         const params = new URLSearchParams(searchParams.toString());
-        params.set("session", data.id);
-        if (!params.get("risks") && !params.get("risk") && riskIds.length === 1) {
-          params.set("risk", riskIds[0]);
-        }
+        params.set("session", data.id as string);
         router.replace(`/rcsa/review?${params.toString()}`);
       } catch (err) {
-        if (!cancelled) {
-          setError(
-            err instanceof Error
-              ? err.message
-              : "Failed to start risk assessment session",
-          );
-        }
+        creatingSessionRef.current = false;
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to start risk assessment session",
+        );
       }
-    }
+    },
+    [router, searchParams],
+  );
 
-    void ensureSession();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [user, riskIds, sessionFromUrl, sessionReady, router, searchParams]);
-
+  // Both effects below synchronise with Supabase off the URL-driven session and
+  // risk ids, so the state they set lands in an async callback rather than
+  // during the effect body itself.
   useEffect(() => {
-    if (!user || !currentRiskId || completed || !sessionReady) {
+    if (!user || sessionId || riskIds.length === 0) {
       return;
     }
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void createSession(user.id, user.email);
+  }, [createSession, riskIds.length, sessionId, user]);
+
+  useEffect(() => {
+    if (!user || !currentRiskId || completed || !sessionId) {
+      return;
+    }
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadCurrentRisk(user.id, currentRiskId);
-  }, [user, currentRiskId, completed, sessionReady, loadCurrentRisk]);
+  }, [completed, currentRiskId, loadCurrentRisk, sessionId, user]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!user || !risk || !sessionId || !currentRiskId) {
+    if (!user || !risk || !sessionId) {
       return;
     }
 
@@ -283,10 +253,7 @@ function RcsaReviewPageContent() {
 
       const { error: updateError } = await supabase
         .from("risks")
-        .update({
-          likelihood,
-          impact,
-        })
+        .update({ likelihood, impact })
         .eq("id", risk.id);
 
       if (updateError) {
@@ -309,35 +276,22 @@ function RcsaReviewPageContent() {
   }
 
   if (authLoading) {
-    return (
-      <div className="flex min-h-full items-center justify-center bg-slate-50 dark:bg-slate-950">
-        <p className="text-slate-600 dark:text-slate-400">Loading...</p>
-      </div>
-    );
+    return <PageLoading />;
   }
 
   if (riskIds.length === 0) {
     return (
-      <div className="min-h-full bg-slate-50 px-6 py-10 dark:bg-slate-950">
+      <div className={pageClassName}>
         <main className="mx-auto flex w-full max-w-3xl flex-col gap-4">
-          <h1 className="text-3xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">
-            Risk Assessment
-          </h1>
-          <p className="text-slate-600 dark:text-slate-400">
-            No risk selected for review. Choose risks from the assessment
-            checklist or open a risk and click Review This Risk.
-          </p>
+          <PageHeader
+            title="Risk Assessment"
+            description="No risk selected for review. Choose risks from the assessment checklist or open a risk and click Review This Risk."
+          />
           <div className="flex flex-wrap gap-3">
-            <Link
-              href="/rcsa/start"
-              className="inline-flex w-fit rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-600 dark:bg-teal-400 dark:text-slate-950 dark:hover:bg-teal-300"
-            >
+            <Link href="/rcsa/start" className={primaryButtonClassName}>
               Go to Risk Assessment
             </Link>
-            <Link
-              href="/risks"
-              className="inline-flex w-fit rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-            >
+            <Link href="/risks" className={secondaryButtonClassName}>
               Back to risks
             </Link>
           </div>
@@ -346,41 +300,25 @@ function RcsaReviewPageContent() {
     );
   }
 
-  if (!sessionReady || !sessionId) {
-    return (
-      <div className="flex min-h-full items-center justify-center bg-slate-50 dark:bg-slate-950">
-        <p className="text-slate-600 dark:text-slate-400">
-          {error ?? "Preparing review session..."}
-        </p>
-      </div>
-    );
+  if (!sessionId) {
+    return <PageLoading label={error ?? "Preparing review session..."} />;
   }
 
   if (completed) {
     return (
-      <div className="min-h-full bg-slate-50 px-6 py-10 dark:bg-slate-950">
+      <div className={pageClassName}>
         <main className="mx-auto flex w-full max-w-3xl flex-col gap-6">
-          <header>
-            <h1 className="text-3xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">
-              Risk Assessment Complete
-            </h1>
-            <p className="mt-2 text-slate-600 dark:text-slate-400">
-              You reviewed {riskIds.length} risk
-              {riskIds.length === 1 ? "" : "s"} in this session.
-            </p>
-          </header>
-
+          <PageHeader
+            title="Risk Assessment Complete"
+            description={`You reviewed ${riskIds.length} risk${
+              riskIds.length === 1 ? "" : "s"
+            } in this session.`}
+          />
           <div className="flex flex-wrap gap-3">
-            <Link
-              href="/risks"
-              className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-600 dark:bg-teal-400 dark:text-slate-950 dark:hover:bg-teal-300"
-            >
+            <Link href="/risks" className={primaryButtonClassName}>
               Back to risks
             </Link>
-            <Link
-              href="/rcsa/start"
-              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-            >
+            <Link href="/rcsa/start" className={secondaryButtonClassName}>
               Start another assessment
             </Link>
           </div>
@@ -390,7 +328,7 @@ function RcsaReviewPageContent() {
   }
 
   return (
-    <div className="min-h-full bg-slate-50 px-6 py-10 dark:bg-slate-950">
+    <div className={pageClassName}>
       <main className="mx-auto flex w-full max-w-4xl flex-col gap-8">
         <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -401,29 +339,36 @@ function RcsaReviewPageContent() {
               Risk Assessment
             </h1>
           </div>
-          <Link
-            href="/risks"
-            className="inline-flex shrink-0 items-center justify-center rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-          >
-            Exit
-          </Link>
+          <div className="flex shrink-0 flex-wrap gap-3">
+            {risk && (
+              <Link
+                href={`/issues/new?${new URLSearchParams({
+                  source: "risk_assessment",
+                  risk: risk.id,
+                  title: `Issue identified for risk: ${risk.title}`,
+                }).toString()}`}
+                className={secondaryButtonClassName}
+              >
+                Raise Issue
+              </Link>
+            )}
+            <Link href="/risks" className={secondaryButtonClassName}>
+              Exit
+            </Link>
+          </div>
         </header>
 
-        {error && (
-          <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
-            {error}
-          </p>
-        )}
+        <ErrorBanner message={error} />
 
         {loadingRisk || !risk ? (
-          <p className="text-slate-600 dark:text-slate-400">Loading risk...</p>
+          <p className={mutedTextClassName}>Loading risk...</p>
         ) : (
           <>
             <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <h2 className="text-2xl font-semibold text-slate-950 dark:text-slate-50">
                 {risk.title}
               </h2>
-              <p className="mt-3 whitespace-pre-wrap text-slate-600 dark:text-slate-400">
+              <p className={`mt-3 whitespace-pre-wrap ${mutedTextClassName}`}>
                 {risk.description}
               </p>
               <dl className="mt-6 grid gap-4 sm:grid-cols-2">
@@ -446,27 +391,18 @@ function RcsaReviewPageContent() {
               </dl>
             </section>
 
-            <ControlsSummaryCard
-              links={linkedControls}
-              expanded={controlsExpanded}
-              onToggleExpanded={() =>
-                setControlsExpanded((current) => !current)
-              }
-            />
-
+            {/* Keyed on the risk so each card starts collapsed for the next risk. */}
+            <ControlsSummaryCard key={`controls-${risk.id}`} links={linkedControls} />
             <IncidentsSummaryCard
+              key={`incidents-${risk.id}`}
               links={linkedIncidents}
-              expanded={incidentsExpanded}
-              onToggleExpanded={() =>
-                setIncidentsExpanded((current) => !current)
-              }
             />
 
             <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <h2 className="text-lg font-medium text-slate-950 dark:text-slate-50">
                 Update rating
               </h2>
-              <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+              <p className={`mt-1 text-sm ${mutedTextClassName}`}>
                 Confirm or adjust likelihood and impact for this review.
               </p>
 
@@ -475,17 +411,15 @@ function RcsaReviewPageContent() {
                 className="mt-6 grid gap-4 sm:grid-cols-2"
               >
                 <label className="flex flex-col gap-1">
-                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                    Likelihood (1-5)
-                  </span>
+                  <span className={labelClassName}>Likelihood (1-5)</span>
                   <select
                     value={likelihood}
                     onChange={(event) =>
                       setLikelihood(Number(event.target.value))
                     }
-                    className={ratingSelectClassName}
+                    className={inputClassName}
                   >
-                    {[1, 2, 3, 4, 5].map((value) => (
+                    {RATING_VALUES.map((value) => (
                       <option key={value} value={value}>
                         {value}
                       </option>
@@ -494,15 +428,13 @@ function RcsaReviewPageContent() {
                 </label>
 
                 <label className="flex flex-col gap-1">
-                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                    Impact (1-5)
-                  </span>
+                  <span className={labelClassName}>Impact (1-5)</span>
                   <select
                     value={impact}
                     onChange={(event) => setImpact(Number(event.target.value))}
-                    className={ratingSelectClassName}
+                    className={inputClassName}
                   >
-                    {[1, 2, 3, 4, 5].map((value) => (
+                    {RATING_VALUES.map((value) => (
                       <option key={value} value={value}>
                         {value}
                       </option>
@@ -514,7 +446,7 @@ function RcsaReviewPageContent() {
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-600 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-teal-400 dark:text-slate-950 dark:hover:bg-teal-300"
+                    className={primaryButtonClassName}
                   >
                     {submitting
                       ? "Saving..."
@@ -534,13 +466,7 @@ function RcsaReviewPageContent() {
 
 export default function RcsaReviewPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="flex min-h-full items-center justify-center bg-slate-50 dark:bg-slate-950">
-          <p className="text-slate-600 dark:text-slate-400">Loading...</p>
-        </div>
-      }
-    >
+    <Suspense fallback={<PageLoading />}>
       <RcsaReviewPageContent />
     </Suspense>
   );

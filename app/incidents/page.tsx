@@ -1,13 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   IncidentSeverityBadge,
   IncidentStatusBadge,
 } from "@/app/components/status-badge";
 import { FilterSelect, ListToolbar } from "@/app/components/list-toolbar";
+import {
+  ErrorBanner,
+  PageHeader,
+  PageLoading,
+} from "@/app/components/page-parts";
+import { primaryButtonClassName } from "@/app/components/ui";
+import { useListFilters } from "@/lib/hooks/use-list-filters";
+import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import {
   filterIncidents,
   hasActiveFilters,
@@ -26,46 +34,23 @@ import {
   groupIncidentRiskRowsByIncident,
   type IncidentRiskRow,
 } from "@/lib/types/incident-risk";
+import { countGroupedLinks } from "@/lib/types/join-utils";
 
 function IncidentsPageContent() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const filters = useMemo(
-    () => parseIncidentFilters(searchParams),
-    [searchParams],
+  const { filters, updateFilters, clearFilters } = useListFilters(
+    "/incidents",
+    parseIncidentFilters,
   );
 
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [linkedRiskCounts, setLinkedRiskCounts] = useState<
     Record<string, number>
   >({});
-  const [authLoading, setAuthLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const updateFilters = useCallback(
-    (updates: Record<string, string>) => {
-      const params = new URLSearchParams(searchParams.toString());
-
-      for (const [key, value] of Object.entries(updates)) {
-        if (!value) {
-          params.delete(key);
-        } else {
-          params.set(key, value);
-        }
-      }
-
-      const query = params.toString();
-      router.replace(query ? `/incidents?${query}` : "/incidents");
-    },
-    [router, searchParams],
-  );
-
-  const clearFilters = useCallback(() => {
-    router.replace("/incidents");
-  }, [router]);
-
-  const fetchIncidents = useCallback(async (ownerId: string) => {
+  const loadIncidents = useCallback(async (ownerId: string) => {
     setError(null);
 
     try {
@@ -92,16 +77,15 @@ function IncidentsPageContent() {
         throw linksResult.error;
       }
 
-      setIncidents(incidentsResult.data ?? []);
+      setIncidents((incidentsResult.data ?? []) as Incident[]);
 
-      const grouped = groupIncidentRiskRowsByIncident(
-        (linksResult.data ?? []) as IncidentRiskRow[],
+      setLinkedRiskCounts(
+        countGroupedLinks(
+          groupIncidentRiskRowsByIncident(
+            (linksResult.data ?? []) as IncidentRiskRow[],
+          ),
+        ),
       );
-      const counts: Record<string, number> = {};
-      for (const [incidentId, links] of Object.entries(grouped)) {
-        counts[incidentId] = links.length;
-      }
-      setLinkedRiskCounts(counts);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load incidents");
     } finally {
@@ -109,37 +93,7 @@ function IncidentsPageContent() {
     }
   }, []);
 
-  useEffect(() => {
-    const supabase = getSupabaseClient();
-
-    async function checkAuth() {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session) {
-        router.replace("/login");
-        return;
-      }
-
-      setAuthLoading(false);
-      await fetchIncidents(session.user.id);
-    }
-
-    void checkAuth();
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) {
-        router.replace("/login");
-      }
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [fetchIncidents, router]);
+  const { authLoading } = useRequireAuth(loadIncidents);
 
   const filteredIncidents = useMemo(
     () => filterIncidents(incidents, filters),
@@ -162,38 +116,23 @@ function IncidentsPageContent() {
   });
 
   if (authLoading) {
-    return (
-      <div className="flex min-h-full items-center justify-center bg-slate-50 dark:bg-slate-950">
-        <p className="text-slate-600 dark:text-slate-400">Loading...</p>
-      </div>
-    );
+    return <PageLoading />;
   }
 
   return (
     <div className="min-h-full bg-slate-50 px-6 py-10 dark:bg-slate-950">
       <main className="mx-auto flex w-full max-w-6xl flex-col gap-8">
-        <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h1 className="text-3xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">
-              Incident Register
-            </h1>
-            <p className="mt-2 text-slate-600 dark:text-slate-400">
-              Track and manage security and compliance incidents.
-            </p>
-          </div>
-          <Link
-            href="/incidents/new"
-            className="inline-flex shrink-0 items-center justify-center rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-600 dark:bg-teal-400 dark:text-slate-950 dark:hover:bg-teal-300"
-          >
-            Add Incident
-          </Link>
-        </header>
+        <PageHeader
+          title="Incident Register"
+          description="Track and manage security and compliance incidents."
+          actions={
+            <Link href="/incidents/new" className={primaryButtonClassName}>
+              Add Incident
+            </Link>
+          }
+        />
 
-        {error && (
-          <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
-            {error}
-          </p>
-        )}
+        <ErrorBanner message={error} />
 
         <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <ListToolbar
@@ -306,13 +245,7 @@ function IncidentsPageContent() {
 
 export default function IncidentsPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="flex min-h-full items-center justify-center bg-slate-50 dark:bg-slate-950">
-          <p className="text-slate-600 dark:text-slate-400">Loading...</p>
-        </div>
-      }
-    >
+    <Suspense fallback={<PageLoading />}>
       <IncidentsPageContent />
     </Suspense>
   );

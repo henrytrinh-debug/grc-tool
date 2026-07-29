@@ -1,14 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { SeverityBandBadge } from "@/app/components/status-badge";
+import { Suspense, useCallback, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { FilterSelect, ListToolbar } from "@/app/components/list-toolbar";
 import {
-  getRiskScore,
-  getSeverityBand,
-} from "@/lib/dashboard/analytics";
+  ErrorBanner,
+  PageHeader,
+  PageLoading,
+} from "@/app/components/page-parts";
+import { SeverityBandBadge } from "@/app/components/status-badge";
+import { primaryButtonClassName } from "@/app/components/ui";
+import { getRiskScore, getSeverityBand } from "@/lib/dashboard/analytics";
+import { useListFilters } from "@/lib/hooks/use-list-filters";
+import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import {
   filterRisks,
   hasActiveFilters,
@@ -20,17 +25,22 @@ import {
   type IncidentRiskIncidentRow,
 } from "@/lib/types/incident-risk";
 import {
+  groupIssuesByRisk,
+  ISSUE_RISK_ISSUE_SELECT,
+  type IssueRiskIssueRow,
+} from "@/lib/types/issue-links";
+import { countGroupedLinks } from "@/lib/types/join-utils";
+import type { Risk } from "@/lib/types/risk";
+import {
   groupRiskControlRows,
   type RiskControlRow,
 } from "@/lib/types/risk-control";
-import type { Risk } from "@/lib/types/risk";
 
 function RisksPageContent() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const filters = useMemo(
-    () => parseRiskFilters(searchParams),
-    [searchParams],
+  const { filters, updateFilters, clearFilters } = useListFilters(
+    "/risks",
+    parseRiskFilters,
   );
 
   const [risks, setRisks] = useState<Risk[]>([]);
@@ -40,67 +50,45 @@ function RisksPageContent() {
   const [linkedIncidentCounts, setLinkedIncidentCounts] = useState<
     Record<string, number>
   >({});
-  const [authLoading, setAuthLoading] = useState(true);
+  const [openIssueCounts, setOpenIssueCounts] = useState<
+    Record<string, number>
+  >({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const updateFilters = useCallback(
-    (updates: Record<string, string>) => {
-      const params = new URLSearchParams(searchParams.toString());
-
-      for (const [key, value] of Object.entries(updates)) {
-        if (!value) {
-          params.delete(key);
-        } else {
-          params.set(key, value);
-        }
-      }
-
-      const query = params.toString();
-      router.replace(query ? `/risks?${query}` : "/risks");
-    },
-    [router, searchParams],
-  );
-
-  const clearFilters = useCallback(() => {
-    router.replace("/risks");
-  }, [router]);
-
-  const fetchRisks = useCallback(async () => {
+  const loadRisks = useCallback(async (ownerId: string) => {
     setError(null);
 
     try {
       const supabase = getSupabaseClient();
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session) {
-        router.replace("/login");
-        return;
-      }
-
-      const ownerId = session.user.id;
-
-      const [risksResult, controlLinksResult, incidentLinksResult] =
-        await Promise.all([
-          supabase
-            .from("risks")
-            .select("*")
-            .order("created_at", { ascending: false }),
-          supabase
-            .from("risk_controls")
-            .select(
-              "id, risk_id, control_id, controls(title, effectiveness, last_tested_at, is_key)",
-            )
-            .eq("owner_id", ownerId),
-          supabase
-            .from("incident_risks")
-            .select(
-              "id, incident_id, risk_id, incidents(title, date_occurred, severity, status)",
-            )
-            .eq("owner_id", ownerId),
-        ]);
+      const [
+        risksResult,
+        controlLinksResult,
+        incidentLinksResult,
+        issueLinksResult,
+      ] = await Promise.all([
+        supabase
+          .from("risks")
+          .select("*")
+          .eq("owner_id", ownerId)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("risk_controls")
+          .select(
+            "id, risk_id, control_id, controls(title, effectiveness, last_tested_at, is_key)",
+          )
+          .eq("owner_id", ownerId),
+        supabase
+          .from("incident_risks")
+          .select(
+            "id, incident_id, risk_id, incidents(title, date_occurred, severity, status)",
+          )
+          .eq("owner_id", ownerId),
+        supabase
+          .from("issue_risks")
+          .select(ISSUE_RISK_ISSUE_SELECT)
+          .eq("owner_id", ownerId),
+      ]);
 
       if (risksResult.error) {
         throw risksResult.error;
@@ -114,63 +102,46 @@ function RisksPageContent() {
         throw incidentLinksResult.error;
       }
 
-      setRisks(risksResult.data ?? []);
-
-      const controlGrouped = groupRiskControlRows(
-        (controlLinksResult.data ?? []) as RiskControlRow[],
-      );
-      const controlCounts: Record<string, number> = {};
-      for (const [riskId, links] of Object.entries(controlGrouped)) {
-        controlCounts[riskId] = links.length;
+      if (issueLinksResult.error) {
+        throw issueLinksResult.error;
       }
-      setLinkedControlCounts(controlCounts);
 
-      const incidentGrouped = groupIncidentRiskRowsByRisk(
-        (incidentLinksResult.data ?? []) as IncidentRiskIncidentRow[],
+      setRisks((risksResult.data ?? []) as Risk[]);
+
+      setLinkedControlCounts(
+        countGroupedLinks(
+          groupRiskControlRows(
+            (controlLinksResult.data ?? []) as RiskControlRow[],
+          ),
+        ),
       );
-      const incidentCounts: Record<string, number> = {};
-      for (const [riskId, links] of Object.entries(incidentGrouped)) {
-        incidentCounts[riskId] = links.length;
+
+      setLinkedIncidentCounts(
+        countGroupedLinks(
+          groupIncidentRiskRowsByRisk(
+            (incidentLinksResult.data ?? []) as IncidentRiskIncidentRow[],
+          ),
+        ),
+      );
+
+      const issuesByRisk = groupIssuesByRisk(
+        (issueLinksResult.data ?? []) as IssueRiskIssueRow[],
+      );
+      const openCounts: Record<string, number> = {};
+      for (const [riskId, issues] of Object.entries(issuesByRisk)) {
+        openCounts[riskId] = issues.filter(
+          (issue) => issue.status !== "closed",
+        ).length;
       }
-      setLinkedIncidentCounts(incidentCounts);
+      setOpenIssueCounts(openCounts);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load risks");
     } finally {
       setLoading(false);
     }
-  }, [router]);
+  }, []);
 
-  useEffect(() => {
-    const supabase = getSupabaseClient();
-
-    async function checkAuth() {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session) {
-        router.replace("/login");
-        return;
-      }
-
-      setAuthLoading(false);
-      await fetchRisks();
-    }
-
-    void checkAuth();
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) {
-        router.replace("/login");
-      }
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [fetchRisks, router]);
+  const { authLoading } = useRequireAuth(loadRisks);
 
   const filteredRisks = useMemo(
     () => filterRisks(risks, filters),
@@ -185,38 +156,23 @@ function RisksPageContent() {
   });
 
   if (authLoading) {
-    return (
-      <div className="flex min-h-full items-center justify-center bg-slate-50 dark:bg-slate-950">
-        <p className="text-slate-600 dark:text-slate-400">Loading...</p>
-      </div>
-    );
+    return <PageLoading />;
   }
 
   return (
     <div className="min-h-full bg-slate-50 px-6 py-10 dark:bg-slate-950">
-      <main className="mx-auto flex w-full max-w-6xl flex-col gap-8">
-        <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h1 className="text-3xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">
-              Risk Register
-            </h1>
-            <p className="mt-2 text-slate-600 dark:text-slate-400">
-              Track and assess organizational risks.
-            </p>
-          </div>
-          <Link
-            href="/risks/new"
-            className="inline-flex shrink-0 items-center justify-center rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-600 dark:bg-teal-400 dark:text-slate-950 dark:hover:bg-teal-300"
-          >
-            Add Risk
-          </Link>
-        </header>
+      <main className="mx-auto flex w-full max-w-7xl flex-col gap-8">
+        <PageHeader
+          title="Risk Register"
+          description="Track and assess organizational risks."
+          actions={
+            <Link href="/risks/new" className={primaryButtonClassName}>
+              Add Risk
+            </Link>
+          }
+        />
 
-        {error && (
-          <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
-            {error}
-          </p>
-        )}
+        <ErrorBanner message={error} />
 
         <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <ListToolbar
@@ -284,12 +240,12 @@ function RisksPageContent() {
                 <thead className="bg-slate-50 text-slate-600 dark:bg-slate-950 dark:text-slate-400">
                   <tr>
                     <th className="px-6 py-3 font-medium">Title</th>
-                    <th className="px-6 py-3 font-medium">Description</th>
                     <th className="px-6 py-3 font-medium">Likelihood</th>
                     <th className="px-6 py-3 font-medium">Impact</th>
                     <th className="px-6 py-3 font-medium">Risk Score</th>
-                    <th className="px-6 py-3 font-medium">Linked Controls</th>
-                    <th className="px-6 py-3 font-medium">Linked Incidents</th>
+                    <th className="px-6 py-3 font-medium">Controls</th>
+                    <th className="px-6 py-3 font-medium">Incidents</th>
+                    <th className="px-6 py-3 font-medium">Open Issues</th>
                     <th className="px-6 py-3 font-medium">Owner</th>
                     <th className="px-6 py-3 font-medium">Actions</th>
                   </tr>
@@ -299,6 +255,7 @@ function RisksPageContent() {
                     const band = getSeverityBand(
                       getRiskScore(risk.likelihood, risk.impact),
                     );
+                    const openIssues = openIssueCounts[risk.id] ?? 0;
 
                     return (
                       <tr
@@ -308,9 +265,6 @@ function RisksPageContent() {
                       >
                         <td className="px-6 py-4 font-medium text-slate-950 dark:text-slate-50">
                           {risk.title}
-                        </td>
-                        <td className="max-w-xs truncate px-6 py-4 text-slate-600 dark:text-slate-400">
-                          {risk.description}
                         </td>
                         <td className="px-6 py-4 text-slate-950 dark:text-slate-50">
                           {risk.likelihood}
@@ -327,7 +281,18 @@ function RisksPageContent() {
                         <td className="px-6 py-4 text-slate-950 dark:text-slate-50">
                           {linkedIncidentCounts[risk.id] ?? 0}
                         </td>
-                        <td className="px-6 py-4 text-slate-950 dark:text-slate-50">
+                        <td className="px-6 py-4">
+                          <span
+                            className={
+                              openIssues > 0
+                                ? "font-medium text-red-700 dark:text-red-400"
+                                : "text-slate-950 dark:text-slate-50"
+                            }
+                          >
+                            {openIssues}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
                           {risk.owner_email}
                         </td>
                         <td className="px-6 py-4">
@@ -339,7 +304,7 @@ function RisksPageContent() {
                             }}
                             className="rounded-lg border border-teal-700 px-3 py-1.5 text-sm font-medium text-teal-800 transition-colors hover:bg-teal-50 dark:border-teal-400 dark:text-teal-200 dark:hover:bg-teal-950"
                           >
-                            Review This Risk
+                            Review
                           </button>
                         </td>
                       </tr>
@@ -357,13 +322,7 @@ function RisksPageContent() {
 
 export default function RisksPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="flex min-h-full items-center justify-center bg-slate-50 dark:bg-slate-950">
-          <p className="text-slate-600 dark:text-slate-400">Loading...</p>
-        </div>
-      }
-    >
+    <Suspense fallback={<PageLoading />}>
       <RisksPageContent />
     </Suspense>
   );

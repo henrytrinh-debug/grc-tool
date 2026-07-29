@@ -9,8 +9,10 @@ import {
   type IncidentStatus,
   type Severity,
 } from "@/lib/types/incident";
-import type { LinkedIncident } from "@/lib/types/incident-risk";
-import type { LinkedControl } from "@/lib/types/risk-control";
+import type {
+  LinkedControl,
+  LinkedIncident,
+} from "@/lib/types/linked-entities";
 
 export type ControlsSummary = {
   total: number;

@@ -1,5 +1,17 @@
 import { formatEffectiveness, type Control } from "@/lib/types/control";
 import { formatIncidentStatus, type Incident } from "@/lib/types/incident";
+import {
+  formatIssueStatus,
+  isIssueOpen,
+  isIssueOverdue,
+  type Issue,
+  type IssueSeverity,
+  type IssueStatus,
+} from "@/lib/types/issue";
+import {
+  getActionProgress,
+  type IssueAction,
+} from "@/lib/types/issue-action";
 import type { Risk } from "@/lib/types/risk";
 
 export type SeverityBand = "Low" | "Medium" | "High" | "Critical";
@@ -78,7 +90,7 @@ export function buildSeverityBandCounts(risks: Risk[]): SeverityBandCount[] {
 
 export function getHeatMapCellColor(score: number, count: number) {
   if (count === 0) {
-    return "rgb(244 244 245)";
+    return "rgb(241 245 249)";
   }
 
   const ratio = (score - 1) / 24;
@@ -117,6 +129,93 @@ export function buildControlEffectivenessCounts(
       filterValue: "not_tested",
     },
   ];
+}
+
+const ISSUE_STATUS_ORDER: IssueStatus[] = [
+  "open",
+  "in_progress",
+  "pending_review",
+  "closed",
+];
+
+const ISSUE_SEVERITY_ORDER: IssueSeverity[] = [
+  "critical",
+  "high",
+  "medium",
+  "low",
+];
+
+export function buildIssueStatusCounts(issues: Issue[]): ChartCount[] {
+  const counts: Record<IssueStatus, number> = {
+    open: 0,
+    in_progress: 0,
+    pending_review: 0,
+    closed: 0,
+  };
+
+  for (const issue of issues) {
+    counts[issue.status] += 1;
+  }
+
+  return ISSUE_STATUS_ORDER.map((status) => ({
+    name: formatIssueStatus(status),
+    value: counts[status],
+    filterValue: status,
+  }));
+}
+
+export type IssueSeverityBreakdown = {
+  severity: IssueSeverity;
+  open: number;
+  overdue: number;
+};
+
+/**
+ * Open-issue counts per severity, with the overdue subset, so the dashboard can
+ * show where remediation is slipping.
+ */
+export function buildOpenIssueSeverityBreakdown(
+  issues: Issue[],
+): IssueSeverityBreakdown[] {
+  return ISSUE_SEVERITY_ORDER.map((severity) => {
+    const matching = issues.filter(
+      (issue) => issue.severity === severity && isIssueOpen(issue.status),
+    );
+
+    return {
+      severity,
+      open: matching.length,
+      overdue: matching.filter((issue) => isIssueOverdue(issue)).length,
+    };
+  });
+}
+
+export type IssueSummary = {
+  total: number;
+  open: number;
+  overdue: number;
+  awaitingReview: number;
+  actionCompletionPercent: number;
+};
+
+export function summariseIssues(
+  issues: Issue[],
+  actions: IssueAction[],
+): IssueSummary {
+  const openIssues = issues.filter((issue) => isIssueOpen(issue.status));
+  const openIssueIds = new Set(openIssues.map((issue) => issue.id));
+  const openActions = actions.filter((action) =>
+    openIssueIds.has(action.issue_id),
+  );
+
+  return {
+    total: issues.length,
+    open: openIssues.length,
+    overdue: issues.filter((issue) => isIssueOverdue(issue)).length,
+    awaitingReview: issues.filter((issue) => issue.status === "pending_review")
+      .length,
+    actionCompletionPercent: getActionProgress(openActions).percent,
+  };
 }
 
 export function buildIncidentStatusCounts(incidents: Incident[]): ChartCount[] {

@@ -23,6 +23,13 @@ const STATUS_COLORS: Record<string, string> = {
   Resolved: "#22c55e",
 };
 
+const ISSUE_STATUS_COLORS: Record<string, string> = {
+  Open: "#f97316",
+  "In Progress": "#3b82f6",
+  "Pending Review": "#8b5cf6",
+  Closed: "#22c55e",
+};
+
 type DonutChartProps = {
   data: ChartCount[];
   colors?: Record<string, string>;
@@ -122,6 +129,25 @@ export function IncidentsStatusDonut({ data }: IncidentsStatusDonutProps) {
       emptyMessage="No incidents to display."
       onSliceClick={(filterValue) =>
         router.push(`/incidents?status=${filterValue}`)
+      }
+    />
+  );
+}
+
+type IssuesStatusDonutProps = {
+  data: ChartCount[];
+};
+
+export function IssuesStatusDonut({ data }: IssuesStatusDonutProps) {
+  const router = useRouter();
+
+  return (
+    <DashboardDonutChart
+      data={data}
+      colors={ISSUE_STATUS_COLORS}
+      emptyMessage="No issues to display."
+      onSliceClick={(filterValue) =>
+        router.push(`/issues?status=${filterValue}`)
       }
     />
   );
