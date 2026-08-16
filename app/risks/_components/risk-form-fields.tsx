@@ -1,4 +1,5 @@
 import { inputClassName, labelClassName } from "@/app/components/ui";
+import { RiskScorePicker } from "@/app/components/risk-score-picker";
 import type { NewRisk } from "@/lib/types/risk";
 
 type RiskFormFieldsProps = {
@@ -34,41 +35,14 @@ export function RiskFormFields({ form, onChange }: RiskFormFieldsProps) {
         />
       </label>
 
-      <label className="flex flex-col gap-1">
-        <span className={labelClassName}>
-          Likelihood (1-5)
-        </span>
-        <select
-          value={form.likelihood}
-          onChange={(event) =>
-            onChange({ likelihood: Number(event.target.value) })
-          }
-          className={inputClassName}
-        >
-          {[1, 2, 3, 4, 5].map((value) => (
-            <option key={value} value={value}>
-              {value}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className="flex flex-col gap-1">
-        <span className={labelClassName}>
-          Impact (1-5)
-        </span>
-        <select
-          value={form.impact}
-          onChange={(event) => onChange({ impact: Number(event.target.value) })}
-          className={inputClassName}
-        >
-          {[1, 2, 3, 4, 5].map((value) => (
-            <option key={value} value={value}>
-              {value}
-            </option>
-          ))}
-        </select>
-      </label>
+      <div className="sm:col-span-2">
+        <RiskScorePicker
+          likelihood={form.likelihood}
+          impact={form.impact}
+          onChange={onChange}
+          description="Click a cell to set both ratings. The colour is the resulting inherent risk score."
+        />
+      </div>
     </>
   );
 }

@@ -1,3 +1,5 @@
+import { addDaysToIsoDate, formatIsoDate, todayIsoDate } from "@/lib/dates";
+
 export type IssueSource =
   | "internal_audit"
   | "external_audit"
@@ -102,30 +104,14 @@ export function formatIssueStatus(status: IssueStatus) {
   );
 }
 
-export function todayIsoDate() {
-  const now = new Date();
-  const offsetMs = now.getTimezoneOffset() * 60 * 1000;
-
-  return new Date(now.getTime() - offsetMs).toISOString().slice(0, 10);
-}
-
-export function addDaysToIsoDate(isoDate: string, days: number) {
-  const date = new Date(`${isoDate}T00:00:00`);
-  date.setDate(date.getDate() + days);
-
-  return date.toISOString().slice(0, 10);
-}
+export { addDaysToIsoDate, todayIsoDate };
 
 export function getDefaultDueDate(severity: IssueSeverity) {
   return addDaysToIsoDate(todayIsoDate(), DUE_DATE_DAYS_BY_SEVERITY[severity]);
 }
 
 export function formatIssueDate(value: string | null | undefined) {
-  if (!value) {
-    return "—";
-  }
-
-  return new Date(value).toLocaleDateString();
+  return formatIsoDate(value);
 }
 
 export function isIssueOpen(status: IssueStatus) {

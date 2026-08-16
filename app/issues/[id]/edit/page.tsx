@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { FormEvent, useCallback, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { LinkedEntitiesPanel } from "@/app/components/linked-entities-panel";
@@ -26,6 +25,7 @@ import {
 } from "@/app/components/ui";
 import { useEntityLinks } from "@/lib/hooks/use-entity-links";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
+import { useUnsavedChanges } from "@/lib/hooks/use-unsaved-changes";
 import {
   describeTransition,
   getTransitionBlockers,
@@ -235,6 +235,22 @@ export default function EditIssuePage() {
 
   const { user, authLoading } = useRequireAuth(loadPageData);
 
+  const savedForm = issue ? toForm(issue) : null;
+  const dirty = Boolean(
+    form &&
+      savedForm &&
+      (form.title !== savedForm.title ||
+        form.description !== savedForm.description ||
+        form.source !== savedForm.source ||
+        form.severity !== savedForm.severity ||
+        form.identified_at !== savedForm.identified_at ||
+        form.due_date !== savedForm.due_date ||
+        form.root_cause !== savedForm.root_cause ||
+        form.remediation_plan !== savedForm.remediation_plan ||
+        form.closure_notes !== savedForm.closure_notes),
+  );
+  const { confirmLeave } = useUnsavedChanges(dirty);
+
   const hasUnsavedChanges = useMemo(() => {
     if (!issue || !form) {
       return false;
@@ -250,7 +266,7 @@ export default function EditIssuePage() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!form || !issue) {
+    if (!form || !issue || !user) {
       return;
     }
 
@@ -262,7 +278,8 @@ export default function EditIssuePage() {
       const { error: updateError } = await supabase
         .from("issues")
         .update(toIssueFormPayload(form))
-        .eq("id", issue.id);
+        .eq("id", issue.id)
+        .eq("owner_id", user.id);
 
       if (updateError) {
         throw updateError;
@@ -278,7 +295,7 @@ export default function EditIssuePage() {
   }
 
   async function handleDelete() {
-    if (!issue) {
+    if (!issue || !user) {
       return;
     }
 
@@ -298,7 +315,8 @@ export default function EditIssuePage() {
       const { error: deleteError } = await supabase
         .from("issues")
         .delete()
-        .eq("id", issue.id);
+        .eq("id", issue.id)
+        .eq("owner_id", user.id);
 
       if (deleteError) {
         throw deleteError;
@@ -332,7 +350,8 @@ export default function EditIssuePage() {
       const { error: updateError } = await supabase
         .from("issues")
         .update(patch)
-        .eq("id", issue.id);
+        .eq("id", issue.id)
+        .eq("owner_id", user.id);
 
       if (updateError) {
         throw updateError;
@@ -405,6 +424,9 @@ export default function EditIssuePage() {
     actionId: string,
     status: IssueActionStatus,
   ) {
+    if (!user) {
+      return;
+    }
     setUpdatingActionId(actionId);
     setError(null);
 
@@ -416,7 +438,8 @@ export default function EditIssuePage() {
           status,
           completed_at: status === "completed" ? new Date().toISOString() : null,
         })
-        .eq("id", actionId);
+        .eq("id", actionId)
+        .eq("owner_id", user.id);
 
       if (updateError) {
         throw updateError;
@@ -431,6 +454,9 @@ export default function EditIssuePage() {
   }
 
   async function handleDeleteAction(actionId: string) {
+    if (!user) {
+      return;
+    }
     setUpdatingActionId(actionId);
     setError(null);
 
@@ -439,7 +465,8 @@ export default function EditIssuePage() {
       const { error: deleteError } = await supabase
         .from("issue_actions")
         .delete()
-        .eq("id", actionId);
+        .eq("id", actionId)
+        .eq("owner_id", user.id);
 
       if (deleteError) {
         throw deleteError;
@@ -544,9 +571,17 @@ export default function EditIssuePage() {
               >
                 {submitting ? "Saving..." : "Save Changes"}
               </button>
-              <Link href="/issues" className={secondaryButtonClassName}>
+              <button
+                type="button"
+                className={secondaryButtonClassName}
+                onClick={() => {
+                  if (confirmLeave()) {
+                    router.push("/issues");
+                  }
+                }}
+              >
                 Cancel
-              </Link>
+              </button>
               <button
                 type="button"
                 onClick={() => void handleDelete()}

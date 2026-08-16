@@ -6,7 +6,7 @@ import {
   getHeatMapCellColor,
   getRiskScore,
 } from "@/lib/dashboard/analytics";
-import type { Risk } from "@/lib/types/risk";
+import { formatImpact, formatLikelihood, RISK_SCALE_VALUES, type Risk } from "@/lib/types/risk";
 
 type RiskHeatMapProps = {
   risks: Risk[];
@@ -19,21 +19,21 @@ export function RiskHeatMap({ risks }: RiskHeatMapProps) {
     <div className="space-y-4">
       <div className="grid grid-cols-[auto_repeat(5,minmax(0,1fr))] gap-1">
         <div />
-        {[1, 2, 3, 4, 5].map((likelihood) => (
+        {RISK_SCALE_VALUES.map((likelihood) => (
           <div
             key={`likelihood-${likelihood}`}
-            className="px-1 text-center text-xs font-medium text-slate-600 dark:text-slate-400"
+            className="px-1 text-center text-[10px] font-medium leading-tight text-slate-600 sm:text-xs dark:text-slate-400"
           >
-            L{likelihood}
+            {formatLikelihood(likelihood)}
           </div>
         ))}
 
-        {[5, 4, 3, 2, 1].map((impact) => (
+        {[...RISK_SCALE_VALUES].reverse().map((impact) => (
           <div key={`impact-row-${impact}`} className="contents">
-            <div className="flex items-center pr-2 text-xs font-medium text-slate-600 dark:text-slate-400">
-              I{impact}
+            <div className="flex items-center pr-2 text-[10px] font-medium leading-tight text-slate-600 sm:text-xs dark:text-slate-400">
+              {formatImpact(impact)}
             </div>
-            {[1, 2, 3, 4, 5].map((likelihood) => {
+            {RISK_SCALE_VALUES.map((likelihood) => {
               const count = grid[likelihood - 1][impact - 1];
               const score = getRiskScore(likelihood, impact);
               const href = `/risks?likelihood=${likelihood}&impact=${impact}`;
@@ -52,7 +52,7 @@ export function RiskHeatMap({ risks }: RiskHeatMapProps) {
                       ? { backgroundColor: getHeatMapCellColor(score, count) }
                       : undefined
                   }
-                  title={`Likelihood ${likelihood}, Impact ${impact}: ${count} risk${count === 1 ? "" : "s"} — click to filter`}
+                  title={`${formatLikelihood(likelihood)} × ${formatImpact(impact)}: ${count} risk${count === 1 ? "" : "s"} — click to filter`}
                 >
                   {count}
                 </Link>

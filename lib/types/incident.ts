@@ -1,3 +1,5 @@
+import { daysSinceIso, formatIsoDate } from "@/lib/dates";
+
 export type Severity = "low" | "medium" | "high" | "critical";
 
 export type IncidentStatus = "open" | "investigating" | "resolved";
@@ -61,11 +63,20 @@ export function formatDateForInput(dateOccurred: string | null | undefined) {
 }
 
 export function formatDateOccurred(dateOccurred: string | null | undefined) {
-  if (!dateOccurred) {
-    return "—";
+  return formatIsoDate(dateOccurred);
+}
+
+export function isIncidentOpen(status: IncidentStatus) {
+  return status === "open" || status === "investigating";
+}
+
+/** Days since occurrence for still-open incidents; null once resolved. */
+export function getOpenIncidentAgeDays(incident: Incident) {
+  if (!isIncidentOpen(incident.status)) {
+    return null;
   }
 
-  return new Date(dateOccurred).toLocaleDateString();
+  return Math.max(0, Math.round(daysSinceIso(incident.date_occurred)));
 }
 
 export function toIncidentFormPayload(form: NewIncident) {

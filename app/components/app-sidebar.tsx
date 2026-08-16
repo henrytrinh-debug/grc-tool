@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getSupabaseClient } from "@/lib/supabase/client";
 
-const navItems = [
+export const navItems = [
   { href: "/", label: "Home" },
   { href: "/risks", label: "Risks" },
   { href: "/controls", label: "Controls" },
@@ -27,7 +27,12 @@ function isActivePath(href: string, pathname: string) {
   return pathname.startsWith(href);
 }
 
-export function AppSidebar() {
+type AppSidebarProps = {
+  mobileOpen?: boolean;
+  onNavigate?: () => void;
+};
+
+export function AppSidebar({ mobileOpen = false, onNavigate }: AppSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [email, setEmail] = useState<string | null>(null);
@@ -64,7 +69,14 @@ export function AppSidebar() {
   }
 
   return (
-    <aside className="flex w-56 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+    <aside
+      id="app-sidebar"
+      className={`flex w-56 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 ${
+        mobileOpen
+          ? "fixed inset-y-0 left-0 z-40"
+          : "hidden md:flex"
+      }`}
+    >
       <div className="border-b border-slate-200 px-5 py-6 dark:border-slate-800">
         <p className="text-lg font-semibold tracking-tight text-slate-950 dark:text-slate-50">
           GRC Tool
@@ -82,6 +94,7 @@ export function AppSidebar() {
             <Link
               key={item.href}
               href={item.href}
+              onClick={onNavigate}
               className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                 active
                   ? "bg-teal-50 text-teal-900 dark:bg-teal-950 dark:text-teal-200"
@@ -100,6 +113,9 @@ export function AppSidebar() {
             {email}
           </p>
         )}
+        <p className="mb-3 px-3 text-[11px] text-slate-400 dark:text-slate-500">
+          ⌘K to jump
+        </p>
         <button
           type="button"
           onClick={() => void handleLogout()}

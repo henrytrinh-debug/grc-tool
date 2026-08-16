@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import Link from "next/link";
+import { AttentionList } from "@/app/components/dashboard/attention-list";
 import { ChartCard } from "@/app/components/dashboard/chart-card";
 import {
   ControlsEffectivenessDonut,
@@ -12,7 +14,8 @@ import { RiskHeatMap } from "@/app/components/dashboard/risk-heat-map";
 import { RiskSeverityBarChart } from "@/app/components/dashboard/risk-severity-bar-chart";
 import { StatCard } from "@/app/components/dashboard/stat-card";
 import { ErrorBanner, PageHeader, PageLoading } from "@/app/components/page-parts";
-import { mutedTextClassName } from "@/app/components/ui";
+import { mutedTextClassName, primaryButtonClassName } from "@/app/components/ui";
+import { buildAttentionItems, type AttentionItem } from "@/lib/dashboard/attention";
 import {
   buildControlEffectivenessCounts,
   buildIncidentStatusCounts,
@@ -26,16 +29,20 @@ import {
   type SeverityBandCount,
 } from "@/lib/dashboard/analytics";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
+import { fetchOwnedTable } from "@/lib/supabase/owned";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { getTestingStatus, type Control } from "@/lib/types/control";
 import type { Incident } from "@/lib/types/incident";
 import type { Issue } from "@/lib/types/issue";
 import type { IssueAction } from "@/lib/types/issue-action";
+import { countByKey } from "@/lib/types/join-utils";
+import { buildLastReviewedByRisk, type RcsaReview } from "@/lib/types/rcsa";
 import type { Risk } from "@/lib/types/risk";
 
 type DashboardData = {
   riskCount: number;
   overdueControlCount: number;
+  overdueKeyControlCount: number;
   openIncidentCount: number;
   issues: IssueSummary;
   risks: Risk[];
@@ -44,11 +51,13 @@ type DashboardData = {
   incidentStatus: ChartCount[];
   issueStatus: ChartCount[];
   issueSeverityBreakdown: IssueSeverityBreakdown[];
+  attention: AttentionItem[];
 };
 
 const emptyDashboard: DashboardData = {
   riskCount: 0,
   overdueControlCount: 0,
+  overdueKeyControlCount: 0,
   openIncidentCount: 0,
   issues: {
     total: 0,
@@ -63,6 +72,7 @@ const emptyDashboard: DashboardData = {
   incidentStatus: [],
   issueStatus: [],
   issueSeverityBreakdown: [],
+  attention: [],
 };
 
 export default function HomePage() {
@@ -75,34 +85,49 @@ export default function HomePage() {
 
     try {
       const supabase = getSupabaseClient();
+      const [risks, controls, incidents, issues, actions, controlLinks, reviews] =
+        await Promise.all([
+          fetchOwnedTable<Risk>(supabase, "risks", ownerId),
+          fetchOwnedTable<Control>(supabase, "controls", ownerId),
+          fetchOwnedTable<Incident>(supabase, "incidents", ownerId),
+          fetchOwnedTable<Issue>(supabase, "issues", ownerId),
+          fetchOwnedTable<IssueAction>(supabase, "issue_actions", ownerId),
+          supabase
+            .from("risk_controls")
+            .select("id, risk_id, control_id")
+            .eq("owner_id", ownerId),
+          supabase
+            .from("rcsa_reviews")
+            .select("risk_id, reviewed_at")
+            .eq("owner_id", ownerId),
+        ]);
 
-      const results = await Promise.all([
-        supabase.from("risks").select("*").eq("owner_id", ownerId),
-        supabase.from("controls").select("*").eq("owner_id", ownerId),
-        supabase.from("incidents").select("*").eq("owner_id", ownerId),
-        supabase.from("issues").select("*").eq("owner_id", ownerId),
-        supabase.from("issue_actions").select("*").eq("owner_id", ownerId),
-      ]);
-
-      const failed = results.find((result) => result.error);
-      if (failed?.error) {
-        throw failed.error;
+      if (controlLinks.error) {
+        throw controlLinks.error;
       }
 
-      const [risksResult, controlsResult, incidentsResult, issuesResult, actionsResult] =
-        results;
+      if (reviews.error) {
+        throw reviews.error;
+      }
 
-      const risks = (risksResult.data ?? []) as Risk[];
-      const controls = (controlsResult.data ?? []) as Control[];
-      const incidents = (incidentsResult.data ?? []) as Incident[];
-      const issues = (issuesResult.data ?? []) as Issue[];
-      const actions = (actionsResult.data ?? []) as IssueAction[];
+      const linkedControlCounts = countByKey(
+        (controlLinks.data ?? []) as { risk_id: string }[],
+        (link) => link.risk_id,
+      );
+      const lastReviewedByRisk = buildLastReviewedByRisk(
+        (reviews.data ?? []) as Pick<RcsaReview, "risk_id" | "reviewed_at">[],
+      );
+
+      const overdueControls = controls.filter(
+        (control) =>
+          getTestingStatus(control.last_tested_at, control.is_key) === "Overdue",
+      );
 
       setData({
         riskCount: risks.length,
-        overdueControlCount: controls.filter(
-          (control) => getTestingStatus(control.last_tested_at) === "Overdue",
-        ).length,
+        overdueControlCount: overdueControls.length,
+        overdueKeyControlCount: overdueControls.filter((control) => control.is_key)
+          .length,
         openIncidentCount: incidents.filter(
           (incident) =>
             incident.status === "open" || incident.status === "investigating",
@@ -114,6 +139,10 @@ export default function HomePage() {
         incidentStatus: buildIncidentStatusCounts(incidents),
         issueStatus: buildIssueStatusCounts(issues),
         issueSeverityBreakdown: buildOpenIssueSeverityBreakdown(issues),
+        attention: buildAttentionItems(controls, incidents, issues, risks, {
+          lastReviewedByRisk,
+          linkedControlCounts,
+        }),
       });
     } catch (err) {
       setError(
@@ -155,7 +184,12 @@ export default function HomePage() {
                 label="Overdue Controls"
                 value={data.overdueControlCount}
                 href="/controls?testingStatus=Overdue"
-                linkLabel="View overdue controls"
+                linkLabel={
+                  data.overdueKeyControlCount > 0
+                    ? `${data.overdueKeyControlCount} key`
+                    : "View overdue controls"
+                }
+                hint="Key controls: 180 days · others: 365 days"
                 tone={data.overdueControlCount > 0 ? "alert" : "default"}
               />
               <StatCard
@@ -178,6 +212,28 @@ export default function HomePage() {
                 tone={data.issues.overdue > 0 ? "alert" : "default"}
               />
             </section>
+
+            <ChartCard
+              title="Needs attention"
+              description="Overdue issues, failed or overdue key controls, open high/critical incidents, and High/Critical risks that are uncontrolled or past their review cadence."
+            >
+              {data.riskCount === 0 &&
+              data.overdueControlCount === 0 &&
+              data.openIncidentCount === 0 &&
+              data.issues.total === 0 ? (
+                <div className="space-y-3">
+                  <p className={`text-sm ${mutedTextClassName}`}>
+                    Nothing in the registers yet. Start with a risk, then link
+                    controls and run an assessment.
+                  </p>
+                  <Link href="/risks/new" className={primaryButtonClassName}>
+                    Add your first risk
+                  </Link>
+                </div>
+              ) : (
+                <AttentionList items={data.attention} />
+              )}
+            </ChartCard>
 
             <section className="grid gap-6 lg:grid-cols-2">
               <ChartCard

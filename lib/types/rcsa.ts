@@ -1,3 +1,10 @@
+import {
+  getRiskScore,
+  getSeverityBand,
+  type SeverityBand,
+} from "@/lib/dashboard/analytics";
+import { daysSinceIso, formatIsoDate } from "@/lib/dates";
+
 export type RcsaSession = {
   id: string;
   owner_id?: string;
@@ -47,7 +54,61 @@ export function formatLastReviewedAt(
     return "Never reviewed";
   }
 
-  return new Date(lastReviewedAt).toLocaleDateString();
+  return formatIsoDate(lastReviewedAt);
+}
+
+/** How often a risk should be re-assessed, by inherent severity band. */
+export const REVIEW_CADENCE_DAYS: Record<SeverityBand, number> = {
+  Critical: 90,
+  High: 180,
+  Medium: 365,
+  Low: 365,
+};
+
+export function getReviewCadenceDays(likelihood: number, impact: number) {
+  return REVIEW_CADENCE_DAYS[
+    getSeverityBand(getRiskScore(likelihood, impact))
+  ];
+}
+
+/** True when the risk has never been reviewed, or the band's cadence has lapsed. */
+export function isReviewDue(
+  lastReviewedAt: string | null | undefined,
+  likelihood: number,
+  impact: number,
+) {
+  if (!lastReviewedAt) {
+    return true;
+  }
+
+  return daysSinceIso(lastReviewedAt) > getReviewCadenceDays(likelihood, impact);
+}
+
+export type ReviewRecencyBucket =
+  | "never"
+  | "within180"
+  | "between180And365"
+  | "over365";
+
+/** Calendar recency buckets used by Oversight's aging breakdown. */
+export function getReviewRecencyBucket(
+  lastReviewedAt: string | null | undefined,
+): ReviewRecencyBucket {
+  if (!lastReviewedAt) {
+    return "never";
+  }
+
+  const daysSince = daysSinceIso(lastReviewedAt);
+
+  if (daysSince > 365) {
+    return "over365";
+  }
+
+  if (daysSince > 180) {
+    return "between180And365";
+  }
+
+  return "within180";
 }
 
 export function buildLastReviewedByRisk(

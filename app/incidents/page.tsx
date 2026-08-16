@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Suspense, useCallback, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { ClickableRow } from "@/app/components/clickable-row";
 import {
   IncidentSeverityBadge,
   IncidentStatusBadge,
@@ -10,22 +10,28 @@ import {
 import { FilterSelect, ListToolbar } from "@/app/components/list-toolbar";
 import {
   ErrorBanner,
+  ListEmpty,
   PageHeader,
   PageLoading,
 } from "@/app/components/page-parts";
-import { primaryButtonClassName } from "@/app/components/ui";
+import { primaryButtonClassName, secondaryButtonClassName } from "@/app/components/ui";
 import { useListFilters } from "@/lib/hooks/use-list-filters";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import {
   filterIncidents,
   hasActiveFilters,
   parseIncidentFilters,
+  sortIncidentsByPriority,
 } from "@/lib/list-filters";
+import { downloadCsv } from "@/lib/export/csv";
 import { getSupabaseClient } from "@/lib/supabase/client";
+import { throwIfAnyQueryError } from "@/lib/supabase/owned";
 import {
   formatDateOccurred,
   formatIncidentStatus,
   formatSeverity,
+  getOpenIncidentAgeDays,
+  isIncidentOpen,
   SEVERITY_OPTIONS,
   STATUS_OPTIONS,
   type Incident,
@@ -37,7 +43,6 @@ import {
 import { countGroupedLinks } from "@/lib/types/join-utils";
 
 function IncidentsPageContent() {
-  const router = useRouter();
   const { filters, updateFilters, clearFilters } = useListFilters(
     "/incidents",
     parseIncidentFilters,
@@ -69,13 +74,7 @@ function IncidentsPageContent() {
           .eq("owner_id", ownerId),
       ]);
 
-      if (incidentsResult.error) {
-        throw incidentsResult.error;
-      }
-
-      if (linksResult.error) {
-        throw linksResult.error;
-      }
+      throwIfAnyQueryError([incidentsResult, linksResult]);
 
       setIncidents((incidentsResult.data ?? []) as Incident[]);
 
@@ -96,7 +95,7 @@ function IncidentsPageContent() {
   const { authLoading } = useRequireAuth(loadIncidents);
 
   const filteredIncidents = useMemo(
-    () => filterIncidents(incidents, filters),
+    () => sortIncidentsByPriority(filterIncidents(incidents, filters)),
     [incidents, filters],
   );
 
@@ -143,6 +142,37 @@ function IncidentsPageContent() {
             total={incidents.length}
             hasFilters={filtersActive}
             onClear={clearFilters}
+            actions={
+              filteredIncidents.length > 0 ? (
+                <button
+                  type="button"
+                  className={secondaryButtonClassName}
+                  onClick={() =>
+                    downloadCsv(
+                      "incident-register",
+                      [
+                        "Title",
+                        "Date Occurred",
+                        "Severity",
+                        "Status",
+                        "Age (days)",
+                        "Linked Risks",
+                      ],
+                      filteredIncidents.map((incident) => [
+                        incident.title,
+                        formatDateOccurred(incident.date_occurred),
+                        formatSeverity(incident.severity),
+                        formatIncidentStatus(incident.status),
+                        getOpenIncidentAgeDays(incident) ?? "",
+                        linkedRiskCounts[incident.id] ?? 0,
+                      ]),
+                    )
+                  }
+                >
+                  Export CSV
+                </button>
+              ) : null
+            }
           >
             <FilterSelect
               label="Severity"
@@ -171,11 +201,9 @@ function IncidentsPageContent() {
           </ListToolbar>
 
           {loading ? (
-            <p className="px-6 py-8 text-slate-600 dark:text-slate-400">
-              Loading incidents...
-            </p>
+            <ListEmpty>Loading incidents...</ListEmpty>
           ) : incidents.length === 0 ? (
-            <p className="px-6 py-8 text-slate-600 dark:text-slate-400">
+            <ListEmpty>
               No incidents yet.{" "}
               <Link
                 href="/incidents/new"
@@ -184,11 +212,9 @@ function IncidentsPageContent() {
                 Add your first incident
               </Link>
               .
-            </p>
+            </ListEmpty>
           ) : filteredIncidents.length === 0 ? (
-            <p className="px-6 py-8 text-slate-600 dark:text-slate-400">
-              No incidents match the current filters.
-            </p>
+            <ListEmpty>No incidents match the current filters.</ListEmpty>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
@@ -196,25 +222,39 @@ function IncidentsPageContent() {
                   <tr>
                     <th className="px-6 py-3 font-medium">Title</th>
                     <th className="px-6 py-3 font-medium">Date Occurred</th>
+                    <th className="px-6 py-3 font-medium">Age</th>
                     <th className="px-6 py-3 font-medium">Severity</th>
                     <th className="px-6 py-3 font-medium">Status</th>
                     <th className="px-6 py-3 font-medium">Linked Risks</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                  {filteredIncidents.map((incident) => (
-                    <tr
+                  {filteredIncidents.map((incident) => {
+                    const ageDays = getOpenIncidentAgeDays(incident);
+                    const needsAttention =
+                      isIncidentOpen(incident.status) &&
+                      (incident.severity === "critical" ||
+                        incident.severity === "high");
+
+                    return (
+                    <ClickableRow
                       key={incident.id}
-                      onClick={() =>
-                        router.push(`/incidents/${incident.id}/edit`)
+                      href={`/incidents/${incident.id}/edit`}
+                      label={`Open ${incident.title}`}
+                      className={
+                        needsAttention
+                          ? "bg-amber-50/50 dark:bg-amber-950/20"
+                          : undefined
                       }
-                      className="cursor-pointer transition-colors hover:bg-teal-50/60 dark:hover:bg-slate-800/80"
                     >
                       <td className="px-6 py-4 font-medium text-slate-950 dark:text-slate-50">
                         {incident.title}
                       </td>
                       <td className="px-6 py-4 text-slate-950 dark:text-slate-50">
                         {formatDateOccurred(incident.date_occurred)}
+                      </td>
+                      <td className="px-6 py-4 text-slate-950 dark:text-slate-50">
+                        {ageDays === null ? "—" : `${ageDays}d`}
                       </td>
                       <td className="px-6 py-4">
                         <IncidentSeverityBadge
@@ -231,8 +271,9 @@ function IncidentsPageContent() {
                       <td className="px-6 py-4 text-slate-950 dark:text-slate-50">
                         {linkedRiskCounts[incident.id] ?? 0}
                       </td>
-                    </tr>
-                  ))}
+                    </ClickableRow>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

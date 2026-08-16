@@ -1,3 +1,4 @@
+import { formatIsoDate, todayIsoDate } from "@/lib/dates";
 import type { Effectiveness, TestResultEffectiveness } from "./control";
 
 export type ControlTestResult = {
@@ -18,15 +19,11 @@ export type NewControlTestResult = {
 };
 
 export function getTodayDateForInput() {
-  return new Date().toISOString().slice(0, 10);
+  return todayIsoDate();
 }
 
 export function formatTestedAt(testedAt: string | null | undefined) {
-  if (!testedAt) {
-    return "—";
-  }
-
-  return new Date(testedAt).toLocaleDateString();
+  return formatIsoDate(testedAt);
 }
 
 export function toControlTestResultPayload(form: NewControlTestResult) {

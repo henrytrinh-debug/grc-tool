@@ -39,6 +39,12 @@ export function BackLink({
   );
 }
 
+export function ListEmpty({ children }: { children: ReactNode }) {
+  return (
+    <p className="px-6 py-8 text-slate-600 dark:text-slate-400">{children}</p>
+  );
+}
+
 export function PageHeader({
   title,
   description,

@@ -14,6 +14,7 @@ type ListToolbarProps = {
   hasFilters: boolean;
   onClear: () => void;
   children?: ReactNode;
+  actions?: ReactNode;
 };
 
 export function ListToolbar({
@@ -25,6 +26,7 @@ export function ListToolbar({
   hasFilters,
   onClear,
   children,
+  actions,
 }: ListToolbarProps) {
   return (
     <div className="space-y-3 border-b border-slate-200 px-6 py-4 dark:border-slate-800">
@@ -53,6 +55,8 @@ export function ListToolbar({
             Clear filters
           </button>
         )}
+
+        {actions}
       </div>
 
       <p className="text-sm text-slate-500 dark:text-slate-400">

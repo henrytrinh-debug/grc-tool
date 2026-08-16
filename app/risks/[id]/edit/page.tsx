@@ -23,6 +23,7 @@ import {
 } from "@/app/components/ui";
 import { useEntityLinks } from "@/lib/hooks/use-entity-links";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
+import { useUnsavedChanges } from "@/lib/hooks/use-unsaved-changes";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import type { Control } from "@/lib/types/control";
 import type { Incident } from "@/lib/types/incident";
@@ -190,7 +191,17 @@ export default function EditRiskPage() {
     ],
   );
 
-  const { authLoading } = useRequireAuth(loadPageData);
+  const { user, authLoading } = useRequireAuth(loadPageData);
+
+  const dirty = Boolean(
+    form &&
+      risk &&
+      (form.title !== risk.title ||
+        form.description !== risk.description ||
+        form.likelihood !== risk.likelihood ||
+        form.impact !== risk.impact),
+  );
+  const { confirmLeave } = useUnsavedChanges(dirty);
 
   function updateForm(updates: Partial<NewRisk>) {
     setForm((current) => (current ? { ...current, ...updates } : current));
@@ -199,7 +210,7 @@ export default function EditRiskPage() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!form || !risk) {
+    if (!form || !risk || !user) {
       return;
     }
 
@@ -211,7 +222,8 @@ export default function EditRiskPage() {
       const { error: updateError } = await supabase
         .from("risks")
         .update(toRiskFormPayload(form))
-        .eq("id", risk.id);
+        .eq("id", risk.id)
+        .eq("owner_id", user.id);
 
       if (updateError) {
         throw updateError;
@@ -225,7 +237,7 @@ export default function EditRiskPage() {
   }
 
   async function handleDelete() {
-    if (!risk) {
+    if (!risk || !user) {
       return;
     }
 
@@ -245,7 +257,8 @@ export default function EditRiskPage() {
       const { error: deleteError } = await supabase
         .from("risks")
         .delete()
-        .eq("id", risk.id);
+        .eq("id", risk.id)
+        .eq("owner_id", user.id);
 
       if (deleteError) {
         throw deleteError;
@@ -300,9 +313,17 @@ export default function EditRiskPage() {
               >
                 {submitting ? "Saving..." : "Save Changes"}
               </button>
-              <Link href="/risks" className={secondaryButtonClassName}>
+              <button
+                type="button"
+                className={secondaryButtonClassName}
+                onClick={() => {
+                  if (confirmLeave()) {
+                    router.push("/risks");
+                  }
+                }}
+              >
                 Cancel
-              </Link>
+              </button>
               <button
                 type="button"
                 onClick={() => void handleDelete()}

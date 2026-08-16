@@ -50,3 +50,14 @@ export function countGroupedLinks(grouped: Record<string, unknown[]>) {
 
   return counts;
 }
+
+export function countByKey<T>(rows: T[], keyOf: (row: T) => string) {
+  const counts: Record<string, number> = {};
+
+  for (const row of rows) {
+    const key = keyOf(row);
+    counts[key] = (counts[key] ?? 0) + 1;
+  }
+
+  return counts;
+}

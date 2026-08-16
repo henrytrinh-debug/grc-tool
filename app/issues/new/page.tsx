@@ -149,7 +149,8 @@ function NewIssuePageContent() {
         commentResult.error ?? riskResult.error ?? controlResult.error;
 
       if (followUpError) {
-        throw followUpError;
+        router.push(`/issues/${issueId}/edit`);
+        return;
       }
 
       // Land on the edit page so the action plan can be built straight away.

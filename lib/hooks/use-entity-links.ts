@@ -114,7 +114,8 @@ export function useEntityLinks<TRow, TLinked>(
         const { error } = await getSupabaseClient()
           .from(table)
           .delete()
-          .eq("id", linkId);
+          .eq("id", linkId)
+          .eq("owner_id", ownerId);
 
         if (error) {
           throw error;

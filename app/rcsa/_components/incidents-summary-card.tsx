@@ -1,6 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { SummaryCard } from "./summary-card";
+import {
+  IncidentSeverityBadge,
+  IncidentStatusBadge,
+} from "@/app/components/status-badge";
 import {
   buildIncidentsSummary,
   formatMostRecentIncidentDate,
@@ -53,10 +58,24 @@ export function IncidentsSummaryCard({ links }: IncidentsSummaryCardProps) {
       rows={links.map((link) => ({
         key: link.linkId,
         cells: [
-          link.title,
+          <Link
+            key={`${link.linkId}-title`}
+            href={`/incidents/${link.incidentId}/edit`}
+            className="font-medium text-teal-700 underline underline-offset-2 dark:text-teal-300"
+          >
+            {link.title}
+          </Link>,
           formatDateOccurred(link.date_occurred),
-          formatSeverity(link.severity),
-          formatIncidentStatus(link.status),
+          <IncidentSeverityBadge
+            key={`${link.linkId}-sev`}
+            severity={link.severity}
+            label={formatSeverity(link.severity)}
+          />,
+          <IncidentStatusBadge
+            key={`${link.linkId}-status`}
+            status={link.status}
+            label={formatIncidentStatus(link.status)}
+          />,
         ],
       }))}
       emptyMessage="No incidents linked to this risk."

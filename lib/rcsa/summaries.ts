@@ -9,9 +9,18 @@ import {
   type IncidentStatus,
   type Severity,
 } from "@/lib/types/incident";
+import {
+  formatIssueSeverity,
+  formatIssueStatus,
+  isIssueOpen,
+  isIssueOverdue,
+  type IssueSeverity,
+  type IssueStatus,
+} from "@/lib/types/issue";
 import type {
   LinkedControl,
   LinkedIncident,
+  LinkedIssue,
 } from "@/lib/types/linked-entities";
 
 export type ControlsSummary = {
@@ -122,4 +131,60 @@ export function formatMostRecentIncidentDate(
   }
 
   return formatDateOccurred(mostRecentDate);
+}
+
+export type IssuesSummary = {
+  total: number;
+  open: number;
+  overdue: number;
+  severity: Record<IssueSeverity, number>;
+  status: Record<IssueStatus, number>;
+};
+
+export function buildIssuesSummary(links: LinkedIssue[]): IssuesSummary {
+  const summary: IssuesSummary = {
+    total: links.length,
+    open: 0,
+    overdue: 0,
+    severity: {
+      low: 0,
+      medium: 0,
+      high: 0,
+      critical: 0,
+    },
+    status: {
+      open: 0,
+      in_progress: 0,
+      pending_review: 0,
+      closed: 0,
+    },
+  };
+
+  for (const link of links) {
+    summary.severity[link.severity] += 1;
+    summary.status[link.status] += 1;
+
+    if (isIssueOpen(link.status)) {
+      summary.open += 1;
+      if (isIssueOverdue(link)) {
+        summary.overdue += 1;
+      }
+    }
+  }
+
+  return summary;
+}
+
+export function formatIssueSeverityBreakdown(
+  severity: IssuesSummary["severity"],
+) {
+  return (Object.keys(severity) as IssueSeverity[])
+    .map((key) => `${formatIssueSeverity(key)}: ${severity[key]}`)
+    .join(" · ");
+}
+
+export function formatIssueStatusBreakdown(status: IssuesSummary["status"]) {
+  return (Object.keys(status) as IssueStatus[])
+    .map((key) => `${formatIssueStatus(key)}: ${status[key]}`)
+    .join(" · ");
 }

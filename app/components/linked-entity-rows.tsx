@@ -18,6 +18,7 @@ import type {
   LinkedIncident,
   LinkedRisk,
 } from "@/lib/types/linked-entities";
+import { formatImpactOption, formatLikelihoodOption } from "@/lib/types/risk";
 
 /**
  * Column headers and cell builders for the linked-entity tables, so every page
@@ -44,8 +45,8 @@ export function buildRiskRows(
     title: link.title,
     cells: [
       link.title,
-      link.likelihood,
-      link.impact,
+      formatLikelihoodOption(link.likelihood),
+      formatImpactOption(link.impact),
       <SeverityBandBadge
         key="band"
         band={getSeverityBand(getRiskScore(link.likelihood, link.impact))}

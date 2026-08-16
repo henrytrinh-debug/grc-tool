@@ -1,3 +1,5 @@
+import { daysSinceIso, formatIsoDate } from "@/lib/dates";
+
 export type Effectiveness = "effective" | "ineffective" | "not_tested";
 
 export type Control = {
@@ -57,16 +59,20 @@ export function formatKeyStatus(isKey: boolean) {
   return isKey ? "Key" : "Non-Key";
 }
 
-export function getTestingStatus(lastTestedAt: string | null | undefined) {
+/** Key controls are tested at least twice a year; others annually. */
+export function getTestingCadenceDays(isKey: boolean) {
+  return isKey ? 180 : 365;
+}
+
+export function getTestingStatus(
+  lastTestedAt: string | null | undefined,
+  isKey = false,
+) {
   if (!lastTestedAt) {
     return "Never Tested";
   }
 
-  const testedDate = new Date(lastTestedAt);
-  const daysSinceTest =
-    (Date.now() - testedDate.getTime()) / (1000 * 60 * 60 * 24);
-
-  if (daysSinceTest > 365) {
+  if (daysSinceIso(lastTestedAt) > getTestingCadenceDays(isKey)) {
     return "Overdue";
   }
 
@@ -74,9 +80,5 @@ export function getTestingStatus(lastTestedAt: string | null | undefined) {
 }
 
 export function formatLastTestedAt(lastTestedAt: string | null | undefined) {
-  if (!lastTestedAt) {
-    return "—";
-  }
-
-  return new Date(lastTestedAt).toLocaleDateString();
+  return formatIsoDate(lastTestedAt);
 }

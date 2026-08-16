@@ -3,14 +3,16 @@
 import Link from "next/link";
 import { Suspense, useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ClickableRow } from "@/app/components/clickable-row";
 import { FilterSelect, ListToolbar } from "@/app/components/list-toolbar";
 import {
   ErrorBanner,
+  ListEmpty,
   PageHeader,
   PageLoading,
 } from "@/app/components/page-parts";
 import { SeverityBandBadge } from "@/app/components/status-badge";
-import { primaryButtonClassName } from "@/app/components/ui";
+import { primaryButtonClassName, secondaryButtonClassName } from "@/app/components/ui";
 import { getRiskScore, getSeverityBand } from "@/lib/dashboard/analytics";
 import { useListFilters } from "@/lib/hooks/use-list-filters";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
@@ -18,8 +20,11 @@ import {
   filterRisks,
   hasActiveFilters,
   parseRiskFilters,
+  sortRisksByExposure,
 } from "@/lib/list-filters";
+import { downloadCsv } from "@/lib/export/csv";
 import { getSupabaseClient } from "@/lib/supabase/client";
+import { throwIfAnyQueryError } from "@/lib/supabase/owned";
 import {
   groupIncidentRiskRowsByRisk,
   type IncidentRiskIncidentRow,
@@ -30,7 +35,18 @@ import {
   type IssueRiskIssueRow,
 } from "@/lib/types/issue-links";
 import { countGroupedLinks } from "@/lib/types/join-utils";
-import type { Risk } from "@/lib/types/risk";
+import {
+  buildLastReviewedByRisk,
+  formatLastReviewedAt,
+  isReviewDue,
+  type RcsaReview,
+} from "@/lib/types/rcsa";
+import {
+  formatImpactOption,
+  formatLikelihoodOption,
+  RISK_SCALE_VALUES,
+  type Risk,
+} from "@/lib/types/risk";
 import {
   groupRiskControlRows,
   type RiskControlRow,
@@ -53,6 +69,9 @@ function RisksPageContent() {
   const [openIssueCounts, setOpenIssueCounts] = useState<
     Record<string, number>
   >({});
+  const [lastReviewedByRisk, setLastReviewedByRisk] = useState<
+    Record<string, string>
+  >({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,6 +85,7 @@ function RisksPageContent() {
         controlLinksResult,
         incidentLinksResult,
         issueLinksResult,
+        reviewsResult,
       ] = await Promise.all([
         supabase
           .from("risks")
@@ -88,23 +108,19 @@ function RisksPageContent() {
           .from("issue_risks")
           .select(ISSUE_RISK_ISSUE_SELECT)
           .eq("owner_id", ownerId),
+        supabase
+          .from("rcsa_reviews")
+          .select("risk_id, reviewed_at")
+          .eq("owner_id", ownerId),
       ]);
 
-      if (risksResult.error) {
-        throw risksResult.error;
-      }
-
-      if (controlLinksResult.error) {
-        throw controlLinksResult.error;
-      }
-
-      if (incidentLinksResult.error) {
-        throw incidentLinksResult.error;
-      }
-
-      if (issueLinksResult.error) {
-        throw issueLinksResult.error;
-      }
+      throwIfAnyQueryError([
+        risksResult,
+        controlLinksResult,
+        incidentLinksResult,
+        issueLinksResult,
+        reviewsResult,
+      ]);
 
       setRisks((risksResult.data ?? []) as Risk[]);
 
@@ -134,6 +150,14 @@ function RisksPageContent() {
         ).length;
       }
       setOpenIssueCounts(openCounts);
+      setLastReviewedByRisk(
+        buildLastReviewedByRisk(
+          (reviewsResult.data ?? []) as Pick<
+            RcsaReview,
+            "risk_id" | "reviewed_at"
+          >[],
+        ),
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load risks");
     } finally {
@@ -144,8 +168,14 @@ function RisksPageContent() {
   const { authLoading } = useRequireAuth(loadRisks);
 
   const filteredRisks = useMemo(
-    () => filterRisks(risks, filters),
-    [risks, filters],
+    () =>
+      sortRisksByExposure(
+        filterRisks(risks, filters, {
+          lastReviewedByRisk,
+          linkedControlCounts,
+        }),
+      ),
+    [risks, filters, lastReviewedByRisk, linkedControlCounts],
   );
 
   const filtersActive = hasActiveFilters({
@@ -153,6 +183,8 @@ function RisksPageContent() {
     severity: filters.severity,
     likelihood: filters.likelihood,
     impact: filters.impact,
+    reviewRecency: filters.reviewRecency,
+    uncontrolled: filters.uncontrolled,
   });
 
   if (authLoading) {
@@ -183,6 +215,53 @@ function RisksPageContent() {
             total={risks.length}
             hasFilters={filtersActive}
             onClear={clearFilters}
+            actions={
+              filteredRisks.length > 0 ? (
+                <button
+                  type="button"
+                  className={secondaryButtonClassName}
+                  onClick={() =>
+                    downloadCsv(
+                      "risk-register",
+                      [
+                        "Title",
+                        "Likelihood",
+                        "Impact",
+                        "Score",
+                        "Band",
+                        "Controls",
+                        "Incidents",
+                        "Open Issues",
+                        "Last Reviewed",
+                        "Owner",
+                      ],
+                      filteredRisks.map((risk) => {
+                        const score = getRiskScore(
+                          risk.likelihood,
+                          risk.impact,
+                        );
+                        return [
+                          risk.title,
+                          risk.likelihood,
+                          risk.impact,
+                          score,
+                          getSeverityBand(score),
+                          linkedControlCounts[risk.id] ?? 0,
+                          linkedIncidentCounts[risk.id] ?? 0,
+                          openIssueCounts[risk.id] ?? 0,
+                          formatLastReviewedAt(
+                            lastReviewedByRisk[risk.id] ?? null,
+                          ),
+                          risk.owner_email ?? "",
+                        ];
+                      }),
+                    )
+                  }
+                >
+                  Export CSV
+                </button>
+              ) : null
+            }
           >
             <FilterSelect
               label="Risk Score"
@@ -199,28 +278,42 @@ function RisksPageContent() {
               label="Likelihood"
               value={filters.likelihood?.toString() ?? ""}
               onChange={(value) => updateFilters({ likelihood: value })}
-              options={[1, 2, 3, 4, 5].map((value) => ({
+              options={RISK_SCALE_VALUES.map((value) => ({
                 value: String(value),
-                label: String(value),
+                label: formatLikelihoodOption(value),
               }))}
             />
             <FilterSelect
               label="Impact"
               value={filters.impact?.toString() ?? ""}
               onChange={(value) => updateFilters({ impact: value })}
-              options={[1, 2, 3, 4, 5].map((value) => ({
+              options={RISK_SCALE_VALUES.map((value) => ({
                 value: String(value),
-                label: String(value),
+                label: formatImpactOption(value),
               }))}
+            />
+            <FilterSelect
+              label="Review"
+              value={filters.reviewRecency}
+              onChange={(value) => updateFilters({ reviewRecency: value })}
+              options={[
+                { value: "due", label: "Due for review" },
+                { value: "never", label: "Never reviewed" },
+                { value: "over365", label: "Reviewed > 365 days ago" },
+              ]}
+            />
+            <FilterSelect
+              label="Controls"
+              value={filters.uncontrolled ? "true" : ""}
+              onChange={(value) => updateFilters({ uncontrolled: value })}
+              options={[{ value: "true", label: "Uncontrolled only" }]}
             />
           </ListToolbar>
 
           {loading ? (
-            <p className="px-6 py-8 text-slate-600 dark:text-slate-400">
-              Loading risks...
-            </p>
+            <ListEmpty>Loading risks...</ListEmpty>
           ) : risks.length === 0 ? (
-            <p className="px-6 py-8 text-slate-600 dark:text-slate-400">
+            <ListEmpty>
               No risks yet.{" "}
               <Link
                 href="/risks/new"
@@ -229,11 +322,9 @@ function RisksPageContent() {
                 Add your first risk
               </Link>
               .
-            </p>
+            </ListEmpty>
           ) : filteredRisks.length === 0 ? (
-            <p className="px-6 py-8 text-slate-600 dark:text-slate-400">
-              No risks match the current filters.
-            </p>
+            <ListEmpty>No risks match the current filters.</ListEmpty>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
@@ -246,6 +337,7 @@ function RisksPageContent() {
                     <th className="px-6 py-3 font-medium">Controls</th>
                     <th className="px-6 py-3 font-medium">Incidents</th>
                     <th className="px-6 py-3 font-medium">Open Issues</th>
+                    <th className="px-6 py-3 font-medium">Last Reviewed</th>
                     <th className="px-6 py-3 font-medium">Owner</th>
                     <th className="px-6 py-3 font-medium">Actions</th>
                   </tr>
@@ -257,26 +349,48 @@ function RisksPageContent() {
                     );
                     const openIssues = openIssueCounts[risk.id] ?? 0;
 
+                    const lastReviewedAt = lastReviewedByRisk[risk.id] ?? null;
+                    const controlCount = linkedControlCounts[risk.id] ?? 0;
+                    const reviewDue = isReviewDue(
+                      lastReviewedAt,
+                      risk.likelihood,
+                      risk.impact,
+                    );
+                    const needsAttention = reviewDue || controlCount === 0;
+
                     return (
-                      <tr
+                      <ClickableRow
                         key={risk.id}
-                        onClick={() => router.push(`/risks/${risk.id}/edit`)}
-                        className="cursor-pointer transition-colors hover:bg-teal-50/60 dark:hover:bg-slate-800/80"
+                        href={`/risks/${risk.id}/edit`}
+                        label={`Open ${risk.title}`}
+                        className={
+                          needsAttention
+                            ? "bg-amber-50/50 dark:bg-amber-950/20"
+                            : undefined
+                        }
                       >
                         <td className="px-6 py-4 font-medium text-slate-950 dark:text-slate-50">
                           {risk.title}
                         </td>
                         <td className="px-6 py-4 text-slate-950 dark:text-slate-50">
-                          {risk.likelihood}
+                          {formatLikelihoodOption(risk.likelihood)}
                         </td>
                         <td className="px-6 py-4 text-slate-950 dark:text-slate-50">
-                          {risk.impact}
+                          {formatImpactOption(risk.impact)}
                         </td>
                         <td className="px-6 py-4">
                           <SeverityBandBadge band={band} />
                         </td>
-                        <td className="px-6 py-4 text-slate-950 dark:text-slate-50">
-                          {linkedControlCounts[risk.id] ?? 0}
+                        <td className="px-6 py-4">
+                          <span
+                            className={
+                              controlCount === 0
+                                ? "font-medium text-red-700 dark:text-red-400"
+                                : "text-slate-950 dark:text-slate-50"
+                            }
+                          >
+                            {controlCount}
+                          </span>
                         </td>
                         <td className="px-6 py-4 text-slate-950 dark:text-slate-50">
                           {linkedIncidentCounts[risk.id] ?? 0}
@@ -291,6 +405,15 @@ function RisksPageContent() {
                           >
                             {openIssues}
                           </span>
+                        </td>
+                        <td
+                          className={`px-6 py-4 ${
+                            reviewDue
+                              ? "font-medium text-red-700 dark:text-red-400"
+                              : "text-slate-600 dark:text-slate-400"
+                          }`}
+                        >
+                          {formatLastReviewedAt(lastReviewedAt)}
                         </td>
                         <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
                           {risk.owner_email}
@@ -307,7 +430,7 @@ function RisksPageContent() {
                             Review
                           </button>
                         </td>
-                      </tr>
+                      </ClickableRow>
                     );
                   })}
                 </tbody>

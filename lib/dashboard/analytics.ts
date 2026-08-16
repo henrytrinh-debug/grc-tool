@@ -88,15 +88,20 @@ export function buildSeverityBandCounts(risks: Risk[]): SeverityBandCount[] {
   ];
 }
 
+/** Color for a likelihood × impact cell, independent of how many risks sit in it. */
+export function getScoreHeatColor(score: number) {
+  const ratio = (Math.min(25, Math.max(1, score)) - 1) / 24;
+  const hue = 120 - ratio * 120;
+
+  return `hsl(${hue} 65% 42%)`;
+}
+
 export function getHeatMapCellColor(score: number, count: number) {
   if (count === 0) {
     return "rgb(241 245 249)";
   }
 
-  const ratio = (score - 1) / 24;
-  const hue = 120 - ratio * 120;
-
-  return `hsl(${hue} 65% 42%)`;
+  return getScoreHeatColor(score);
 }
 
 export function buildControlEffectivenessCounts(

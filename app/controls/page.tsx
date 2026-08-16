@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Suspense, useCallback, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { ClickableRow } from "@/app/components/clickable-row";
 import {
   EffectivenessBadge,
   KeyBadge,
@@ -11,18 +11,22 @@ import {
 import { FilterSelect, ListToolbar } from "@/app/components/list-toolbar";
 import {
   ErrorBanner,
+  ListEmpty,
   PageHeader,
   PageLoading,
 } from "@/app/components/page-parts";
-import { primaryButtonClassName } from "@/app/components/ui";
+import { primaryButtonClassName, secondaryButtonClassName } from "@/app/components/ui";
 import { useListFilters } from "@/lib/hooks/use-list-filters";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import {
   filterControls,
   hasActiveFilters,
   parseControlFilters,
+  sortControlsByAttention,
 } from "@/lib/list-filters";
+import { downloadCsv } from "@/lib/export/csv";
 import { getSupabaseClient } from "@/lib/supabase/client";
+import { throwIfAnyQueryError } from "@/lib/supabase/owned";
 import {
   EFFECTIVENESS_OPTIONS,
   formatEffectiveness,
@@ -42,7 +46,6 @@ import {
 } from "@/lib/types/risk-control";
 
 function ControlsPageContent() {
-  const router = useRouter();
   const { filters, updateFilters, clearFilters } = useListFilters(
     "/controls",
     parseControlFilters,
@@ -81,17 +84,7 @@ function ControlsPageContent() {
           .eq("owner_id", ownerId),
       ]);
 
-      if (controlsResult.error) {
-        throw controlsResult.error;
-      }
-
-      if (linksResult.error) {
-        throw linksResult.error;
-      }
-
-      if (issueLinksResult.error) {
-        throw issueLinksResult.error;
-      }
+      throwIfAnyQueryError([controlsResult, linksResult, issueLinksResult]);
 
       setControls((controlsResult.data ?? []) as Control[]);
 
@@ -123,8 +116,11 @@ function ControlsPageContent() {
   const { authLoading } = useRequireAuth(loadControls);
 
   const filteredControls = useMemo(
-    () => filterControls(controls, filters),
-    [controls, filters],
+    () =>
+      sortControlsByAttention(
+        filterControls(controls, filters, { linkedRiskCounts }),
+      ),
+    [controls, filters, linkedRiskCounts],
   );
 
   const filtersActive = hasActiveFilters({
@@ -132,6 +128,7 @@ function ControlsPageContent() {
     effectiveness: filters.effectiveness,
     testingStatus: filters.testingStatus,
     isKey: filters.isKey,
+    unmapped: filters.unmapped,
   });
 
   if (authLoading) {
@@ -162,6 +159,39 @@ function ControlsPageContent() {
             total={controls.length}
             hasFilters={filtersActive}
             onClear={clearFilters}
+            actions={
+              filteredControls.length > 0 ? (
+                <button
+                  type="button"
+                  className={secondaryButtonClassName}
+                  onClick={() =>
+                    downloadCsv(
+                      "control-register",
+                      [
+                        "Title",
+                        "Key",
+                        "Effectiveness",
+                        "Last Tested",
+                        "Testing Status",
+                        "Linked Risks",
+                        "Open Issues",
+                      ],
+                      filteredControls.map((control) => [
+                        control.title,
+                        control.is_key ? "Key" : "Non-Key",
+                        formatEffectiveness(control.effectiveness),
+                        formatLastTestedAt(control.last_tested_at),
+                        getTestingStatus(control.last_tested_at, control.is_key),
+                        linkedRiskCounts[control.id] ?? 0,
+                        openIssueCounts[control.id] ?? 0,
+                      ]),
+                    )
+                  }
+                >
+                  Export CSV
+                </button>
+              ) : null
+            }
           >
             <FilterSelect
               label="Key"
@@ -191,14 +221,18 @@ function ControlsPageContent() {
                 { value: "Overdue", label: "Overdue" },
               ]}
             />
+            <FilterSelect
+              label="Mapping"
+              value={filters.unmapped ? "true" : ""}
+              onChange={(value) => updateFilters({ unmapped: value })}
+              options={[{ value: "true", label: "Unmapped only" }]}
+            />
           </ListToolbar>
 
           {loading ? (
-            <p className="px-6 py-8 text-slate-600 dark:text-slate-400">
-              Loading controls...
-            </p>
+            <ListEmpty>Loading controls...</ListEmpty>
           ) : controls.length === 0 ? (
-            <p className="px-6 py-8 text-slate-600 dark:text-slate-400">
+            <ListEmpty>
               No controls yet.{" "}
               <Link
                 href="/controls/new"
@@ -207,11 +241,9 @@ function ControlsPageContent() {
                 Add your first control
               </Link>
               .
-            </p>
+            </ListEmpty>
           ) : filteredControls.length === 0 ? (
-            <p className="px-6 py-8 text-slate-600 dark:text-slate-400">
-              No controls match the current filters.
-            </p>
+            <ListEmpty>No controls match the current filters.</ListEmpty>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
@@ -227,13 +259,28 @@ function ControlsPageContent() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                  {filteredControls.map((control) => (
-                    <tr
+                  {filteredControls.map((control) => {
+                    const testingStatus = getTestingStatus(
+                      control.last_tested_at,
+                      control.is_key,
+                    );
+                    const riskCount = linkedRiskCounts[control.id] ?? 0;
+                    const needsAttention =
+                      (control.is_key &&
+                        control.effectiveness === "ineffective") ||
+                      testingStatus === "Overdue" ||
+                      riskCount === 0;
+
+                    return (
+                    <ClickableRow
                       key={control.id}
-                      onClick={() =>
-                        router.push(`/controls/${control.id}/edit`)
+                      href={`/controls/${control.id}/edit`}
+                      label={`Open ${control.title}`}
+                      className={
+                        needsAttention
+                          ? "bg-amber-50/50 dark:bg-amber-950/20"
+                          : undefined
                       }
-                      className="cursor-pointer transition-colors hover:bg-teal-50/60 dark:hover:bg-slate-800/80"
                     >
                       <td className="px-6 py-4 font-medium text-slate-950 dark:text-slate-50">
                         {control.title}
@@ -251,12 +298,18 @@ function ControlsPageContent() {
                         {formatLastTestedAt(control.last_tested_at)}
                       </td>
                       <td className="px-6 py-4">
-                        <TestingStatusBadge
-                          status={getTestingStatus(control.last_tested_at)}
-                        />
+                        <TestingStatusBadge status={testingStatus} />
                       </td>
                       <td className="px-6 py-4 text-slate-950 dark:text-slate-50">
-                        {linkedRiskCounts[control.id] ?? 0}
+                        <span
+                          className={
+                            riskCount === 0
+                              ? "font-medium text-red-700 dark:text-red-400"
+                              : undefined
+                          }
+                        >
+                          {riskCount}
+                        </span>
                       </td>
                       <td className="px-6 py-4">
                         <span
@@ -269,8 +322,9 @@ function ControlsPageContent() {
                           {openIssueCounts[control.id] ?? 0}
                         </span>
                       </td>
-                    </tr>
-                  ))}
+                    </ClickableRow>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

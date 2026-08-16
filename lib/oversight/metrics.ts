@@ -1,3 +1,4 @@
+import { daysBetweenMs, daysSinceIso, parseIsoDate } from "@/lib/dates";
 import {
   getRiskScore,
   getSeverityBand,
@@ -16,13 +17,11 @@ import {
   type IssueSeverity,
 } from "@/lib/types/issue";
 import type { Risk } from "@/lib/types/risk";
-
-const DAY_MS = 1000 * 60 * 60 * 24;
-
-/** Positive when `laterMs` is after `earlierMs`. */
-function daysBetween(laterMs: number, earlierMs: number) {
-  return (laterMs - earlierMs) / DAY_MS;
-}
+import {
+  buildLastReviewedByRisk,
+  getReviewRecencyBucket,
+  isReviewDue,
+} from "@/lib/types/rcsa";
 
 function isWithinTrailingDays(
   dateIso: string | null | undefined,
@@ -32,7 +31,7 @@ function isWithinTrailingDays(
     return false;
   }
 
-  const diff = daysBetween(Date.now(), new Date(dateIso).getTime());
+  const diff = daysSinceIso(dateIso);
   return diff >= 0 && diff <= days;
 }
 
@@ -80,7 +79,7 @@ export function buildTestingCoverage(controls: Control[]): TestingCoverage {
   const coverage: TestingCoverage = { neverTested: 0, tested: 0, overdue: 0 };
 
   for (const control of controls) {
-    const status = getTestingStatus(control.last_tested_at);
+    const status = getTestingStatus(control.last_tested_at, control.is_key);
 
     if (status === "Never Tested") {
       coverage.neverTested += 1;
@@ -189,15 +188,7 @@ export function buildStaleReviewBreakdown(
   risks: Risk[],
   reviews: { risk_id: string; reviewed_at: string }[],
 ): StaleReviewBreakdown {
-  const lastReviewedByRisk = new Map<string, string>();
-
-  for (const review of reviews) {
-    const current = lastReviewedByRisk.get(review.risk_id);
-    if (!current || review.reviewed_at > current) {
-      lastReviewedByRisk.set(review.risk_id, review.reviewed_at);
-    }
-  }
-
+  const lastReviewedByRisk = buildLastReviewedByRisk(reviews);
   const breakdown: StaleReviewBreakdown = {
     never: 0,
     within180: 0,
@@ -206,25 +197,38 @@ export function buildStaleReviewBreakdown(
   };
 
   for (const risk of risks) {
-    const lastReviewedAt = lastReviewedByRisk.get(risk.id);
-
-    if (!lastReviewedAt) {
-      breakdown.never += 1;
-      continue;
-    }
-
-    const daysSince = daysBetween(Date.now(), new Date(lastReviewedAt).getTime());
-
-    if (daysSince > 365) {
-      breakdown.over365 += 1;
-    } else if (daysSince > 180) {
-      breakdown.between180And365 += 1;
-    } else {
-      breakdown.within180 += 1;
-    }
+    breakdown[getReviewRecencyBucket(lastReviewedByRisk[risk.id] ?? null)] += 1;
   }
 
   return breakdown;
+}
+
+/** Risks whose last RCSA review is past the severity-band cadence (includes never reviewed). */
+export function countReviewsDue(
+  risks: Risk[],
+  reviews: { risk_id: string; reviewed_at: string }[],
+) {
+  const lastReviewedByRisk = buildLastReviewedByRisk(reviews);
+
+  return risks.filter((risk) =>
+    isReviewDue(
+      lastReviewedByRisk[risk.id] ?? null,
+      risk.likelihood,
+      risk.impact,
+    ),
+  ).length;
+}
+
+/** Controls with zero linked risks — the inverse of uncontrolled risk exposure. */
+export function countOrphanedControls(
+  controls: Control[],
+  riskControlLinks: { control_id: string }[],
+) {
+  const linkedControlIds = new Set(
+    riskControlLinks.map((link) => link.control_id),
+  );
+
+  return controls.filter((control) => !linkedControlIds.has(control.id)).length;
 }
 
 // ---------------------------------------------------------------------------
@@ -272,10 +276,7 @@ export function buildOpenIssueAgingBuckets(issues: Issue[]): IssueAgingBucket[] 
       continue;
     }
 
-    const ageDays = daysBetween(
-      Date.now(),
-      new Date(issue.identified_at).getTime(),
-    );
+    const ageDays = daysSinceIso(issue.identified_at);
     const bucket = buckets[getAgingBucket(ageDays)];
     bucket[issue.severity] += 1;
     bucket.total += 1;
@@ -336,9 +337,9 @@ export function buildAvgDaysToCloseIssues(issues: Issue[]): number | null {
   const totalDays = closed.reduce(
     (sum, issue) =>
       sum +
-      daysBetween(
+      daysBetweenMs(
         new Date(issue.closed_at).getTime(),
-        new Date(issue.identified_at).getTime(),
+        parseIsoDate(issue.identified_at).getTime(),
       ),
     0,
   );
@@ -397,7 +398,7 @@ export function buildIncidentStock(incidents: Incident[]): IncidentStock {
 
   const totalAgeDays = openIncidents.reduce(
     (sum, incident) =>
-      sum + daysBetween(Date.now(), new Date(incident.date_occurred).getTime()),
+      sum + daysSinceIso(incident.date_occurred),
     0,
   );
 
@@ -450,9 +451,9 @@ export function buildAvgDaysToResolveIncidents(
   const totalDays = resolved.reduce(
     (sum, incident) =>
       sum +
-      daysBetween(
+      daysBetweenMs(
         new Date(incident.resolved_at).getTime(),
-        new Date(incident.date_occurred).getTime(),
+        parseIsoDate(incident.date_occurred).getTime(),
       ),
     0,
   );

@@ -20,6 +20,7 @@ import {
 } from "@/app/components/ui";
 import { useEntityLinks } from "@/lib/hooks/use-entity-links";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
+import { useUnsavedChanges } from "@/lib/hooks/use-unsaved-changes";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import {
   formatDateForInput,
@@ -122,7 +123,19 @@ export default function EditIncidentPage() {
     [incidentId, refreshRiskLinks, router],
   );
 
-  const { authLoading } = useRequireAuth(loadPageData);
+  const { user, authLoading } = useRequireAuth(loadPageData);
+
+  const dirty = Boolean(
+    form &&
+      incident &&
+      (form.title !== incident.title ||
+        form.description !== incident.description ||
+        form.date_occurred !== formatDateForInput(incident.date_occurred) ||
+        form.severity !== incident.severity ||
+        form.status !== incident.status ||
+        form.root_cause !== incident.root_cause),
+  );
+  const { confirmLeave } = useUnsavedChanges(dirty);
 
   function updateForm(updates: Partial<NewIncident>) {
     setForm((current) => (current ? { ...current, ...updates } : current));
@@ -131,7 +144,7 @@ export default function EditIncidentPage() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!form || !incident) {
+    if (!form || !incident || !user) {
       return;
     }
 
@@ -147,7 +160,8 @@ export default function EditIncidentPage() {
           ...toIncidentFormPayload(form),
           resolved_at: nextResolvedAt(form.status, incident.resolved_at),
         })
-        .eq("id", incident.id);
+        .eq("id", incident.id)
+        .eq("owner_id", user.id);
 
       if (updateError) {
         throw updateError;
@@ -161,7 +175,7 @@ export default function EditIncidentPage() {
   }
 
   async function handleDelete() {
-    if (!incident) {
+    if (!incident || !user) {
       return;
     }
 
@@ -181,7 +195,8 @@ export default function EditIncidentPage() {
       const { error: deleteError } = await supabase
         .from("incidents")
         .delete()
-        .eq("id", incident.id);
+        .eq("id", incident.id)
+        .eq("owner_id", user.id);
 
       if (deleteError) {
         throw deleteError;
@@ -240,9 +255,17 @@ export default function EditIncidentPage() {
               >
                 {submitting ? "Saving..." : "Save Changes"}
               </button>
-              <Link href="/incidents" className={secondaryButtonClassName}>
+              <button
+                type="button"
+                className={secondaryButtonClassName}
+                onClick={() => {
+                  if (confirmLeave()) {
+                    router.push("/incidents");
+                  }
+                }}
+              >
                 Cancel
-              </Link>
+              </button>
               <button
                 type="button"
                 onClick={() => void handleDelete()}

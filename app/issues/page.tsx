@@ -2,23 +2,26 @@
 
 import Link from "next/link";
 import { Suspense, useCallback, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { ClickableRow } from "@/app/components/clickable-row";
 import { FilterSelect, ListToolbar } from "@/app/components/list-toolbar";
-import { ErrorBanner, PageHeader, PageLoading } from "@/app/components/page-parts";
+import { ErrorBanner, ListEmpty, PageHeader, PageLoading } from "@/app/components/page-parts";
 import {
   IssueSeverityBadge,
   IssueStatusBadge,
   OverdueBadge,
 } from "@/app/components/status-badge";
-import { primaryButtonClassName } from "@/app/components/ui";
+import { primaryButtonClassName, secondaryButtonClassName } from "@/app/components/ui";
 import { useListFilters } from "@/lib/hooks/use-list-filters";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import {
   filterIssues,
   hasActiveFilters,
   parseIssueFilters,
+  sortIssuesByPriority,
 } from "@/lib/list-filters";
+import { downloadCsv } from "@/lib/export/csv";
 import { getSupabaseClient } from "@/lib/supabase/client";
+import { throwIfAnyQueryError } from "@/lib/supabase/owned";
 import {
   formatDueDateLabel,
   formatIssueSeverity,
@@ -34,11 +37,19 @@ import {
   getActionProgress,
   type IssueAction,
 } from "@/lib/types/issue-action";
+import {
+  groupControlsByIssue,
+  groupRisksByIssue,
+  ISSUE_CONTROL_SELECT,
+  ISSUE_RISK_SELECT,
+  type IssueControlRow,
+  type IssueRiskRow,
+} from "@/lib/types/issue-links";
+import { countGroupedLinks } from "@/lib/types/join-utils";
 
 const OPEN_STATUSES = "open,in_progress,pending_review";
 
 function IssuesPageContent() {
-  const router = useRouter();
   const { filters, updateFilters, clearFilters } = useListFilters(
     "/issues",
     parseIssueFilters,
@@ -48,6 +59,12 @@ function IssuesPageContent() {
   const [actionsByIssue, setActionsByIssue] = useState<
     Record<string, IssueAction[]>
   >({});
+  const [linkedRiskCounts, setLinkedRiskCounts] = useState<
+    Record<string, number>
+  >({});
+  const [linkedControlCounts, setLinkedControlCounts] = useState<
+    Record<string, number>
+  >({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -56,7 +73,8 @@ function IssuesPageContent() {
 
     try {
       const supabase = getSupabaseClient();
-      const [issuesResult, actionsResult] = await Promise.all([
+      const [issuesResult, actionsResult, riskLinksResult, controlLinksResult] =
+        await Promise.all([
         supabase
           .from("issues")
           .select("*")
@@ -66,15 +84,22 @@ function IssuesPageContent() {
           .from("issue_actions")
           .select("*")
           .eq("owner_id", ownerId),
+        supabase
+          .from("issue_risks")
+          .select(ISSUE_RISK_SELECT)
+          .eq("owner_id", ownerId),
+        supabase
+          .from("issue_controls")
+          .select(ISSUE_CONTROL_SELECT)
+          .eq("owner_id", ownerId),
       ]);
 
-      if (issuesResult.error) {
-        throw issuesResult.error;
-      }
-
-      if (actionsResult.error) {
-        throw actionsResult.error;
-      }
+      throwIfAnyQueryError([
+        issuesResult,
+        actionsResult,
+        riskLinksResult,
+        controlLinksResult,
+      ]);
 
       setIssues((issuesResult.data ?? []) as Issue[]);
 
@@ -85,6 +110,18 @@ function IssuesPageContent() {
         grouped[action.issue_id] = bucket;
       }
       setActionsByIssue(grouped);
+      setLinkedRiskCounts(
+        countGroupedLinks(
+          groupRisksByIssue((riskLinksResult.data ?? []) as IssueRiskRow[]),
+        ),
+      );
+      setLinkedControlCounts(
+        countGroupedLinks(
+          groupControlsByIssue(
+            (controlLinksResult.data ?? []) as IssueControlRow[],
+          ),
+        ),
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load issues");
     } finally {
@@ -95,7 +132,7 @@ function IssuesPageContent() {
   const { authLoading } = useRequireAuth(loadIssues);
 
   const filteredIssues = useMemo(
-    () => filterIssues(issues, filters),
+    () => sortIssuesByPriority(filterIssues(issues, filters)),
     [issues, filters],
   );
 
@@ -161,6 +198,48 @@ function IssuesPageContent() {
             total={issues.length}
             hasFilters={filtersActive}
             onClear={clearFilters}
+            actions={
+              filteredIssues.length > 0 ? (
+                <button
+                  type="button"
+                  className={secondaryButtonClassName}
+                  onClick={() =>
+                    downloadCsv(
+                      "issue-log",
+                      [
+                        "Title",
+                        "Source",
+                        "Severity",
+                        "Status",
+                        "Target Date",
+                        "Action Plan",
+                        "Linked Risks",
+                        "Linked Controls",
+                      ],
+                      filteredIssues.map((issue) => {
+                        const progress = getActionProgress(
+                          actionsByIssue[issue.id] ?? [],
+                        );
+                        return [
+                          issue.title,
+                          formatIssueSource(issue.source),
+                          formatIssueSeverity(issue.severity),
+                          formatIssueStatus(issue.status),
+                          formatDueDateLabel(issue),
+                          progress.total === 0
+                            ? "No actions"
+                            : `${progress.completed}/${progress.total}`,
+                          linkedRiskCounts[issue.id] ?? 0,
+                          linkedControlCounts[issue.id] ?? 0,
+                        ];
+                      }),
+                    )
+                  }
+                >
+                  Export CSV
+                </button>
+              ) : null
+            }
           >
             <FilterSelect
               label="Severity"
@@ -201,11 +280,9 @@ function IssuesPageContent() {
           </ListToolbar>
 
           {loading ? (
-            <p className="px-6 py-8 text-slate-600 dark:text-slate-400">
-              Loading issues...
-            </p>
+            <ListEmpty>Loading issues...</ListEmpty>
           ) : issues.length === 0 ? (
-            <p className="px-6 py-8 text-slate-600 dark:text-slate-400">
+            <ListEmpty>
               No issues yet.{" "}
               <Link
                 href="/issues/new"
@@ -214,11 +291,9 @@ function IssuesPageContent() {
                 Raise your first issue
               </Link>
               .
-            </p>
+            </ListEmpty>
           ) : filteredIssues.length === 0 ? (
-            <p className="px-6 py-8 text-slate-600 dark:text-slate-400">
-              No issues match the current filters.
-            </p>
+            <ListEmpty>No issues match the current filters.</ListEmpty>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
@@ -230,6 +305,7 @@ function IssuesPageContent() {
                     <th className="px-6 py-3 font-medium">Status</th>
                     <th className="px-6 py-3 font-medium">Target Date</th>
                     <th className="px-6 py-3 font-medium">Action Plan</th>
+                    <th className="px-6 py-3 font-medium">Linked</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -237,12 +313,18 @@ function IssuesPageContent() {
                     const progress = getActionProgress(
                       actionsByIssue[issue.id] ?? [],
                     );
+                    const overdue = isIssueOverdue(issue);
 
                     return (
-                      <tr
+                      <ClickableRow
                         key={issue.id}
-                        onClick={() => router.push(`/issues/${issue.id}/edit`)}
-                        className="cursor-pointer transition-colors hover:bg-teal-50/60 dark:hover:bg-slate-800/80"
+                        href={`/issues/${issue.id}/edit`}
+                        label={`Open ${issue.title}`}
+                        className={
+                          overdue
+                            ? "bg-amber-50/50 dark:bg-amber-950/20"
+                            : undefined
+                        }
                       >
                         <td className="px-6 py-4 font-medium text-slate-950 dark:text-slate-50">
                           {issue.title}
@@ -275,7 +357,14 @@ function IssuesPageContent() {
                             ? "No actions"
                             : `${progress.completed}/${progress.total} complete`}
                         </td>
-                      </tr>
+                        <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
+                          {(linkedRiskCounts[issue.id] ?? 0) +
+                            (linkedControlCounts[issue.id] ?? 0) ===
+                          0
+                            ? "—"
+                            : `${linkedRiskCounts[issue.id] ?? 0} risks · ${linkedControlCounts[issue.id] ?? 0} controls`}
+                        </td>
+                      </ClickableRow>
                     );
                   })}
                 </tbody>

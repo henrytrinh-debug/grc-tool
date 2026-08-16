@@ -38,6 +38,8 @@ import {
   buildTestingCoverage,
   buildTestPassRate,
   buildUncontrolledRisks,
+  countOrphanedControls,
+  countReviewsDue,
   getOpenIssueOverduePercent,
   toControlKeySplitChartCounts,
   toTestingCoverageChartCounts,
@@ -52,6 +54,7 @@ import {
   type UncontrolledRiskBreakdown,
 } from "@/lib/oversight/metrics";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
+import { throwIfAnyQueryError } from "@/lib/supabase/owned";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import type { Control } from "@/lib/types/control";
 import type { ControlTestResult } from "@/lib/types/control-test-result";
@@ -72,6 +75,8 @@ type OversightData = {
   uncontrolledRisks: UncontrolledRiskBreakdown[];
   severityBands: SeverityBandCount[];
   staleReviews: StaleReviewBreakdown;
+  reviewsDue: number;
+  orphanedControls: number;
   agingBuckets: IssueAgingBucket[];
   issueFlow: IssueFlow;
   issuesSummary: IssueSummary;
@@ -105,6 +110,8 @@ const emptyData: OversightData = {
   uncontrolledRisks: [],
   severityBands: [],
   staleReviews: { never: 0, within180: 0, between180And365: 0, over365: 0 },
+  reviewsDue: 0,
+  orphanedControls: 0,
   agingBuckets: [],
   issueFlow: { last30: { opened: 0, closed: 0 }, last90: { opened: 0, closed: 0 } },
   issuesSummary: emptyIssueSummary,
@@ -183,17 +190,14 @@ export default function OversightPage() {
         supabase.from("incidents").select("*").eq("owner_id", ownerId),
         supabase.from("issues").select("*").eq("owner_id", ownerId),
         supabase.from("issue_actions").select("*").eq("owner_id", ownerId),
-        supabase.from("risk_controls").select("risk_id").eq("owner_id", ownerId),
+        supabase.from("risk_controls").select("risk_id, control_id").eq("owner_id", ownerId),
         supabase
           .from("rcsa_reviews")
           .select("risk_id, reviewed_at")
           .eq("owner_id", ownerId),
       ]);
 
-      const failed = results.find((result) => result.error);
-      if (failed?.error) {
-        throw failed.error;
-      }
+      throwIfAnyQueryError(results);
 
       const [
         risksResult,
@@ -218,6 +222,7 @@ export default function OversightPage() {
       const actions = (actionsResult.data ?? []) as IssueAction[];
       const riskControlLinks = (riskControlsResult.data ?? []) as {
         risk_id: string;
+        control_id: string;
       }[];
       const reviews = (reviewsResult.data ?? []) as {
         risk_id: string;
@@ -234,6 +239,8 @@ export default function OversightPage() {
         uncontrolledRisks: buildUncontrolledRisks(risks, riskControlLinks),
         severityBands: buildSeverityBandCounts(risks),
         staleReviews: buildStaleReviewBreakdown(risks, reviews),
+        reviewsDue: countReviewsDue(risks, reviews),
+        orphanedControls: countOrphanedControls(controls, riskControlLinks),
         agingBuckets: buildOpenIssueAgingBuckets(issues),
         issueFlow: buildIssueFlow(issues),
         issuesSummary: summariseIssues(issues, actions),
@@ -304,7 +311,7 @@ export default function OversightPage() {
                 <StatCard
                   label="Key Controls Overdue"
                   value={keyControlsOverdueCount}
-                  hint="Key controls not tested within 365 days"
+                  hint="Key controls not tested within 180 days"
                   href="/controls?isKey=true&testingStatus=Overdue"
                   linkLabel="View overdue key controls"
                   tone={keyControlsOverdueCount > 0 ? "alert" : "default"}
@@ -322,7 +329,17 @@ export default function OversightPage() {
                   label="Uncontrolled Risk Exposure"
                   value={uncontrolledTotal}
                   hint="Risks with zero linked controls"
+                  href="/risks?uncontrolled=true"
+                  linkLabel="View uncontrolled risks"
                   tone={uncontrolledHighOrCriticalCount > 0 ? "alert" : "default"}
+                />
+                <StatCard
+                  label="Unmapped Controls"
+                  value={data.orphanedControls}
+                  hint="Controls with no linked risk"
+                  href="/controls?unmapped=true"
+                  linkLabel="View unmapped controls"
+                  tone={data.orphanedControls > 0 ? "alert" : "default"}
                 />
               </div>
 
@@ -382,16 +399,20 @@ export default function OversightPage() {
                   linkLabel="View risk register"
                 />
                 <StatCard
+                  label="Due for Review"
+                  value={data.reviewsDue}
+                  hint="Past the 90/180/365-day cadence for the current score"
+                  href="/risks?reviewRecency=due"
+                  linkLabel="View risks due for review"
+                  tone={data.reviewsDue > 0 ? "alert" : "default"}
+                />
+                <StatCard
                   label="Never Reviewed"
                   value={data.staleReviews.never}
                   hint="No RCSA review on record"
+                  href="/risks?reviewRecency=never"
+                  linkLabel="View never-reviewed risks"
                   tone={data.staleReviews.never > 0 ? "alert" : "default"}
-                />
-                <StatCard
-                  label="Reviewed > 365 Days Ago"
-                  value={data.staleReviews.over365}
-                  hint="Overdue for re-assessment"
-                  tone={data.staleReviews.over365 > 0 ? "alert" : "default"}
                 />
                 <StatCard
                   label="Reviewed Within 180 Days"
@@ -412,7 +433,10 @@ export default function OversightPage() {
                   title="Review Recency"
                   description="Time since each risk's last RCSA review."
                 >
-                  <StaleReviewsBreakdownList breakdown={data.staleReviews} />
+                  <StaleReviewsBreakdownList
+                    breakdown={data.staleReviews}
+                    dueCount={data.reviewsDue}
+                  />
                 </ChartCard>
               </div>
             </section>

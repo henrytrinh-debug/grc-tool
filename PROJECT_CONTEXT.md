@@ -37,13 +37,15 @@ Core risk register entries.
 | id | uuid | PK |
 | title | text | required |
 | description | text | |
-| likelihood | int2 | 1–5, constrained |
-| impact | int2 | 1–5, constrained |
+| likelihood | int2 | 1–5, constrained. **Stored as an integer**; UI uses ISO 31000 labels (Rare → Almost certain) via a 5×5 score matrix, not dropdowns. |
+| impact | int2 | 1–5, constrained. Labels: Negligible → Severe. Same matrix picker. |
 | owner_id | uuid | FK → auth.users, set automatically from logged-in user |
 | owner_email | text | denormalized copy of owner's email, for display (auth.users isn't publicly queryable) |
 | created_at | timestamptz | |
 
-No status field yet (open/closed) — deferred; likely belongs in the RCSA workflow (Objective 6).
+No status field yet (open/closed) — deferred. Inherent vs residual is **not stored**:
+the register holds inherent likelihood × impact; RCSA shows an *indicative* residual
+(likelihood reduced by 1 when all relevant controls are effective) as a reviewer aid only.
 
 ### `controls`
 Independent module — controls can exist without being linked to any risk.
@@ -61,7 +63,8 @@ Independent module — controls can exist without being linked to any risk.
 
 "Testing Status" (Never Tested / Tested / Overdue) is **calculated on the fly**, not stored:
 - No `last_tested_at` → Never Tested
-- `last_tested_at` > 365 days ago → Overdue
+- Key control, `last_tested_at` older than **180 days** → Overdue
+- Non-key control, `last_tested_at` older than **365 days** → Overdue
 - Otherwise → Tested
 
 ### `control_test_results`
@@ -135,7 +138,10 @@ so a rating change has provenance rather than silently overwriting the risk.
 | created_at | timestamptz | |
 
 A risk's "Last Reviewed" is **derived** from the newest `reviewed_at` here, not stored on the
-risk — which is why there's still no review-status field on `risks`.
+risk — which is why there's still no review-status field on `risks`. Review **due** is also
+derived: Critical every 90 days, High every 180 days, Medium/Low annually. The register
+filter `reviewRecency=due` and Oversight's "Due for Review" stat use that cadence, not a
+single 365-day rule.
 
 ### `issues`
 Findings raised from audits, control failures, incidents, or risk assessments. This is the
@@ -251,18 +257,26 @@ If the app 404s or errors on a whole module, check whether its SQL has been appl
   issue workflow/action-plan/activity panels, and a `constants.ts` holding the empty-form
   default. The `_` prefix keeps these out of Next.js routing.
 - **Sidebar navigation** — persistent across all pages: Home, Risks, Controls, Incidents,
-  Issues, RCSA, Oversight Monitoring, plus Log Out button. `app/layout.tsx` wraps every page in `<AppShell>`
+  Issues, RCSA, Oversight Monitoring, plus Log Out button. Collapses behind a Menu button
+  on small screens. `⌘K` / `Ctrl+K` opens a jump palette (`app/components/command-palette.tsx`).
+  `app/layout.tsx` wraps every page in `<AppShell>`
   (`app/components/app-shell.tsx`), which hides the sidebar on `/login` and otherwise
   renders `app/components/app-sidebar.tsx` (active-link highlighting + centralized log out).
 - **Home page** (`/`) — welcome message + user email, stat cards (risks, overdue controls,
-  open incidents, open issues), and dashboard visuals, all click-through to a filtered list:
-  - Risk heat map (5×5 grid, likelihood × impact, color-coded)
+  open incidents, open issues), a **Needs attention** queue (overdue issues, failed/overdue
+  key controls, open high/critical incidents, and High/Critical risks that are uncontrolled
+  or past their review cadence), and dashboard visuals, all click-through:
+  - Risk heat map (5×5 grid, likelihood × impact, labeled axes, color-coded)
   - Bar chart: risk count by severity band (calculated from likelihood × impact: 1–5 Low,
     6–10 Medium, 11–19 High, 20–25 Critical)
   - Donut charts: controls by effectiveness, incidents by status, issues by status
   - Remediation health: action-plan completion across open issues, plus open/overdue
     counts per severity
   - Built with `recharts`.
+- **Risk ratings** — never two independent dropdowns. Use `RiskScorePicker`
+  (`app/components/risk-score-picker.tsx`): a 5×5 heat map so the reviewer sees the
+  resulting score band while choosing. Labels live in `lib/types/risk.ts`
+  (`LIKELIHOOD_LABELS` / `IMPACT_LABELS`). Stored values stay 1–5 integers.
 - **Dropdown gotcha (hit twice — worth remembering):** dropdowns must send the lowercase,
   underscored database value (`not_tested`) even though the displayed label is friendly
   text ("Not Tested"). Mixing these up causes a Postgres check-constraint violation (`23514`)
@@ -276,20 +290,27 @@ then extracted. **Reach for these before writing a new page from scratch:**
 | Concern | Use |
 |---|---|
 | Auth gate + owner-scoped initial load | `useRequireAuth(callback)` — redirects to `/login`, hands you `ownerId` |
-| List filters held in the URL | `useListFilters` + the `parse*Filters` / `filter*` helpers in `lib/list-filters.ts` |
+| Owner-scoped table reads / query errors | `fetchOwnedTable` / `throwIfAnyQueryError` in `lib/supabase/owned.ts` |
+| Clickable list rows (keyboard + click) | `ClickableRow` |
+| List filters held in the URL | `useListFilters` + the `parse*Filters` / `filter*` / `sort*` helpers in `lib/list-filters.ts` |
+| CSV download of a filtered list | `downloadCsv` in `lib/export/csv.ts` |
+| Date-only display (no UTC day-shift) | `formatIsoDate` / `todayIsoDate` in `lib/dates.ts` |
+| Dirty-form leave warning | `useUnsavedChanges` |
+| Review cadence (90/180/365 by band) | `isReviewDue` / `getReviewCadenceDays` in `lib/types/rcsa.ts` |
 | Link/unlink against a join table | `useEntityLinks` — owns the rows, search/select state, and insert/delete |
 | Rendering linked rows | `LinkedEntitiesPanel` + the builders in `app/components/linked-entity-rows.tsx` |
 | New/edit form scaffolding | `EntityFormPage` |
 | Input/label/button classes | `app/components/ui.ts` — do **not** hand-write these strings |
+| Likelihood × impact rating | `RiskScorePicker` — do **not** add `<select>` 1–5 dropdowns |
 | Loading, error, header, card chrome | `app/components/page-parts.tsx` |
 | Supabase join-row plumbing | `lib/types/join-utils.ts` + `lib/types/linked-entities.ts` |
 
 **Palette:** `slate` for neutrals, `teal` for accents. The codebase was migrated off `zinc`
 entirely — if you find a `zinc-*` class, it's a regression.
 
-**`owner_id` on every query.** RLS enforces it at the database, but the app filters
-explicitly too, because a missing filter is silently wrong rather than an error. This was a
-real bug on the risks queries.
+**`owner_id` on every query and mutation.** RLS enforces it at the database, but the app
+filters explicitly too, because a missing filter is silently wrong rather than an error.
+This was a real bug on the risks queries, and write paths now follow the same rule.
 
 ### Issue workflow
 
@@ -359,39 +380,66 @@ a new env var locally.
 | — | Issues module: lifecycle workflow, action plans, activity trail, cross-module raising | ✅ Done |
 | — | Shared-layer extraction + `zinc` → `slate`/`teal` migration | ✅ Done |
 | — | Oversight Monitoring: 2LoD analytics dashboard (coverage, aging, stock/flow) | ✅ Done |
+| — | RCSA evidence brief, linked issues, 5×5 rating picker, indicative residual | ✅ Done |
+| — | Cadence, attention-queue risks, CSV export, command palette, mobile nav | ✅ Done |
 | 7 | AI-assisted rating recommendations during RCSA | 🔜 Not started |
 
 ---
 
 ## Objective 6 — RCSA Workflow (built)
 
-A risk owner selects risks at `/rcsa/start` (checklist showing each risk's last review date),
-which creates a row in `rcsa_sessions` and hands off to `/rcsa/review` — a one-risk-at-a-time
-wizard showing the risk alongside its linked controls and incidents as evidence, with
-likelihood/impact ratings to confirm or change. `/rcsa/review` also accepts a single `risk`
-id, so "Review This Risk" from the risks list or a risk's edit page skips the selection step.
+A risk owner selects risks at `/rcsa/start` (checklist showing each risk's last review date,
+cadence, and current severity band). Risks **due for review** are pre-selected. Starting a
+sitting creates a row in `rcsa_sessions` and hands off to `/rcsa/review` — a one-risk-at-a-time
+wizard. Skip confirms if the rating was changed without saving.
+
+The review page is built for a **challenger**, not a form-filler:
+
+1. **Reviewer brief** (`lib/rcsa/review-insight.ts` → `buildEvidenceBrief`) — a
+   headline plus bullets synthesising linked controls, incidents, and issues
+   (overdue findings, ineffective key controls, uncontrolled exposure). Tone is
+   ok / watch / alert.
+2. **Evidence cards** — linked controls, incidents, **and issues**, each with a
+   roll-up and an expandable table. Row titles link through to the record.
+3. **Indicative residual** — derived from linked control effectiveness
+   (likelihood reduced by 1 only when every relevant control is effective;
+   impact unchanged). **Not stored.** The confirmed rating is still inherent
+   likelihood × impact on `risks`.
+4. **5×5 score picker** to confirm or change the inherent rating.
+
+`/rcsa/review` also accepts a single `risk` id, so "Review This Risk" from the
+risks list or a risk's edit page skips the selection step.
 
 Reviews land in `rcsa_reviews`. `rcsa_sessions` deliberately has **no status column** —
 session progress isn't tracked; a session is just a grouping for the reviews it produced.
 
 **Settled along the way:**
 - Workflow shape: one-risk-at-a-time wizard (not a queue or inline dashboard editing).
-- Linked controls and incidents are shown as read-only evidence during review, rather than
-  being editable in the same flow — reviewing a risk stayed risk-only.
+- Linked controls, incidents, and issues are shown as read-only evidence during review.
+- **Skip** is allowed without writing a review — a multi-risk sitting can move on.
 - A reviewer who spots a gap raises an **issue** from the review instead of the flow
   growing its own remediation concept.
+- The confirmed rating is written to `risks` **before** the `rcsa_reviews` insert, so a
+  failed audit-row write cannot leave a review that disagrees with the register.
+- Residual is a reviewer aid, not a second pair of columns on `risks` — storing
+  residual would be a later schema change if 2LoD wants a register of residual scores.
 - The deferred "risk status" field still doesn't exist; "last reviewed" is derived from
   `rcsa_reviews` instead of stored on the risk.
 
+**Deliberately not built yet** (common GRC features that don't earn a table until
+they're needed): KRIs, explicit risk appetite/tolerance, inherent-vs-residual as
+stored fields, third-party / vendor risk, control design vs operating effectiveness
+as separate ratings.
+
 ## Objective 7 — AI-assisted rating recommendations (not started)
 
-The remaining piece of the original Objective 6: an agent that reads a risk's control and
-incident history and **recommends** a likelihood/impact rating rather than auto-applying it.
-The RCSA wizard is the place it plugs into — it already assembles exactly the evidence such
-an agent would need.
+The remaining piece of the original Objective 6: an agent that reads a risk's control,
+incident, and issue history and **recommends** a likelihood/impact rating rather than
+auto-applying it. The RCSA wizard is the place it plugs into — it already assembles
+the evidence brief, indicative residual, and linked records such an agent would need.
 
 **Open design questions:**
-- What the agent sees: just linked controls/incidents, or test history and past ratings too.
+- What the agent sees: the reviewer brief only, or full test history and past ratings too.
 - Output format: a suggested likelihood/impact, a written rationale, or both.
 - Where the human approves or overrides, and whether the recommendation is recorded
   alongside the review for later comparison against what the reviewer chose.
@@ -414,10 +462,12 @@ visuals:
   test pass rate computed from full `control_test_results` history rather than just
   each control's cached `effectiveness` snapshot (so a fail-then-pass retest shows
   real history); risks with zero linked controls (`risk_controls`), broken out by
-  severity band so uncontrolled High/Critical exposure stands out.
+  severity band so uncontrolled High/Critical exposure stands out; controls with
+  zero linked risks (unmapped / orphan controls).
 - **Risks** — severity band distribution (reuses `buildSeverityBandCounts`); review
   recency buckets (never reviewed / >365 days / 180–365 days / within 180 days),
-  derived from the max `reviewed_at` per risk in `rcsa_reviews`.
+  derived from the max `reviewed_at` per risk in `rcsa_reviews`, plus a **Due for
+  Review** headline that applies the 90/180/365-day cadence by severity band.
 - **Issues & Remediation** — open-issue aging buckets (0–30/31–60/61–90/90+ days
   since `identified_at`) broken out by severity; issue flow (opened vs closed,
   trailing 30/90 days); % of open issues overdue and average action-plan completion

@@ -1,29 +1,40 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { User } from "@supabase/supabase-js";
+import {
+  ErrorBanner,
+  PageHeader,
+  PageLoading,
+} from "@/app/components/page-parts";
+import { SeverityBandBadge } from "@/app/components/status-badge";
+import { listInputClassName } from "@/app/components/list-toolbar";
+import {
+  primaryButtonClassName,
+  secondaryButtonClassName,
+} from "@/app/components/ui";
+import { getRiskScore, getSeverityBand } from "@/lib/dashboard/analytics";
+import { sortRisksByExposure } from "@/lib/list-filters";
+import { useRequireAuth } from "@/lib/hooks/use-require-auth";
+import { throwIfAnyQueryError } from "@/lib/supabase/owned";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import {
   buildLastReviewedByRisk,
   formatLastReviewedAt,
+  getReviewCadenceDays,
+  isReviewDue,
   type RcsaReview,
   type RiskWithLastReviewed,
 } from "@/lib/types/rcsa";
 import type { Risk } from "@/lib/types/risk";
 
-const filterInputClassName =
-  "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-600/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-50 dark:focus:border-teal-400 dark:focus:ring-teal-400/20";
-
 export default function RcsaStartPage() {
   const router = useRouter();
-  const [user, setUser] = useState<User | null>(null);
   const [risks, setRisks] = useState<RiskWithLastReviewed[]>([]);
   const [selectedRiskIds, setSelectedRiskIds] = useState<Set<string>>(
     new Set(),
   );
   const [filterText, setFilterText] = useState("");
-  const [authLoading, setAuthLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,13 +56,7 @@ export default function RcsaStartPage() {
           .eq("owner_id", ownerId),
       ]);
 
-      if (risksResult.error) {
-        throw risksResult.error;
-      }
-
-      if (reviewsResult.error) {
-        throw reviewsResult.error;
-      }
+      throwIfAnyQueryError([risksResult, reviewsResult]);
 
       const lastReviewedByRisk = buildLastReviewedByRisk(
         (reviewsResult.data ?? []) as Pick<
@@ -60,7 +65,9 @@ export default function RcsaStartPage() {
         >[],
       );
 
-      const checklist = ((risksResult.data ?? []) as Risk[]).map((risk) => ({
+      const checklist = sortRisksByExposure(
+        (risksResult.data ?? []) as Risk[],
+      ).map((risk) => ({
         id: risk.id,
         title: risk.title,
         likelihood: risk.likelihood,
@@ -70,7 +77,15 @@ export default function RcsaStartPage() {
       }));
 
       setRisks(checklist);
-      setSelectedRiskIds(new Set(checklist.map((risk) => risk.id)));
+      setSelectedRiskIds(
+        new Set(
+          checklist
+            .filter((risk) =>
+              isReviewDue(risk.lastReviewedAt, risk.likelihood, risk.impact),
+            )
+            .map((risk) => risk.id),
+        ),
+      );
     } catch (err) {
       setError(
         err instanceof Error
@@ -82,41 +97,7 @@ export default function RcsaStartPage() {
     }
   }, []);
 
-  useEffect(() => {
-    const supabase = getSupabaseClient();
-
-    async function checkAuth() {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session) {
-        router.replace("/login");
-        return;
-      }
-
-      setUser(session.user);
-      setAuthLoading(false);
-      await fetchChecklist(session.user.id);
-    }
-
-    void checkAuth();
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) {
-        router.replace("/login");
-        return;
-      }
-
-      setUser(session.user);
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, [fetchChecklist, router]);
+  const { user, authLoading } = useRequireAuth(fetchChecklist);
 
   const filteredRisks = useMemo(() => {
     const query = filterText.trim().toLowerCase();
@@ -169,6 +150,18 @@ export default function RcsaStartPage() {
 
       return next;
     });
+  }
+
+  function selectDueForReview() {
+    setSelectedRiskIds(
+      new Set(
+        risks
+          .filter((risk) =>
+            isReviewDue(risk.lastReviewedAt, risk.likelihood, risk.impact),
+          )
+          .map((risk) => risk.id),
+      ),
+    );
   }
 
   function selectAllVisible() {
@@ -239,30 +232,18 @@ export default function RcsaStartPage() {
   }
 
   if (authLoading) {
-    return (
-      <div className="flex min-h-full items-center justify-center bg-slate-50 dark:bg-slate-950">
-        <p className="text-slate-600 dark:text-slate-400">Loading...</p>
-      </div>
-    );
+    return <PageLoading />;
   }
 
   return (
     <div className="min-h-full bg-slate-50 px-6 py-10 dark:bg-slate-950">
       <main className="mx-auto flex w-full max-w-5xl flex-col gap-8">
-        <header>
-          <h1 className="text-3xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">
-            Risk Assessment
-          </h1>
-          <p className="mt-2 text-slate-600 dark:text-slate-400">
-            Select the risks you want to include in this review cycle.
-          </p>
-        </header>
+        <PageHeader
+          title="Risk Assessment"
+          description="Risks due for review (by severity cadence) are pre-selected. Critical every 90 days, High every 180 days, others annually."
+        />
 
-        {error && (
-          <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
-            {error}
-          </p>
-        )}
+        <ErrorBanner message={error} />
 
         <form
           onSubmit={(event) => void handleStartReview(event)}
@@ -282,7 +263,7 @@ export default function RcsaStartPage() {
               <button
                 type="submit"
                 disabled={!someSelected || submitting || loading}
-                className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-600 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-teal-400 dark:text-slate-950 dark:hover:bg-teal-300"
+                className={primaryButtonClassName}
               >
                 {submitting ? "Starting..." : "Review Selected"}
               </button>
@@ -298,7 +279,7 @@ export default function RcsaStartPage() {
                   value={filterText}
                   onChange={(event) => setFilterText(event.target.value)}
                   placeholder="Filter by title or owner email..."
-                  className={filterInputClassName}
+                  className={listInputClassName}
                 />
               </label>
 
@@ -306,15 +287,22 @@ export default function RcsaStartPage() {
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
+                    onClick={selectDueForReview}
+                    className={secondaryButtonClassName}
+                  >
+                    Select Due
+                  </button>
+                  <button
+                    type="button"
                     onClick={selectAllVisible}
-                    className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                    className={secondaryButtonClassName}
                   >
                     Select All
                   </button>
                   <button
                     type="button"
                     onClick={deselectAllVisible}
-                    className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                    className={secondaryButtonClassName}
                   >
                     Deselect All
                   </button>
@@ -345,18 +333,31 @@ export default function RcsaStartPage() {
                       <span className="sr-only">Select</span>
                     </th>
                     <th className="px-6 py-3 font-medium">Title</th>
+                    <th className="px-6 py-3 font-medium">Rating</th>
                     <th className="px-6 py-3 font-medium">Owner</th>
                     <th className="px-6 py-3 font-medium">Last Reviewed</th>
+                    <th className="px-6 py-3 font-medium">Cadence</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                   {filteredRisks.map((risk) => {
                     const checked = selectedRiskIds.has(risk.id);
+                    const due = isReviewDue(
+                      risk.lastReviewedAt,
+                      risk.likelihood,
+                      risk.impact,
+                    );
+                    const cadenceDays = getReviewCadenceDays(
+                      risk.likelihood,
+                      risk.impact,
+                    );
 
                     return (
                       <tr
                         key={risk.id}
-                        className="transition-colors hover:bg-teal-50/40 dark:hover:bg-slate-800/60"
+                        className={`transition-colors hover:bg-teal-50/40 dark:hover:bg-slate-800/60 ${
+                          due ? "bg-amber-50/50 dark:bg-amber-950/20" : ""
+                        }`}
                       >
                         <td className="px-6 py-4">
                           <input
@@ -370,11 +371,27 @@ export default function RcsaStartPage() {
                         <td className="px-6 py-4 font-medium text-slate-950 dark:text-slate-50">
                           {risk.title}
                         </td>
+                        <td className="px-6 py-4">
+                          <SeverityBandBadge
+                            band={getSeverityBand(
+                              getRiskScore(risk.likelihood, risk.impact),
+                            )}
+                          />
+                        </td>
                         <td className="px-6 py-4 text-slate-950 dark:text-slate-50">
                           {risk.owner_email ?? "—"}
                         </td>
-                        <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
+                        <td
+                          className={`px-6 py-4 ${
+                            due
+                              ? "font-medium text-red-700 dark:text-red-400"
+                              : "text-slate-600 dark:text-slate-400"
+                          }`}
+                        >
                           {formatLastReviewedAt(risk.lastReviewedAt)}
+                        </td>
+                        <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
+                          Every {cadenceDays} days
                         </td>
                       </tr>
                     );

@@ -8,7 +8,11 @@ import {
   type Control,
   type Effectiveness,
 } from "@/lib/types/control";
-import type { Incident, IncidentStatus, Severity } from "@/lib/types/incident";
+import {
+  type Incident,
+  type IncidentStatus,
+  type Severity,
+} from "@/lib/types/incident";
 import {
   isIssueOverdue,
   type Issue,
@@ -16,6 +20,7 @@ import {
   type IssueSource,
   type IssueStatus,
 } from "@/lib/types/issue";
+import { getReviewRecencyBucket, isReviewDue } from "@/lib/types/rcsa";
 import type { Risk } from "@/lib/types/risk";
 
 export type RiskListFilters = {
@@ -23,6 +28,8 @@ export type RiskListFilters = {
   severity: SeverityBand | "";
   likelihood: number | null;
   impact: number | null;
+  reviewRecency: "" | "never" | "over365" | "due";
+  uncontrolled: boolean;
 };
 
 export type ControlListFilters = {
@@ -30,6 +37,7 @@ export type ControlListFilters = {
   effectiveness: Effectiveness | "";
   testingStatus: string;
   isKey: "" | "true" | "false";
+  unmapped: boolean;
 };
 
 export type IncidentListFilters = {
@@ -76,6 +84,8 @@ export function parseRiskFilters(params: URLSearchParams): RiskListFilters {
   const likelihood = Number(likelihoodRaw);
   const impact = Number(impactRaw);
 
+  const recencyRaw = getParam(params, "reviewRecency");
+
   return {
     q: getParam(params, "q"),
     severity:
@@ -88,6 +98,13 @@ export function parseRiskFilters(params: URLSearchParams): RiskListFilters {
     likelihood:
       likelihoodRaw && likelihood >= 1 && likelihood <= 5 ? likelihood : null,
     impact: impactRaw && impact >= 1 && impact <= 5 ? impact : null,
+    reviewRecency:
+      recencyRaw === "never" ||
+      recencyRaw === "over365" ||
+      recencyRaw === "due"
+        ? recencyRaw
+        : "",
+    uncontrolled: getParam(params, "uncontrolled") === "true",
   };
 }
 
@@ -113,6 +130,7 @@ export function parseControlFilters(
         ? testingStatus
         : "",
     isKey: isKeyRaw === "true" || isKeyRaw === "false" ? isKeyRaw : "",
+    unmapped: getParam(params, "unmapped") === "true",
   };
 }
 
@@ -217,8 +235,17 @@ export function hasActiveFilters(
   });
 }
 
-export function filterRisks(risks: Risk[], filters: RiskListFilters) {
+export function filterRisks(
+  risks: Risk[],
+  filters: RiskListFilters,
+  context: {
+    lastReviewedByRisk?: Record<string, string>;
+    linkedControlCounts?: Record<string, number>;
+  } = {},
+) {
   const query = filters.q.toLowerCase();
+  const lastReviewedByRisk = context.lastReviewedByRisk ?? {};
+  const linkedControlCounts = context.linkedControlCounts ?? {};
 
   return risks.filter((risk) => {
     if (query) {
@@ -245,6 +272,27 @@ export function filterRisks(risks: Risk[], filters: RiskListFilters) {
       return false;
     }
 
+    if (filters.reviewRecency === "due") {
+      if (
+        !isReviewDue(
+          lastReviewedByRisk[risk.id] ?? null,
+          risk.likelihood,
+          risk.impact,
+        )
+      ) {
+        return false;
+      }
+    } else if (filters.reviewRecency) {
+      const bucket = getReviewRecencyBucket(lastReviewedByRisk[risk.id] ?? null);
+      if (bucket !== filters.reviewRecency) {
+        return false;
+      }
+    }
+
+    if (filters.uncontrolled && (linkedControlCounts[risk.id] ?? 0) > 0) {
+      return false;
+    }
+
     return true;
   });
 }
@@ -252,8 +300,10 @@ export function filterRisks(risks: Risk[], filters: RiskListFilters) {
 export function filterControls(
   controls: Control[],
   filters: ControlListFilters,
+  context: { linkedRiskCounts?: Record<string, number> } = {},
 ) {
   const query = filters.q.toLowerCase();
+  const linkedRiskCounts = context.linkedRiskCounts ?? {};
 
   return controls.filter((control) => {
     if (query) {
@@ -272,7 +322,8 @@ export function filterControls(
 
     if (
       filters.testingStatus &&
-      getTestingStatus(control.last_tested_at) !== filters.testingStatus
+      getTestingStatus(control.last_tested_at, control.is_key) !==
+        filters.testingStatus
     ) {
       return false;
     }
@@ -282,6 +333,10 @@ export function filterControls(
     }
 
     if (filters.isKey === "false" && control.is_key) {
+      return false;
+    }
+
+    if (filters.unmapped && (linkedRiskCounts[control.id] ?? 0) > 0) {
       return false;
     }
 
@@ -331,4 +386,102 @@ export function buildQueryString(
 
   const query = params.toString();
   return query ? `?${query}` : "";
+}
+
+const ISSUE_SEVERITY_RANK: Record<IssueSeverity, number> = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+};
+
+const INCIDENT_SEVERITY_RANK: Record<Severity, number> = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+};
+
+const INCIDENT_STATUS_RANK: Record<IncidentStatus, number> = {
+  open: 0,
+  investigating: 1,
+  resolved: 2,
+};
+
+/** Highest inherent score first so Critical exposure isn't buried under recent Low rows. */
+export function sortRisksByExposure(risks: Risk[]) {
+  return [...risks].sort((left, right) => {
+    const scoreDiff =
+      getRiskScore(right.likelihood, right.impact) -
+      getRiskScore(left.likelihood, left.impact);
+
+    if (scoreDiff !== 0) {
+      return scoreDiff;
+    }
+
+    return left.title.localeCompare(right.title);
+  });
+}
+
+export function sortIssuesByPriority(issues: Issue[]) {
+  return [...issues].sort((left, right) => {
+    const overdueDiff = Number(isIssueOverdue(right)) - Number(isIssueOverdue(left));
+    if (overdueDiff !== 0) {
+      return overdueDiff;
+    }
+
+    const severityDiff =
+      ISSUE_SEVERITY_RANK[left.severity] - ISSUE_SEVERITY_RANK[right.severity];
+    if (severityDiff !== 0) {
+      return severityDiff;
+    }
+
+    return (left.due_date ?? "").localeCompare(right.due_date ?? "");
+  });
+}
+
+export function sortIncidentsByPriority(incidents: Incident[]) {
+  return [...incidents].sort((left, right) => {
+    const statusDiff =
+      INCIDENT_STATUS_RANK[left.status] - INCIDENT_STATUS_RANK[right.status];
+    if (statusDiff !== 0) {
+      return statusDiff;
+    }
+
+    const severityDiff =
+      INCIDENT_SEVERITY_RANK[left.severity] -
+      INCIDENT_SEVERITY_RANK[right.severity];
+    if (severityDiff !== 0) {
+      return severityDiff;
+    }
+
+    return right.date_occurred.localeCompare(left.date_occurred);
+  });
+}
+
+export function sortControlsByAttention(controls: Control[]) {
+  return [...controls].sort((left, right) => {
+    const leftOverdue =
+      getTestingStatus(left.last_tested_at, left.is_key) === "Overdue";
+    const rightOverdue =
+      getTestingStatus(right.last_tested_at, right.is_key) === "Overdue";
+    const overdueDiff = Number(rightOverdue) - Number(leftOverdue);
+    if (overdueDiff !== 0) {
+      return overdueDiff;
+    }
+
+    const ineffectiveDiff =
+      Number(right.effectiveness === "ineffective") -
+      Number(left.effectiveness === "ineffective");
+    if (ineffectiveDiff !== 0) {
+      return ineffectiveDiff;
+    }
+
+    const keyDiff = Number(right.is_key) - Number(left.is_key);
+    if (keyDiff !== 0) {
+      return keyDiff;
+    }
+
+    return left.title.localeCompare(right.title);
+  });
 }

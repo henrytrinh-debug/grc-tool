@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { FormEvent, useCallback, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { LinkedEntitiesPanel } from "@/app/components/linked-entities-panel";
@@ -21,6 +20,7 @@ import {
 } from "@/app/components/ui";
 import { useEntityLinks } from "@/lib/hooks/use-entity-links";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
+import { useUnsavedChanges } from "@/lib/hooks/use-unsaved-changes";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import {
   toControlFormPayload,
@@ -181,6 +181,17 @@ export default function EditControlPage() {
 
   const { user, authLoading } = useRequireAuth(loadPageData);
 
+  const dirty = Boolean(
+    form &&
+      control &&
+      (form.title !== control.title ||
+        form.description !== control.description ||
+        form.is_key !== control.is_key ||
+        form.effectiveness !== control.effectiveness ||
+        (form.last_tested_at || "") !== (control.last_tested_at || "")),
+  );
+  const { confirmLeave } = useUnsavedChanges(dirty);
+
   function updateForm(updates: Partial<NewControl>) {
     setForm((current) => (current ? { ...current, ...updates } : current));
   }
@@ -188,7 +199,7 @@ export default function EditControlPage() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!form || !control) {
+    if (!form || !control || !user) {
       return;
     }
 
@@ -200,7 +211,8 @@ export default function EditControlPage() {
       const { error: updateError } = await supabase
         .from("controls")
         .update(toControlFormPayload(form))
-        .eq("id", control.id);
+        .eq("id", control.id)
+        .eq("owner_id", user.id);
 
       if (updateError) {
         throw updateError;
@@ -214,7 +226,7 @@ export default function EditControlPage() {
   }
 
   async function handleDelete() {
-    if (!control) {
+    if (!control || !user) {
       return;
     }
 
@@ -234,7 +246,8 @@ export default function EditControlPage() {
       const { error: deleteError } = await supabase
         .from("controls")
         .delete()
-        .eq("id", control.id);
+        .eq("id", control.id)
+        .eq("owner_id", user.id);
 
       if (deleteError) {
         throw deleteError;
@@ -283,7 +296,8 @@ export default function EditControlPage() {
           effectiveness: testPayload.effectiveness,
           last_tested_at: testPayload.tested_at,
         })
-        .eq("id", control.id);
+        .eq("id", control.id)
+        .eq("owner_id", user.id);
 
       if (updateError) {
         throw updateError;
@@ -353,9 +367,17 @@ export default function EditControlPage() {
               >
                 {submitting ? "Saving..." : "Save Changes"}
               </button>
-              <Link href="/controls" className={secondaryButtonClassName}>
+              <button
+                type="button"
+                className={secondaryButtonClassName}
+                onClick={() => {
+                  if (confirmLeave()) {
+                    router.push("/controls");
+                  }
+                }}
+              >
                 Cancel
-              </Link>
+              </button>
               <button
                 type="button"
                 onClick={() => void handleDelete()}

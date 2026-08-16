@@ -1,6 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { SummaryCard } from "./summary-card";
+import {
+  EffectivenessBadge,
+  KeyBadge,
+  TestingStatusBadge,
+} from "@/app/components/status-badge";
 import {
   buildControlsSummary,
   formatEffectivenessBreakdown,
@@ -36,15 +42,32 @@ export function ControlsSummaryCard({ links }: ControlsSummaryCardProps) {
         },
       ]}
       columnHeaders={["Title", "Key", "Effectiveness", "Testing Status"]}
-      rows={links.map((link) => ({
-        key: link.linkId,
-        cells: [
-          link.title,
-          link.is_key ? "Key" : "Non-Key",
-          formatEffectiveness(link.effectiveness),
-          getTestingStatus(link.last_tested_at),
-        ],
-      }))}
+      rows={links.map((link) => {
+        const testingStatus = getTestingStatus(link.last_tested_at, link.is_key);
+
+        return {
+          key: link.linkId,
+          cells: [
+            <Link
+              key={`${link.linkId}-title`}
+              href={`/controls/${link.controlId}/edit`}
+              className="font-medium text-teal-700 underline underline-offset-2 dark:text-teal-300"
+            >
+              {link.title}
+            </Link>,
+            <KeyBadge key={`${link.linkId}-key`} isKey={link.is_key} />,
+            <EffectivenessBadge
+              key={`${link.linkId}-eff`}
+              effectiveness={link.effectiveness}
+              label={formatEffectiveness(link.effectiveness)}
+            />,
+            <TestingStatusBadge
+              key={`${link.linkId}-test`}
+              status={testingStatus}
+            />,
+          ],
+        };
+      })}
       emptyMessage="No controls linked to this risk."
     />
   );
