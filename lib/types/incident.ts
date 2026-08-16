@@ -78,3 +78,25 @@ export function toIncidentFormPayload(form: NewIncident) {
     root_cause: form.root_cause,
   };
 }
+
+/**
+ * Stamp `resolved_at` the first time status becomes resolved; clear it on
+ * reopen. Mirrors `issue_actions.completed_at` / `issues.closed_at`.
+ */
+export function nextResolvedAt(
+  status: IncidentStatus,
+  current: string | null | undefined,
+) {
+  if (status !== "resolved") {
+    return null;
+  }
+
+  return current ?? new Date().toISOString();
+}
+
+/** Best-effort timestamp for incidents that were already resolved before
+ * `resolved_at` existed. `created_at` is the closest recorded time; using
+ * "now" would dump historical closures into the trailing 30-day flow. */
+export function fallbackResolvedAt(incident: Incident) {
+  return incident.created_at ?? new Date().toISOString();
+}

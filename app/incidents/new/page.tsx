@@ -6,7 +6,11 @@ import { EntityFormPage } from "@/app/components/entity-form-page";
 import { PageLoading } from "@/app/components/page-parts";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import { insertOwnedRecord } from "@/lib/supabase/records";
-import { toIncidentFormPayload, type NewIncident } from "@/lib/types/incident";
+import {
+  nextResolvedAt,
+  toIncidentFormPayload,
+  type NewIncident,
+} from "@/lib/types/incident";
 import { EMPTY_INCIDENT_FORM } from "../_components/constants";
 import { IncidentFormFields } from "../_components/incident-form-fields";
 
@@ -28,7 +32,10 @@ export default function NewIncidentPage() {
     setError(null);
 
     try {
-      await insertOwnedRecord("incidents", toIncidentFormPayload(form));
+      await insertOwnedRecord("incidents", {
+        ...toIncidentFormPayload(form),
+        resolved_at: nextResolvedAt(form.status, null),
+      });
       router.push("/incidents");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to add incident");

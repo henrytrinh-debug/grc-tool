@@ -97,16 +97,13 @@ Recording a new result here also updates `controls.effectiveness` / `controls.la
 
 `resolved_at` is kept in sync **at the app level, not via a DB trigger** — the same
 pattern as `controls.effectiveness`/`last_tested_at` and `issue_actions.completed_at`.
-The incident edit page stamps it with the current timestamp the first time status is
-saved as `resolved` (if not already set), and clears it back to null if the incident
-is reopened to any other status. Because the query layer uses `select("*")`, this
-degrades gracefully before the migration is applied — `resolved_at` is simply absent
-from the returned rows rather than erroring.
-
-**Until `supabase/schema/002_incident_resolved_at.sql` is run in the Supabase SQL
-editor, `resolved_at` doesn't exist on the table**, so incident age/flow metrics on
-the Oversight Monitoring dashboard (Objective — see below) will show as zero/empty —
-same caveat as the general schema-files note further down.
+Create and edit stamp it the first time status is `resolved` (if not already set),
+and clear it back to null if the incident is reopened. The SQL file also backfills
+rows that were already `resolved` before the column existed, using `created_at` as
+the closest recorded time. The Oversight page does the same write on load, so
+metrics populate without re-saving each incident. Because the query layer uses
+`select("*")`, this degrades gracefully before the migration is applied —
+`resolved_at` is simply absent from the returned rows rather than erroring.
 
 ### `rcsa_sessions`
 One row per risk-assessment sitting — a grouping for the reviews it produced.
@@ -441,11 +438,10 @@ live under `app/components/oversight/`, reusing the existing `ChartCard`/`StatCa
 shells and the `DashboardDonutChart` primitive (now exported from
 `app/components/dashboard/donut-charts.tsx` for reuse outside the home page).
 
-**Schema dependency:** the incident flow and mean-time-to-resolve metrics need
-`resolved_at`, which only exists after `supabase/schema/002_incident_resolved_at.sql`
-is run — see the `incidents` table section above. Until then those specific metrics
-render as zero/"—", with an in-page notice explaining why; every other metric on the
-page works against existing columns with no migration required.
+**Schema dependency:** incident flow and mean-time-to-resolve need `resolved_at`,
+which only exists after `supabase/schema/002_incident_resolved_at.sql` is run (the
+file also backfills existing resolved rows). Until then those specific metrics
+render as "—" / 0; every other metric on the page works against existing columns.
 
 ---
 

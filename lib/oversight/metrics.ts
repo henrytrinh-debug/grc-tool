@@ -415,9 +415,9 @@ export type IncidentFlow = {
   hasResolvedData: boolean;
 };
 
-/** New vs resolved incidents in the trailing window. Resolved relies on
- * `resolved_at`, which is only populated once 002_incident_resolved_at.sql
- * has been applied and incidents have since been marked resolved. */
+/** New vs resolved incidents in the trailing window. Resolved counts use
+ * `resolved_at` (stamped on create/edit, and backfilled for older resolved
+ * rows from `created_at`). */
 export function buildIncidentFlow(incidents: Incident[]): IncidentFlow {
   const countNew = (days: number) =>
     incidents.filter((incident) => isWithinTrailingDays(incident.date_occurred, days))

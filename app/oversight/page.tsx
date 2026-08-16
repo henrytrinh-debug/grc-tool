@@ -55,7 +55,10 @@ import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import type { Control } from "@/lib/types/control";
 import type { ControlTestResult } from "@/lib/types/control-test-result";
-import type { Incident } from "@/lib/types/incident";
+import {
+  fallbackResolvedAt,
+  type Incident,
+} from "@/lib/types/incident";
 import type { Issue } from "@/lib/types/issue";
 import type { IssueAction } from "@/lib/types/issue-action";
 import type { Risk } from "@/lib/types/risk";
@@ -118,6 +121,50 @@ const emptyData: OversightData = {
   incidentSeverityCounts: [],
 };
 
+/**
+ * Incidents already marked resolved before `resolved_at` existed never got a
+ * stamp. Write one from `created_at` so flow/MTTR can populate without
+ * re-saving each record. Failures (column not yet migrated) are ignored.
+ */
+async function stampMissingResolvedAt(
+  supabase: ReturnType<typeof getSupabaseClient>,
+  ownerId: string,
+  incidents: Incident[],
+): Promise<Incident[]> {
+  const missing = incidents.filter(
+    (incident) => incident.status === "resolved" && !incident.resolved_at,
+  );
+
+  if (missing.length === 0) {
+    return incidents;
+  }
+
+  const stamped = await Promise.all(
+    missing.map(async (incident) => {
+      const resolvedAt = fallbackResolvedAt(incident);
+      const { error } = await supabase
+        .from("incidents")
+        .update({ resolved_at: resolvedAt })
+        .eq("id", incident.id)
+        .eq("owner_id", ownerId);
+
+      if (error) {
+        return incident;
+      }
+
+      return { ...incident, resolved_at: resolvedAt };
+    }),
+  );
+
+  const stampedById = new Map(
+    stamped.map((incident) => [incident.id, incident]),
+  );
+
+  return incidents.map(
+    (incident) => stampedById.get(incident.id) ?? incident,
+  );
+}
+
 export default function OversightPage() {
   const [data, setData] = useState<OversightData>(emptyData);
   const [loading, setLoading] = useState(true);
@@ -162,7 +209,11 @@ export default function OversightPage() {
       const risks = (risksResult.data ?? []) as Risk[];
       const controls = (controlsResult.data ?? []) as Control[];
       const testResults = (testResultsResult.data ?? []) as ControlTestResult[];
-      const incidents = (incidentsResult.data ?? []) as Incident[];
+      const incidents = await stampMissingResolvedAt(
+        supabase,
+        ownerId,
+        (incidentsResult.data ?? []) as Incident[],
+      );
       const issues = (issuesResult.data ?? []) as Issue[];
       const actions = (actionsResult.data ?? []) as IssueAction[];
       const riskControlLinks = (riskControlsResult.data ?? []) as {
@@ -445,18 +496,6 @@ export default function OversightPage() {
                   Open incident stock and resolution flow.
                 </p>
               </div>
-
-              {!data.incidentFlow.hasResolvedData && (
-                <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
-                  No incidents have a recorded resolution time yet. Flow and
-                  mean-time-to-resolve metrics below will populate once{" "}
-                  <code className="rounded bg-amber-100 px-1 py-0.5 text-xs dark:bg-amber-900">
-                    supabase/schema/002_incident_resolved_at.sql
-                  </code>{" "}
-                  has been applied in the Supabase SQL editor and incidents
-                  have since been marked Resolved.
-                </p>
-              )}
 
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <StatCard
