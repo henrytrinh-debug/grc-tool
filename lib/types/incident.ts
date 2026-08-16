@@ -10,6 +10,7 @@ export type Incident = {
   severity: Severity;
   status: IncidentStatus;
   root_cause: string;
+  resolved_at?: string | null;
   owner_email?: string;
   owner_id?: string;
   created_at?: string;

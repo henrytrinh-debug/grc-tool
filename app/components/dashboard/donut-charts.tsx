@@ -37,7 +37,10 @@ type DonutChartProps = {
   onSliceClick: (filterValue: string) => void;
 };
 
-function DashboardDonutChart({
+/** Generic donut chart shared across dashboard-style pages — exported so
+ * other analytics views (e.g. Oversight Monitoring) can reuse it with their
+ * own colors and click targets rather than duplicating the chart markup. */
+export function DashboardDonutChart({
   data,
   colors,
   emptyMessage,

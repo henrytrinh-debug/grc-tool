@@ -91,8 +91,22 @@ Recording a new result here also updates `controls.effectiveness` / `controls.la
 | severity | text | 'low' \| 'medium' \| 'high' \| 'critical' |
 | status | text | 'open' \| 'investigating' \| 'resolved' |
 | root_cause | text | optional, filled in once known |
+| resolved_at | timestamptz | nullable — added in `002_incident_resolved_at.sql`, see note below |
 | owner_id / owner_email | uuid / text | |
 | created_at | timestamptz | |
+
+`resolved_at` is kept in sync **at the app level, not via a DB trigger** — the same
+pattern as `controls.effectiveness`/`last_tested_at` and `issue_actions.completed_at`.
+The incident edit page stamps it with the current timestamp the first time status is
+saved as `resolved` (if not already set), and clears it back to null if the incident
+is reopened to any other status. Because the query layer uses `select("*")`, this
+degrades gracefully before the migration is applied — `resolved_at` is simply absent
+from the returned rows rather than erroring.
+
+**Until `supabase/schema/002_incident_resolved_at.sql` is run in the Supabase SQL
+editor, `resolved_at` doesn't exist on the table**, so incident age/flow metrics on
+the Oversight Monitoring dashboard (Objective — see below) will show as zero/empty —
+same caveat as the general schema-files note further down.
 
 ### `rcsa_sessions`
 One row per risk-assessment sitting — a grouping for the reviews it produced.
@@ -217,9 +231,10 @@ policy anywhere, it's leftover from before auth and should be replaced with an o
 
 Early tables were created by hand in the Supabase SQL editor with no record in the repo.
 From the Issues module onward, schema lives in versioned files under `supabase/schema/`
-(e.g. `001_issues.sql`) which are **run manually in the Supabase SQL editor** — there is no
-migration runner wired up. The files are written to be re-runnable (`create table if not
-exists`, `drop policy if exists` before create).
+(e.g. `001_issues.sql`, `002_incident_resolved_at.sql`) which are **run manually in the
+Supabase SQL editor** — there is no migration runner wired up. The files are written to
+be re-runnable (`create table if not exists`, `add column if not exists`, `drop policy
+if exists` before create).
 
 **This means a fresh clone won't work until those files have been run against the database.**
 If the app 404s or errors on a whole module, check whether its SQL has been applied.
@@ -239,7 +254,7 @@ If the app 404s or errors on a whole module, check whether its SQL has been appl
   issue workflow/action-plan/activity panels, and a `constants.ts` holding the empty-form
   default. The `_` prefix keeps these out of Next.js routing.
 - **Sidebar navigation** — persistent across all pages: Home, Risks, Controls, Incidents,
-  Issues, RCSA, plus Log Out button. `app/layout.tsx` wraps every page in `<AppShell>`
+  Issues, RCSA, Oversight Monitoring, plus Log Out button. `app/layout.tsx` wraps every page in `<AppShell>`
   (`app/components/app-shell.tsx`), which hides the sidebar on `/login` and otherwise
   renders `app/components/app-sidebar.tsx` (active-link highlighting + centralized log out).
 - **Home page** (`/`) — welcome message + user email, stat cards (risks, overdue controls,
@@ -346,6 +361,7 @@ a new env var locally.
 | 6 | RCSA workflow (guided review wizard) | ✅ Done — AI recommendations still open |
 | — | Issues module: lifecycle workflow, action plans, activity trail, cross-module raising | ✅ Done |
 | — | Shared-layer extraction + `zinc` → `slate`/`teal` migration | ✅ Done |
+| — | Oversight Monitoring: 2LoD analytics dashboard (coverage, aging, stock/flow) | ✅ Done |
 | 7 | AI-assisted rating recommendations during RCSA | 🔜 Not started |
 
 ---
@@ -382,6 +398,54 @@ an agent would need.
 - Output format: a suggested likelihood/impact, a written rationale, or both.
 - Where the human approves or overrides, and whether the recommendation is recorded
   alongside the review for later comparison against what the reviewer chose.
+
+## Oversight Monitoring (built)
+
+A read-only analytics dashboard at `/oversight`, distinct from the home page (`/`,
+operational/entity-count focused). This one takes a **Second Line of Defence (2LoD)**
+lens on the risk and control environment: not "how many records exist" but "is the
+environment well-controlled, are reviews current, and is remediation keeping pace."
+No create/edit forms — headline stats link out to filtered list views where a
+matching filter already exists on that module's list page.
+
+Organized into four sections, each pairing headline `StatCard`s with `ChartCard`
+visuals:
+
+- **Controls** — key vs non-key split; testing coverage (Never Tested / Tested /
+  Overdue) both overall and restricted to key controls (key-control-overdue is a
+  headline alert stat, since 2LoD cares more about gaps in key-control testing);
+  test pass rate computed from full `control_test_results` history rather than just
+  each control's cached `effectiveness` snapshot (so a fail-then-pass retest shows
+  real history); risks with zero linked controls (`risk_controls`), broken out by
+  severity band so uncontrolled High/Critical exposure stands out.
+- **Risks** — severity band distribution (reuses `buildSeverityBandCounts`); review
+  recency buckets (never reviewed / >365 days / 180–365 days / within 180 days),
+  derived from the max `reviewed_at` per risk in `rcsa_reviews`.
+- **Issues & Remediation** — open-issue aging buckets (0–30/31–60/61–90/90+ days
+  since `identified_at`) broken out by severity; issue flow (opened vs closed,
+  trailing 30/90 days); % of open issues overdue and average action-plan completion
+  (reuses `isIssueOverdue` / `summariseIssues`); average days from `identified_at` to
+  `closed_at`; open issues by source, to show which upstream process (audits,
+  control failures, incidents, ...) is generating the most findings.
+- **Incidents** — stock (open + investigating count, average age since
+  `date_occurred`); flow (new vs resolved, trailing 30/90 days) and mean-time-to-
+  resolve, both driven by the new `resolved_at` column (see the `incidents` table
+  section above); severity distribution.
+
+All computation lives in `lib/oversight/metrics.ts` — small pure functions taking
+arrays of already-fetched, owner-filtered rows and returning typed summary objects,
+mirroring the style of `lib/dashboard/analytics.ts`. This keeps `app/oversight/page.tsx`
+a thin fetch-and-render shell. New chart components specific to this page (a stacked
+aging bar chart, a generic opened-vs-closed flow bar chart, and a few themed donuts)
+live under `app/components/oversight/`, reusing the existing `ChartCard`/`StatCard`
+shells and the `DashboardDonutChart` primitive (now exported from
+`app/components/dashboard/donut-charts.tsx` for reuse outside the home page).
+
+**Schema dependency:** the incident flow and mean-time-to-resolve metrics need
+`resolved_at`, which only exists after `supabase/schema/002_incident_resolved_at.sql`
+is run — see the `incidents` table section above. Until then those specific metrics
+render as zero/"—", with an in-page notice explaining why; every other metric on the
+page works against existing columns with no migration required.
 
 ---
 

@@ -12,6 +12,7 @@ const navItems = [
   { href: "/incidents", label: "Incidents" },
   { href: "/issues", label: "Issues" },
   { href: "/rcsa/start", label: "Risk Assessment" },
+  { href: "/oversight", label: "Oversight Monitoring" },
 ] as const;
 
 function isActivePath(href: string, pathname: string) {

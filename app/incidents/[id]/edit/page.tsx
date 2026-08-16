@@ -139,9 +139,20 @@ export default function EditIncidentPage() {
 
     try {
       const supabase = getSupabaseClient();
+
+      // Keep resolved_at in sync with status, the same app-level pattern used
+      // for controls.last_tested_at and issues.closed_at: stamp it the first
+      // time status becomes "resolved", clear it if the incident is reopened.
+      let resolvedAt = incident.resolved_at ?? null;
+      if (form.status === "resolved" && !resolvedAt) {
+        resolvedAt = new Date().toISOString();
+      } else if (form.status !== "resolved") {
+        resolvedAt = null;
+      }
+
       const { error: updateError } = await supabase
         .from("incidents")
-        .update(toIncidentFormPayload(form))
+        .update({ ...toIncidentFormPayload(form), resolved_at: resolvedAt })
         .eq("id", incident.id);
 
       if (updateError) {
