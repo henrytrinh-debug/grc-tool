@@ -18,6 +18,11 @@ import {
 import { IssueAgingChart } from "@/app/components/oversight/aging-chart";
 import { ErrorBanner, PageHeader, PageLoading } from "@/app/components/page-parts";
 import { mutedTextClassName } from "@/app/components/ui";
+import { useSettings } from "@/lib/settings/context";
+import {
+  formatKeyTestingCadenceHint,
+  formatReviewCadenceHint,
+} from "@/lib/settings/store";
 import {
   buildSeverityBandCounts,
   summariseIssues,
@@ -173,6 +178,7 @@ async function stampMissingResolvedAt(
 }
 
 export default function OversightPage() {
+  const { settings } = useSettings();
   const [data, setData] = useState<OversightData>(emptyData);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -311,7 +317,7 @@ export default function OversightPage() {
                 <StatCard
                   label="Key Controls Overdue"
                   value={keyControlsOverdueCount}
-                  hint="Key controls not tested within 180 days"
+                  hint={formatKeyTestingCadenceHint(settings)}
                   href="/controls?isKey=true&testingStatus=Overdue"
                   linkLabel="View overdue key controls"
                   tone={keyControlsOverdueCount > 0 ? "alert" : "default"}
@@ -401,7 +407,7 @@ export default function OversightPage() {
                 <StatCard
                   label="Due for Review"
                   value={data.reviewsDue}
-                  hint="Past the 90/180/365-day cadence for the current score"
+                  hint={formatReviewCadenceHint(settings)}
                   href="/risks?reviewRecency=due"
                   linkLabel="View risks due for review"
                   tone={data.reviewsDue > 0 ? "alert" : "default"}

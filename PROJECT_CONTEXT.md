@@ -37,8 +37,10 @@ Core risk register entries.
 | id | uuid | PK |
 | title | text | required |
 | description | text | |
-| likelihood | int2 | 1–5, constrained. **Stored as an integer**; UI uses ISO 31000 labels (Rare → Almost certain) via a 5×5 score matrix, not dropdowns. |
-| impact | int2 | 1–5, constrained. Labels: Negligible → Severe. Same matrix picker. |
+| likelihood | int2 | 1–5, constrained. **Stored as an integer**; UI uses Admin-configured ISO 31000-style labels via a 5×5 score matrix, not dropdowns. Defaults: Rare → Almost certain. |
+| impact | int2 | 1–5, constrained. Defaults: Negligible → Severe. Same matrix picker. |
+| category_id | uuid | nullable FK → `risk_categories`, on delete set null. Added in `003_admin_settings.sql`. |
+| treatment | text | `'mitigate' \| 'accept' \| 'transfer' \| 'avoid'`, default `mitigate`. Added in `003`. |
 | owner_id | uuid | FK → auth.users, set automatically from logged-in user |
 | owner_email | text | denormalized copy of owner's email, for display (auth.users isn't publicly queryable) |
 | created_at | timestamptz | |
@@ -63,9 +65,19 @@ Independent module — controls can exist without being linked to any risk.
 
 "Testing Status" (Never Tested / Tested / Overdue) is **calculated on the fly**, not stored:
 - No `last_tested_at` → Never Tested
-- Key control, `last_tested_at` older than **180 days** → Overdue
-- Non-key control, `last_tested_at` older than **365 days** → Overdue
+- Key control, `last_tested_at` older than the Admin **key testing cadence** (default 180 days) → Overdue
+- Non-key control, `last_tested_at` older than the Admin **non-key testing cadence** (default 365 days) → Overdue
 - Otherwise → Tested
+
+Cadence days come from `org_settings` via `getSettings()` / `getTestingCadenceDays`. Until `003_admin_settings.sql` is applied, built-in defaults are used.
+
+### `org_settings`
+One row per owner (`owner_id` PK). Holds organisation name, likelihood/impact labels, score-band thresholds, review cadence by band, control testing cadence, issue due-date windows, and optional `demo_ids` for the demonstration dataset. Schema: `supabase/schema/003_admin_settings.sql`. The app degrades to `DEFAULT_SETTINGS` in `lib/settings/defaults.ts` if the table is missing (`PGRST205` / `42P01` / schema cache).
+
+### `risk_categories`
+Owner-scoped taxonomy used on the risk register (`name` unique per owner). Risks point at a category via `category_id`.
+
+The runtime snapshot is hydrated by `SettingsProvider` (`lib/settings/context.tsx`) into `lib/settings/store.ts` so pure helpers (`getSeverityBand`, `getReviewCadenceDays`, `formatLikelihood`, `getDefaultDueDate`) pick up live values without threading React context everywhere.
 
 ### `control_test_results`
 Historical log of every test recorded against a control (added to avoid overwriting history).
@@ -139,9 +151,9 @@ so a rating change has provenance rather than silently overwriting the risk.
 
 A risk's "Last Reviewed" is **derived** from the newest `reviewed_at` here, not stored on the
 risk — which is why there's still no review-status field on `risks`. Review **due** is also
-derived: Critical every 90 days, High every 180 days, Medium/Low annually. The register
-filter `reviewRecency=due` and Oversight's "Due for Review" stat use that cadence, not a
-single 365-day rule.
+derived from Admin cadence: by default Critical every 90 days, High every 180 days,
+Medium/Low annually. The register filter `reviewRecency=due` and Oversight's "Due for Review"
+stat use `getReviewCadenceDays` / `isReviewDue`, not a single 365-day rule.
 
 ### `issues`
 Findings raised from audits, control failures, incidents, or risk assessments. This is the
@@ -234,7 +246,7 @@ policy anywhere, it's leftover from before auth and should be replaced with an o
 
 Early tables were created by hand in the Supabase SQL editor with no record in the repo.
 From the Issues module onward, schema lives in versioned files under `supabase/schema/`
-(e.g. `001_issues.sql`, `002_incident_resolved_at.sql`) which are **run manually in the
+(e.g. `001_issues.sql`, `002_incident_resolved_at.sql`, `003_admin_settings.sql`) which are **run manually in the
 Supabase SQL editor** — there is no migration runner wired up. The files are written to
 be re-runnable (`create table if not exists`, `add column if not exists`, `drop policy
 if exists` before create).
@@ -256,12 +268,15 @@ If the app 404s or errors on a whole module, check whether its SQL has been appl
   (e.g. `app/controls/_components/`): the form fields, the control test-history panel, the
   issue workflow/action-plan/activity panels, and a `constants.ts` holding the empty-form
   default. The `_` prefix keeps these out of Next.js routing.
-- **Sidebar navigation** — persistent across all pages: Home, Risks, Controls, Incidents,
-  Issues, RCSA, Oversight Monitoring, plus Log Out button. Collapses behind a Menu button
-  on small screens. `⌘K` / `Ctrl+K` opens a jump palette (`app/components/command-palette.tsx`).
+- **Sidebar navigation** — grouped sections rather than a flat module list: Overview
+  (Home, Oversight), Registers (Risks, Controls, Incidents, Issues), Assessment
+  (Risk Assessment), Administration (Settings → `/admin`). The header shows the
+  organisation name from Admin. Collapses behind a Menu button on small screens.
+  `⌘K` / `Ctrl+K` opens a jump palette (`app/components/command-palette.tsx`).
   `app/layout.tsx` wraps every page in `<AppShell>`
   (`app/components/app-shell.tsx`), which hides the sidebar on `/login` and otherwise
   renders `app/components/app-sidebar.tsx` (active-link highlighting + centralized log out).
+  `SettingsProvider` wraps both the login and authenticated trees.
 - **Home page** (`/`) — welcome message + user email, stat cards (risks, overdue controls,
   open incidents, open issues), a **Needs attention** queue (overdue issues, failed/overdue
   key controls, open high/critical incidents, and High/Critical risks that are uncontrolled
@@ -275,8 +290,17 @@ If the app 404s or errors on a whole module, check whether its SQL has been appl
   - Built with `recharts`.
 - **Risk ratings** — never two independent dropdowns. Use `RiskScorePicker`
   (`app/components/risk-score-picker.tsx`): a 5×5 heat map so the reviewer sees the
-  resulting score band while choosing. Labels live in `lib/types/risk.ts`
-  (`LIKELIHOOD_LABELS` / `IMPACT_LABELS`). Stored values stay 1–5 integers.
+  resulting score band while choosing. Labels and band thresholds live in Admin
+  (`org_settings`); code defaults remain in `lib/settings/defaults.ts` and
+  `LIKELIHOOD_LABELS` / `IMPACT_LABELS` in `lib/types/risk.ts`. Stored values stay 1–5 integers.
+- **Admin** (`/admin`) — organisation name, likelihood/impact labels, score bands,
+  review cadence by band, key vs non-key testing cadence, issue due-date windows,
+  risk taxonomy CRUD, and load/remove demonstration data (`lib/admin/demo-data.ts`).
+  Requires `003_admin_settings.sql`. Until that file is run, the page shows a banner
+  and the rest of the app uses built-in defaults.
+- **Bar-chart hover** — Recharts' default pale overlay is disabled
+  (`chartHoverCursor = false` in `app/components/chart-theme.ts`); hovered bars use a
+  teal stroke instead.
 - **Dropdown gotcha (hit twice — worth remembering):** dropdowns must send the lowercase,
   underscored database value (`not_tested`) even though the displayed label is friendly
   text ("Not Tested"). Mixing these up causes a Postgres check-constraint violation (`23514`)
@@ -296,7 +320,8 @@ then extracted. **Reach for these before writing a new page from scratch:**
 | CSV download of a filtered list | `downloadCsv` in `lib/export/csv.ts` |
 | Date-only display (no UTC day-shift) | `formatIsoDate` / `todayIsoDate` in `lib/dates.ts` |
 | Dirty-form leave warning | `useUnsavedChanges` |
-| Review cadence (90/180/365 by band) | `isReviewDue` / `getReviewCadenceDays` in `lib/types/rcsa.ts` |
+| Review cadence (Admin-configured; default 90/180/365 by band) | `isReviewDue` / `getReviewCadenceDays` in `lib/types/rcsa.ts` |
+| Organisation settings snapshot | `getSettings()` / `hydrateSettings()` in `lib/settings/store.ts`; `useSettings()` in React |
 | Link/unlink against a join table | `useEntityLinks` — owns the rows, search/select state, and insert/delete |
 | Rendering linked rows | `LinkedEntitiesPanel` + the builders in `app/components/linked-entity-rows.tsx` |
 | New/edit form scaffolding | `EntityFormPage` |
@@ -382,6 +407,7 @@ a new env var locally.
 | — | Oversight Monitoring: 2LoD analytics dashboard (coverage, aging, stock/flow) | ✅ Done |
 | — | RCSA evidence brief, linked issues, 5×5 rating picker, indicative residual | ✅ Done |
 | — | Cadence, attention-queue risks, CSV export, command palette, mobile nav | ✅ Done |
+| — | Admin: configurable methodology, taxonomy, demonstration data, grouped nav | ✅ Done |
 | 7 | AI-assisted rating recommendations during RCSA | 🔜 Not started |
 
 ---
@@ -467,7 +493,7 @@ visuals:
 - **Risks** — severity band distribution (reuses `buildSeverityBandCounts`); review
   recency buckets (never reviewed / >365 days / 180–365 days / within 180 days),
   derived from the max `reviewed_at` per risk in `rcsa_reviews`, plus a **Due for
-  Review** headline that applies the 90/180/365-day cadence by severity band.
+  Review** headline that applies the Admin review cadence by severity band.
 - **Issues & Remediation** — open-issue aging buckets (0–30/31–60/61–90/90+ days
   since `identified_at`) broken out by severity; issue flow (opened vs closed,
   trailing 30/90 days); % of open issues overdue and average action-plan completion

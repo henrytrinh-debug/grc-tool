@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "GRC Tool",
-  description: "Governance, risk, and compliance management",
+  title: "GRC",
+  description: "Governance, risk, and compliance — registers, assessment, and oversight.",
 };
 
 export default function RootLayout({

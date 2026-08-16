@@ -1,3 +1,4 @@
+import { getSettings } from "@/lib/settings/store";
 import { formatEffectiveness, type Control } from "@/lib/types/control";
 import { formatIncidentStatus, type Incident } from "@/lib/types/incident";
 import {
@@ -32,15 +33,17 @@ export function getRiskScore(likelihood: number, impact: number) {
 }
 
 export function getSeverityBand(score: number): SeverityBand {
-  if (score <= 5) {
+  const bands = getSettings().bandMaxScores;
+
+  if (score <= bands.Low) {
     return "Low";
   }
 
-  if (score <= 10) {
+  if (score <= bands.Medium) {
     return "Medium";
   }
 
-  if (score <= 19) {
+  if (score <= bands.High) {
     return "High";
   }
 

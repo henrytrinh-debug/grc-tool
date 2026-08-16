@@ -21,7 +21,14 @@ import {
   type IssueStatus,
 } from "@/lib/types/issue";
 import { getReviewRecencyBucket, isReviewDue } from "@/lib/types/rcsa";
-import type { Risk } from "@/lib/types/risk";
+import type { Risk, RiskTreatment } from "@/lib/types/risk";
+
+const RISK_TREATMENTS: RiskTreatment[] = [
+  "mitigate",
+  "accept",
+  "transfer",
+  "avoid",
+];
 
 export type RiskListFilters = {
   q: string;
@@ -30,6 +37,8 @@ export type RiskListFilters = {
   impact: number | null;
   reviewRecency: "" | "never" | "over365" | "due";
   uncontrolled: boolean;
+  categoryId: string;
+  treatment: RiskTreatment | "";
 };
 
 export type ControlListFilters = {
@@ -85,6 +94,7 @@ export function parseRiskFilters(params: URLSearchParams): RiskListFilters {
   const impact = Number(impactRaw);
 
   const recencyRaw = getParam(params, "reviewRecency");
+  const treatmentRaw = getParam(params, "treatment") as RiskTreatment;
 
   return {
     q: getParam(params, "q"),
@@ -105,6 +115,8 @@ export function parseRiskFilters(params: URLSearchParams): RiskListFilters {
         ? recencyRaw
         : "",
     uncontrolled: getParam(params, "uncontrolled") === "true",
+    categoryId: getParam(params, "category"),
+    treatment: RISK_TREATMENTS.includes(treatmentRaw) ? treatmentRaw : "",
   };
 }
 
@@ -290,6 +302,17 @@ export function filterRisks(
     }
 
     if (filters.uncontrolled && (linkedControlCounts[risk.id] ?? 0) > 0) {
+      return false;
+    }
+
+    if (filters.categoryId && risk.category_id !== filters.categoryId) {
+      return false;
+    }
+
+    if (
+      filters.treatment &&
+      (risk.treatment ?? "mitigate") !== filters.treatment
+    ) {
       return false;
     }
 

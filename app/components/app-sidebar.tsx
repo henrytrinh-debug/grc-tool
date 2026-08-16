@@ -4,15 +4,33 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getSupabaseClient } from "@/lib/supabase/client";
+import { useSettings } from "@/lib/settings/context";
 
-export const navItems = [
-  { href: "/", label: "Home" },
-  { href: "/risks", label: "Risks" },
-  { href: "/controls", label: "Controls" },
-  { href: "/incidents", label: "Incidents" },
-  { href: "/issues", label: "Issues" },
-  { href: "/rcsa/start", label: "Risk Assessment" },
-  { href: "/oversight", label: "Oversight Monitoring" },
+const navSections = [
+  {
+    label: "Overview",
+    items: [
+      { href: "/", label: "Home" },
+      { href: "/oversight", label: "Oversight" },
+    ],
+  },
+  {
+    label: "Registers",
+    items: [
+      { href: "/risks", label: "Risks" },
+      { href: "/controls", label: "Controls" },
+      { href: "/incidents", label: "Incidents" },
+      { href: "/issues", label: "Issues" },
+    ],
+  },
+  {
+    label: "Assessment",
+    items: [{ href: "/rcsa/start", label: "Risk Assessment" }],
+  },
+  {
+    label: "Administration",
+    items: [{ href: "/admin", label: "Settings" }],
+  },
 ] as const;
 
 function isActivePath(href: string, pathname: string) {
@@ -35,6 +53,7 @@ type AppSidebarProps = {
 export function AppSidebar({ mobileOpen = false, onNavigate }: AppSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const { settings } = useSettings();
   const [email, setEmail] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
 
@@ -71,40 +90,47 @@ export function AppSidebar({ mobileOpen = false, onNavigate }: AppSidebarProps) 
   return (
     <aside
       id="app-sidebar"
-      className={`flex w-56 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 ${
-        mobileOpen
-          ? "fixed inset-y-0 left-0 z-40"
-          : "hidden md:flex"
+      className={`flex w-60 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 ${
+        mobileOpen ? "fixed inset-y-0 left-0 z-40" : "hidden md:flex"
       }`}
     >
-      <div className="border-b border-slate-200 px-5 py-6 dark:border-slate-800">
-        <p className="text-lg font-semibold tracking-tight text-slate-950 dark:text-slate-50">
-          GRC Tool
+      <div className="border-b border-slate-200 px-5 py-5 dark:border-slate-800">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-teal-700 dark:text-teal-300">
+          GRC
         </p>
-        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-          Governance · Risk · Compliance
+        <p className="mt-1 truncate text-base font-semibold tracking-tight text-slate-950 dark:text-slate-50">
+          {settings.organizationName}
         </p>
       </div>
 
-      <nav className="flex flex-1 flex-col gap-1 px-3 py-4">
-        {navItems.map((item) => {
-          const active = isActivePath(item.href, pathname);
+      <nav className="flex flex-1 flex-col gap-5 overflow-y-auto px-3 py-4">
+        {navSections.map((section) => (
+          <div key={section.label}>
+            <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+              {section.label}
+            </p>
+            <div className="flex flex-col gap-0.5">
+              {section.items.map((item) => {
+                const active = isActivePath(item.href, pathname);
 
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={onNavigate}
-              className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                active
-                  ? "bg-teal-50 text-teal-900 dark:bg-teal-950 dark:text-teal-200"
-                  : "text-slate-600 hover:bg-slate-50 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-50"
-              }`}
-            >
-              {item.label}
-            </Link>
-          );
-        })}
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={onNavigate}
+                    className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                      active
+                        ? "bg-teal-50 text-teal-900 shadow-[inset_3px_0_0_0_rgb(13,148,136)] dark:bg-teal-950 dark:text-teal-200 dark:shadow-[inset_3px_0_0_0_rgb(45,212,191)]"
+                        : "text-slate-600 hover:bg-slate-50 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-50"
+                    }`}
+                  >
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
 
       <div className="border-t border-slate-200 px-3 py-4 dark:border-slate-800">

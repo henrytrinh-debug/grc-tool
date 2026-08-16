@@ -11,6 +11,11 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import {
+  chartActiveBar,
+  chartHoverCursor,
+  chartTooltipStyle,
+} from "@/app/components/chart-theme";
 import type { SeverityBandCount } from "@/lib/dashboard/analytics";
 
 const BAND_COLORS: Record<SeverityBandCount["band"], string> = {
@@ -49,18 +54,15 @@ export function RiskSeverityBarChart({ data }: RiskSeverityBarChartProps) {
           className="text-slate-600 dark:text-slate-400"
         />
         <Tooltip
-          contentStyle={{
-            backgroundColor: "rgb(15 23 42)",
-            border: "1px solid rgb(51 65 85)",
-            borderRadius: "0.5rem",
-            color: "rgb(248 250 252)",
-          }}
+          cursor={chartHoverCursor}
+          contentStyle={chartTooltipStyle}
           formatter={(value) => [value, "Risks"]}
         />
         <Bar
           dataKey="count"
           radius={[6, 6, 0, 0]}
           cursor="pointer"
+          activeBar={chartActiveBar}
           onClick={(data) => {
             const band = (data as { band?: string }).band;
             if (band) {

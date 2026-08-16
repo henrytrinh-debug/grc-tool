@@ -18,6 +18,7 @@ const COMMANDS = [
   { label: "Overdue issues", href: "/issues?overdue=true", keywords: "remediation" },
   { label: "Start risk assessment", href: "/rcsa/start", keywords: "rcsa review" },
   { label: "Oversight monitoring", href: "/oversight", keywords: "2lod second line" },
+  { label: "Admin settings", href: "/admin", keywords: "admin organisation taxonomy cadence demo" },
   { label: "Add risk", href: "/risks/new", keywords: "create" },
   { label: "Add control", href: "/controls/new", keywords: "create" },
   { label: "Add incident", href: "/incidents/new", keywords: "create" },
@@ -73,7 +74,7 @@ export function CommandPalette() {
       <button
         type="button"
         aria-label="Close command palette"
-        className="absolute inset-0 bg-slate-950/40"
+        className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm"
         onClick={() => setOpen(false)}
       />
       <div

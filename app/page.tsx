@@ -14,7 +14,7 @@ import { RiskHeatMap } from "@/app/components/dashboard/risk-heat-map";
 import { RiskSeverityBarChart } from "@/app/components/dashboard/risk-severity-bar-chart";
 import { StatCard } from "@/app/components/dashboard/stat-card";
 import { ErrorBanner, PageHeader, PageLoading } from "@/app/components/page-parts";
-import { mutedTextClassName, primaryButtonClassName } from "@/app/components/ui";
+import { mutedTextClassName, primaryButtonClassName, secondaryButtonClassName } from "@/app/components/ui";
 import { buildAttentionItems, type AttentionItem } from "@/lib/dashboard/attention";
 import {
   buildControlEffectivenessCounts,
@@ -29,6 +29,8 @@ import {
   type SeverityBandCount,
 } from "@/lib/dashboard/analytics";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
+import { useSettings } from "@/lib/settings/context";
+import { formatTestingCadenceHint } from "@/lib/settings/store";
 import { fetchOwnedTable } from "@/lib/supabase/owned";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { getTestingStatus, type Control } from "@/lib/types/control";
@@ -76,6 +78,7 @@ const emptyDashboard: DashboardData = {
 };
 
 export default function HomePage() {
+  const { settings } = useSettings();
   const [data, setData] = useState<DashboardData>(emptyDashboard);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -189,7 +192,7 @@ export default function HomePage() {
                     ? `${data.overdueKeyControlCount} key`
                     : "View overdue controls"
                 }
-                hint="Key controls: 180 days · others: 365 days"
+                hint={formatTestingCadenceHint(settings)}
                 tone={data.overdueControlCount > 0 ? "alert" : "default"}
               />
               <StatCard
@@ -223,12 +226,17 @@ export default function HomePage() {
               data.issues.total === 0 ? (
                 <div className="space-y-3">
                   <p className={`text-sm ${mutedTextClassName}`}>
-                    Nothing in the registers yet. Start with a risk, then link
-                    controls and run an assessment.
+                    Nothing in the registers yet. Start with a risk, or load
+                    demonstration data from Admin to walk the product.
                   </p>
-                  <Link href="/risks/new" className={primaryButtonClassName}>
-                    Add your first risk
-                  </Link>
+                  <div className="flex flex-wrap gap-3">
+                    <Link href="/risks/new" className={primaryButtonClassName}>
+                      Add your first risk
+                    </Link>
+                    <Link href="/admin" className={secondaryButtonClassName}>
+                      Open Admin
+                    </Link>
+                  </div>
                 </div>
               ) : (
                 <AttentionList items={data.attention} />

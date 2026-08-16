@@ -12,6 +12,7 @@ import {
 } from "@/lib/types/risk";
 import { SeverityBandBadge } from "@/app/components/status-badge";
 import { mutedTextClassName } from "@/app/components/ui";
+import { useSettings } from "@/lib/settings/context";
 
 type RiskScorePickerProps = {
   likelihood: number;
@@ -31,6 +32,7 @@ export function RiskScorePicker({
   onChange,
   description,
 }: RiskScorePickerProps) {
+  useSettings();
   const score = getRiskScore(likelihood, impact);
   const band = getSeverityBand(score);
 
@@ -85,7 +87,7 @@ export function RiskScorePicker({
                     className={`flex aspect-square min-h-11 min-w-11 items-center justify-center rounded-md text-xs font-semibold text-white transition-shadow focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 dark:focus-visible:outline-teal-400 ${
                       selected
                         ? "ring-2 ring-slate-950 ring-offset-2 ring-offset-white dark:ring-white dark:ring-offset-slate-900"
-                        : "hover:opacity-90"
+                        : "hover:brightness-110"
                     }`}
                     style={{ backgroundColor: getScoreHeatColor(cellScore) }}
                   >

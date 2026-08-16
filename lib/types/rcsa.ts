@@ -1,8 +1,9 @@
 import {
   getRiskScore,
   getSeverityBand,
-  type SeverityBand,
 } from "@/lib/dashboard/analytics";
+import { DEFAULT_SETTINGS } from "@/lib/settings/defaults";
+import { getSettings } from "@/lib/settings/store";
 import { daysSinceIso, formatIsoDate } from "@/lib/dates";
 
 export type RcsaSession = {
@@ -58,17 +59,11 @@ export function formatLastReviewedAt(
 }
 
 /** How often a risk should be re-assessed, by inherent severity band. */
-export const REVIEW_CADENCE_DAYS: Record<SeverityBand, number> = {
-  Critical: 90,
-  High: 180,
-  Medium: 365,
-  Low: 365,
-};
+export const REVIEW_CADENCE_DAYS = DEFAULT_SETTINGS.reviewCadenceDays;
 
 export function getReviewCadenceDays(likelihood: number, impact: number) {
-  return REVIEW_CADENCE_DAYS[
-    getSeverityBand(getRiskScore(likelihood, impact))
-  ];
+  const band = getSeverityBand(getRiskScore(likelihood, impact));
+  return getSettings().reviewCadenceDays[band];
 }
 
 /** True when the risk has never been reviewed, or the band's cadence has lapsed. */

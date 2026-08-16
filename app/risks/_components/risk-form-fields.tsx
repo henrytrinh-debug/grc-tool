@@ -1,6 +1,7 @@
 import { inputClassName, labelClassName } from "@/app/components/ui";
 import { RiskScorePicker } from "@/app/components/risk-score-picker";
-import type { NewRisk } from "@/lib/types/risk";
+import { useSettings } from "@/lib/settings/context";
+import { RISK_TREATMENT_OPTIONS, type NewRisk } from "@/lib/types/risk";
 
 type RiskFormFieldsProps = {
   form: NewRisk;
@@ -8,6 +9,8 @@ type RiskFormFieldsProps = {
 };
 
 export function RiskFormFields({ form, onChange }: RiskFormFieldsProps) {
+  const { categories, schemaReady } = useSettings();
+
   return (
     <>
       <label className="flex flex-col gap-1 sm:col-span-2">
@@ -43,6 +46,45 @@ export function RiskFormFields({ form, onChange }: RiskFormFieldsProps) {
           description="Click a cell to set both ratings. The colour is the resulting inherent risk score."
         />
       </div>
+
+      {schemaReady && (
+        <>
+          <label className="flex flex-col gap-1">
+            <span className={labelClassName}>Category</span>
+            <select
+              value={form.category_id ?? ""}
+              onChange={(event) => onChange({ category_id: event.target.value })}
+              className={inputClassName}
+            >
+              <option value="">Uncategorised</option>
+              {categories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1">
+            <span className={labelClassName}>Treatment</span>
+            <select
+              value={form.treatment ?? "mitigate"}
+              onChange={(event) =>
+                onChange({
+                  treatment: event.target.value as NewRisk["treatment"],
+                })
+              }
+              className={inputClassName}
+            >
+              {RISK_TREATMENT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </>
+      )}
     </>
   );
 }

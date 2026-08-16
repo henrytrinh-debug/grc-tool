@@ -7,12 +7,14 @@ import {
   getRiskScore,
 } from "@/lib/dashboard/analytics";
 import { formatImpact, formatLikelihood, RISK_SCALE_VALUES, type Risk } from "@/lib/types/risk";
+import { useSettings } from "@/lib/settings/context";
 
 type RiskHeatMapProps = {
   risks: Risk[];
 };
 
 export function RiskHeatMap({ risks }: RiskHeatMapProps) {
+  useSettings();
   const grid = buildRiskHeatMap(risks);
 
   return (
@@ -42,7 +44,7 @@ export function RiskHeatMap({ risks }: RiskHeatMapProps) {
                 <Link
                   key={`${likelihood}-${impact}`}
                   href={href}
-                  className={`flex aspect-square min-h-12 items-center justify-center rounded-md border text-sm font-semibold transition-opacity hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 dark:focus-visible:outline-teal-400 ${
+                  className={`flex aspect-square min-h-12 items-center justify-center rounded-md border text-sm font-semibold transition-all duration-150 hover:z-10 hover:ring-2 hover:ring-teal-600 hover:ring-offset-1 hover:ring-offset-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 dark:hover:ring-teal-400 dark:hover:ring-offset-slate-900 dark:focus-visible:outline-teal-400 ${
                     count === 0
                       ? "border-slate-200 bg-slate-100 text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400"
                       : "border-transparent text-white"

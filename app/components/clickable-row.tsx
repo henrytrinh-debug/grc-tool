@@ -11,7 +11,7 @@ type ClickableRowProps = {
 };
 
 const rowClassName =
-  "cursor-pointer transition-colors hover:bg-teal-50/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-teal-600 dark:hover:bg-slate-800/80 dark:focus-visible:outline-teal-400";
+  "cursor-pointer transition-colors duration-150 hover:bg-teal-50/80 hover:shadow-[inset_3px_0_0_0_rgb(13,148,136)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-teal-600 dark:hover:bg-slate-800/80 dark:hover:shadow-[inset_3px_0_0_0_rgb(45,212,191)] dark:focus-visible:outline-teal-400";
 
 /**
  * List-table row that navigates on click and on Enter/Space, matching the

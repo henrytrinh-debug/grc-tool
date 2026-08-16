@@ -42,6 +42,7 @@ import type {
   LinkedIncident,
   LinkedIssue,
 } from "@/lib/types/linked-entities";
+import { useSettings } from "@/lib/settings/context";
 import { toRiskFormPayload, type NewRisk, type Risk } from "@/lib/types/risk";
 import {
   groupRiskControlRows,
@@ -64,6 +65,7 @@ export default function EditRiskPage() {
   const [submitting, setSubmitting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { schemaReady } = useSettings();
 
   const {
     linked: linkedControls,
@@ -145,6 +147,8 @@ export default function EditRiskPage() {
           description: loadedRisk.description,
           likelihood: loadedRisk.likelihood,
           impact: loadedRisk.impact,
+          category_id: loadedRisk.category_id ?? "",
+          treatment: loadedRisk.treatment ?? "mitigate",
         });
 
         const [controlsResult, incidentsResult] = await Promise.all([
@@ -199,7 +203,9 @@ export default function EditRiskPage() {
       (form.title !== risk.title ||
         form.description !== risk.description ||
         form.likelihood !== risk.likelihood ||
-        form.impact !== risk.impact),
+        form.impact !== risk.impact ||
+        (form.category_id || "") !== (risk.category_id ?? "") ||
+        (form.treatment ?? "mitigate") !== (risk.treatment ?? "mitigate")),
   );
   const { confirmLeave } = useUnsavedChanges(dirty);
 
@@ -221,7 +227,7 @@ export default function EditRiskPage() {
       const supabase = getSupabaseClient();
       const { error: updateError } = await supabase
         .from("risks")
-        .update(toRiskFormPayload(form))
+        .update(toRiskFormPayload(form, schemaReady))
         .eq("id", risk.id)
         .eq("owner_id", user.id);
 

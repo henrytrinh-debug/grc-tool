@@ -16,6 +16,8 @@ import {
 import { getRiskScore, getSeverityBand } from "@/lib/dashboard/analytics";
 import { sortRisksByExposure } from "@/lib/list-filters";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
+import { useSettings } from "@/lib/settings/context";
+import { formatReviewCadenceHint } from "@/lib/settings/store";
 import { throwIfAnyQueryError } from "@/lib/supabase/owned";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import {
@@ -30,6 +32,7 @@ import type { Risk } from "@/lib/types/risk";
 
 export default function RcsaStartPage() {
   const router = useRouter();
+  const { settings } = useSettings();
   const [risks, setRisks] = useState<RiskWithLastReviewed[]>([]);
   const [selectedRiskIds, setSelectedRiskIds] = useState<Set<string>>(
     new Set(),
@@ -240,7 +243,7 @@ export default function RcsaStartPage() {
       <main className="mx-auto flex w-full max-w-5xl flex-col gap-8">
         <PageHeader
           title="Risk Assessment"
-          description="Risks due for review (by severity cadence) are pre-selected. Critical every 90 days, High every 180 days, others annually."
+          description={`Risks due for review (by severity cadence) are pre-selected. ${formatReviewCadenceHint(settings)}.`}
         />
 
         <ErrorBanner message={error} />

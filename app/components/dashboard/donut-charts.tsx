@@ -9,6 +9,7 @@ import {
   ResponsiveContainer,
   Tooltip,
 } from "recharts";
+import { chartTooltipStyle } from "@/app/components/chart-theme";
 import type { ChartCount } from "@/lib/dashboard/analytics";
 
 const EFFECTIVENESS_COLORS: Record<string, string> = {
@@ -69,6 +70,8 @@ export function DashboardDonutChart({
           outerRadius={95}
           paddingAngle={2}
           cursor="pointer"
+          stroke="transparent"
+          strokeWidth={1}
           onClick={(_, index) => {
             const entry = data[index];
             if (entry) {
@@ -83,14 +86,7 @@ export function DashboardDonutChart({
             />
           ))}
         </Pie>
-        <Tooltip
-          contentStyle={{
-            backgroundColor: "rgb(15 23 42)",
-            border: "1px solid rgb(51 65 85)",
-            borderRadius: "0.5rem",
-            color: "rgb(248 250 252)",
-          }}
-        />
+        <Tooltip contentStyle={chartTooltipStyle} />
         <Legend />
       </PieChart>
     </ResponsiveContainer>

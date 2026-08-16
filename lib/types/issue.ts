@@ -1,3 +1,4 @@
+import { getSettings } from "@/lib/settings/store";
 import { addDaysToIsoDate, formatIsoDate, todayIsoDate } from "@/lib/dates";
 
 export type IssueSource =
@@ -74,15 +75,8 @@ export const ISSUE_STATUS_OPTIONS: { value: IssueStatus; label: string }[] = [
 
 /**
  * Target-date defaults by severity, applied when raising an issue. Critical
- * findings get the tightest remediation window.
+ * findings get the tightest remediation window. Override in Admin.
  */
-const DUE_DATE_DAYS_BY_SEVERITY: Record<IssueSeverity, number> = {
-  critical: 30,
-  high: 60,
-  medium: 90,
-  low: 180,
-};
-
 export function formatIssueSource(source: IssueSource) {
   return (
     ISSUE_SOURCE_OPTIONS.find((option) => option.value === source)?.label ??
@@ -107,7 +101,10 @@ export function formatIssueStatus(status: IssueStatus) {
 export { addDaysToIsoDate, todayIsoDate };
 
 export function getDefaultDueDate(severity: IssueSeverity) {
-  return addDaysToIsoDate(todayIsoDate(), DUE_DATE_DAYS_BY_SEVERITY[severity]);
+  return addDaysToIsoDate(
+    todayIsoDate(),
+    getSettings().issueDueDays[severity],
+  );
 }
 
 export function formatIssueDate(value: string | null | undefined) {

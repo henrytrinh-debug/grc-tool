@@ -1,3 +1,4 @@
+import { getSettings } from "@/lib/settings/store";
 import { daysSinceIso, formatIsoDate } from "@/lib/dates";
 
 export type Effectiveness = "effective" | "ineffective" | "not_tested";
@@ -59,9 +60,12 @@ export function formatKeyStatus(isKey: boolean) {
   return isKey ? "Key" : "Non-Key";
 }
 
-/** Key controls are tested at least twice a year; others annually. */
+/** Key controls use the Admin key-testing cadence; others use the non-key cadence. */
 export function getTestingCadenceDays(isKey: boolean) {
-  return isKey ? 180 : 365;
+  const settings = getSettings();
+  return isKey
+    ? settings.keyTestingCadenceDays
+    : settings.nonKeyTestingCadenceDays;
 }
 
 export function getTestingStatus(

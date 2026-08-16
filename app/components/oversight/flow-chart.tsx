@@ -10,6 +10,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { chartActiveBar, chartHoverCursor, chartTooltipStyle } from "@/app/components/chart-theme";
 import type { FlowCounts } from "@/lib/oversight/metrics";
 
 type FlowDatum = FlowCounts & { period: string };
@@ -64,17 +65,22 @@ export function FlowBarChart({
           tick={{ fill: "currentColor", fontSize: 12 }}
           className="text-slate-600 dark:text-slate-400"
         />
-        <Tooltip
-          contentStyle={{
-            backgroundColor: "rgb(15 23 42)",
-            border: "1px solid rgb(51 65 85)",
-            borderRadius: "0.5rem",
-            color: "rgb(248 250 252)",
-          }}
-        />
+        <Tooltip cursor={chartHoverCursor} contentStyle={chartTooltipStyle} />
         <Legend />
-        <Bar dataKey="opened" name={openedLabel} fill="#f97316" radius={[6, 6, 0, 0]} />
-        <Bar dataKey="closed" name={closedLabel} fill="#22c55e" radius={[6, 6, 0, 0]} />
+        <Bar
+          dataKey="opened"
+          name={openedLabel}
+          fill="#f97316"
+          radius={[6, 6, 0, 0]}
+          activeBar={chartActiveBar}
+        />
+        <Bar
+          dataKey="closed"
+          name={closedLabel}
+          fill="#22c55e"
+          radius={[6, 6, 0, 0]}
+          activeBar={chartActiveBar}
+        />
       </BarChart>
     </ResponsiveContainer>
   );

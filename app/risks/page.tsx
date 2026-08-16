@@ -23,6 +23,7 @@ import {
   sortRisksByExposure,
 } from "@/lib/list-filters";
 import { downloadCsv } from "@/lib/export/csv";
+import { useSettings } from "@/lib/settings/context";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { throwIfAnyQueryError } from "@/lib/supabase/owned";
 import {
@@ -44,7 +45,9 @@ import {
 import {
   formatImpactOption,
   formatLikelihoodOption,
+  formatTreatment,
   RISK_SCALE_VALUES,
+  RISK_TREATMENT_OPTIONS,
   type Risk,
 } from "@/lib/types/risk";
 import {
@@ -59,6 +62,7 @@ function RisksPageContent() {
     parseRiskFilters,
   );
 
+  const { categories, schemaReady } = useSettings();
   const [risks, setRisks] = useState<Risk[]>([]);
   const [linkedControlCounts, setLinkedControlCounts] = useState<
     Record<string, number>
@@ -178,6 +182,14 @@ function RisksPageContent() {
     [risks, filters, lastReviewedByRisk, linkedControlCounts],
   );
 
+  const categoryNameById = useMemo(() => {
+    const names: Record<string, string> = {};
+    for (const category of categories) {
+      names[category.id] = category.name;
+    }
+    return names;
+  }, [categories]);
+
   const filtersActive = hasActiveFilters({
     q: filters.q,
     severity: filters.severity,
@@ -185,6 +197,8 @@ function RisksPageContent() {
     impact: filters.impact,
     reviewRecency: filters.reviewRecency,
     uncontrolled: filters.uncontrolled,
+    categoryId: filters.categoryId,
+    treatment: filters.treatment,
   });
 
   if (authLoading) {
@@ -225,6 +239,8 @@ function RisksPageContent() {
                       "risk-register",
                       [
                         "Title",
+                        "Category",
+                        "Treatment",
                         "Likelihood",
                         "Impact",
                         "Score",
@@ -242,6 +258,10 @@ function RisksPageContent() {
                         );
                         return [
                           risk.title,
+                          (risk.category_id &&
+                            categoryNameById[risk.category_id]) ||
+                            "Uncategorised",
+                          formatTreatment(risk.treatment),
                           risk.likelihood,
                           risk.impact,
                           score,
@@ -274,6 +294,28 @@ function RisksPageContent() {
                 { value: "Critical", label: "Critical" },
               ]}
             />
+            {schemaReady && categories.length > 0 && (
+              <FilterSelect
+                label="Category"
+                value={filters.categoryId}
+                onChange={(value) => updateFilters({ category: value })}
+                options={categories.map((category) => ({
+                  value: category.id,
+                  label: category.name,
+                }))}
+              />
+            )}
+            {schemaReady && (
+              <FilterSelect
+                label="Treatment"
+                value={filters.treatment}
+                onChange={(value) => updateFilters({ treatment: value })}
+                options={RISK_TREATMENT_OPTIONS.map((option) => ({
+                  value: option.value,
+                  label: option.label,
+                }))}
+              />
+            )}
             <FilterSelect
               label="Likelihood"
               value={filters.likelihood?.toString() ?? ""}
@@ -331,6 +373,12 @@ function RisksPageContent() {
                 <thead className="bg-slate-50 text-slate-600 dark:bg-slate-950 dark:text-slate-400">
                   <tr>
                     <th className="px-6 py-3 font-medium">Title</th>
+                    {schemaReady && (
+                      <>
+                        <th className="px-6 py-3 font-medium">Category</th>
+                        <th className="px-6 py-3 font-medium">Treatment</th>
+                      </>
+                    )}
                     <th className="px-6 py-3 font-medium">Likelihood</th>
                     <th className="px-6 py-3 font-medium">Impact</th>
                     <th className="px-6 py-3 font-medium">Risk Score</th>
@@ -372,6 +420,18 @@ function RisksPageContent() {
                         <td className="px-6 py-4 font-medium text-slate-950 dark:text-slate-50">
                           {risk.title}
                         </td>
+                        {schemaReady && (
+                          <>
+                            <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
+                              {(risk.category_id &&
+                                categoryNameById[risk.category_id]) ||
+                                "Uncategorised"}
+                            </td>
+                            <td className="px-6 py-4 text-slate-950 dark:text-slate-50">
+                              {formatTreatment(risk.treatment)}
+                            </td>
+                          </>
+                        )}
                         <td className="px-6 py-4 text-slate-950 dark:text-slate-50">
                           {formatLikelihoodOption(risk.likelihood)}
                         </td>

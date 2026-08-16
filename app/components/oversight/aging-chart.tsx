@@ -10,6 +10,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { chartHoverCursor, chartTooltipStyle } from "@/app/components/chart-theme";
 import { ISSUE_SEVERITY_COLORS, type IssueAgingBucket } from "@/lib/oversight/metrics";
 import type { IssueSeverity } from "@/lib/types/issue";
 
@@ -56,12 +57,8 @@ export function IssueAgingChart({ data }: IssueAgingChartProps) {
           className="text-slate-600 dark:text-slate-400"
         />
         <Tooltip
-          contentStyle={{
-            backgroundColor: "rgb(15 23 42)",
-            border: "1px solid rgb(51 65 85)",
-            borderRadius: "0.5rem",
-            color: "rgb(248 250 252)",
-          }}
+          cursor={chartHoverCursor}
+          contentStyle={chartTooltipStyle}
           formatter={(value, name) => [value, SEVERITY_LABELS[name as IssueSeverity] ?? name]}
         />
         <Legend formatter={(value) => SEVERITY_LABELS[value as IssueSeverity] ?? value} />

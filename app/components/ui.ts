@@ -16,6 +16,6 @@ export const dangerButtonClassName =
 export const pageClassName = "min-h-full bg-slate-50 px-6 py-10 dark:bg-slate-950";
 
 export const cardClassName =
-  "rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900";
+  "rounded-xl border border-slate-200 bg-white shadow-sm transition-shadow duration-200 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 dark:hover:shadow-none";
 
 export const mutedTextClassName = "text-slate-600 dark:text-slate-400";

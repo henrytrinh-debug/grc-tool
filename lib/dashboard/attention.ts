@@ -9,7 +9,7 @@ import {
   isIssueOverdue,
   type Issue,
 } from "@/lib/types/issue";
-import { isReviewDue } from "@/lib/types/rcsa";
+import { getReviewCadenceDays, isReviewDue } from "@/lib/types/rcsa";
 import type { Risk } from "@/lib/types/risk";
 
 export type AttentionTone = "alert" | "watch";
@@ -133,7 +133,7 @@ export function buildAttentionItems(
         href: `/rcsa/review?risk=${risk.id}`,
         title: risk.title,
         reason: lastReviewedAt
-          ? `${band} risk past its ${band === "Critical" ? "90" : "180"}-day review cadence`
+          ? `${band} risk past its ${getReviewCadenceDays(risk.likelihood, risk.impact)}-day review cadence`
           : `${band} risk has never been reviewed`,
         tone: band === "Critical" ? "alert" : "watch",
       });

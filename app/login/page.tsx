@@ -84,11 +84,33 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-full items-center justify-center bg-slate-50 px-6 py-10 dark:bg-slate-950">
-      <main className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <div className="flex min-h-full bg-slate-50 dark:bg-slate-950">
+      <div className="relative hidden w-[28rem] overflow-hidden bg-teal-800 px-10 py-12 text-teal-50 lg:flex lg:flex-col lg:justify-between">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgb(45_212_191/0.35),transparent_55%)]" />
+        <div className="relative">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-teal-200">
+            GRC
+          </p>
+          <h1 className="mt-4 text-3xl font-semibold tracking-tight">
+            Governance, risk, and compliance in one register.
+          </h1>
+          <p className="mt-4 text-sm leading-6 text-teal-100/90">
+            Score inherent risk, evidence controls, run assessments, and track
+            findings through to close.
+          </p>
+        </div>
+        <ul className="relative space-y-3 text-sm text-teal-100/90">
+          <li>Configurable scoring, cadence, and taxonomy</li>
+          <li>Registers for risks, controls, incidents, and issues</li>
+          <li>Second-line oversight of coverage and review currency</li>
+        </ul>
+      </div>
+
+      <div className="flex flex-1 items-center justify-center px-6 py-10">
+      <main className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-8 shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <header className="mb-6">
-          <p className="text-xs font-medium uppercase tracking-wide text-teal-700 dark:text-teal-300">
-            GRC Tool
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-teal-700 dark:text-teal-300">
+            GRC
           </p>
           <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">
             {mode === "sign-in" ? "Sign in" : "Create account"}
@@ -166,6 +188,7 @@ export default function LoginPage() {
           <ErrorBanner message={error} />
         </div>
       </main>
+      </div>
     </div>
   );
 }
