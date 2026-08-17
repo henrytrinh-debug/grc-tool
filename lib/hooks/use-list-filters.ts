@@ -34,9 +34,31 @@ export function useListFilters<TFilters>(
     [basePath, router, searchParams],
   );
 
-  const clearFilters = useCallback(() => {
-    router.replace(basePath);
-  }, [basePath, router]);
+  const updateRegisterFilters = useCallback(
+    (updates: Record<string, string>) => {
+      updateFilters({ view: "register", ...updates });
+    },
+    [updateFilters],
+  );
 
-  return { filters, updateFilters, clearFilters };
+  const clearFilters = useCallback(() => {
+    const params = new URLSearchParams();
+    const view = searchParams.get("view");
+    if (view) {
+      params.set("view", view);
+    } else {
+      params.set("view", "register");
+    }
+    const query = params.toString();
+    router.replace(query ? `${basePath}?${query}` : basePath);
+  }, [basePath, router, searchParams]);
+
+  return {
+    filters,
+    updateFilters,
+    updateRegisterFilters,
+    clearFilters,
+    sort: searchParams.get("sort")?.trim() ?? "",
+    searchParams,
+  };
 }

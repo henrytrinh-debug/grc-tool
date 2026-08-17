@@ -3,24 +3,29 @@
 import Link from "next/link";
 import { Suspense, useCallback, useMemo, useState } from "react";
 import { ClickableRow } from "@/app/components/clickable-row";
+import { ColumnHeader } from "@/app/components/column-header";
 import { QualityTitle } from "@/app/components/quality-indicator";
-import { FilterSelect, ListToolbar } from "@/app/components/list-toolbar";
+import { ListToolbar } from "@/app/components/list-toolbar";
 import { RegisterPresets } from "@/app/components/register-presets";
+import { RegisterPageShell } from "@/app/components/register-page-shell";
+import { RegisterSettingsPanel } from "@/app/components/register-settings-panel";
 import {
   ErrorBanner,
   ListEmpty,
   LoadingBlock,
-  PageHeader,
   PageLoading,
   RegisterTable,
   SchemaNotice,
   registerTheadClassName,
 } from "@/app/components/page-parts";
 import { primaryButtonClassName, secondaryButtonClassName } from "@/app/components/ui";
+import { ObligationSummary } from "@/app/obligations/_components/obligation-summary";
 import { formatIsoDate } from "@/lib/dates";
 import { downloadCsv } from "@/lib/export/csv";
 import { useListFilters } from "@/lib/hooks/use-list-filters";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
+import { applySort } from "@/lib/list-sort";
+import { parseRegisterView } from "@/lib/register/view";
 import { useSettings } from "@/lib/settings/context";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { fetchOwnedTableOptional } from "@/lib/supabase/owned";
@@ -50,12 +55,11 @@ function parseObligationFilters(params: URLSearchParams) {
 }
 
 function ObligationsPageContent() {
-  const { filters, updateFilters, clearFilters } = useListFilters(
-    "/obligations",
-    parseObligationFilters,
-  );
+  const { filters, updateRegisterFilters, clearFilters, sort, searchParams } =
+    useListFilters("/obligations", parseObligationFilters);
   const { people, obligationsReady, enterpriseReady } = useSettings();
   const [rows, setRows] = useState<ObligationRecord[]>([]);
+  const [links, setLinks] = useState<ObligationControlLink[]>([]);
   const [controlCounts, setControlCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -64,7 +68,7 @@ function ObligationsPageContent() {
     setError(null);
     try {
       const supabase = getSupabaseClient();
-      const [nextRows, links] = await Promise.all([
+      const [nextRows, nextLinks] = await Promise.all([
         fetchOwnedTableOptional<ObligationRecord>(
           supabase,
           "obligations",
@@ -79,8 +83,9 @@ function ObligationsPageContent() {
         ),
       ]);
       setRows(nextRows);
+      setLinks(nextLinks);
       const counts: Record<string, number> = {};
-      for (const link of links) {
+      for (const link of nextLinks) {
         counts[link.obligation_id] = (counts[link.obligation_id] ?? 0) + 1;
       }
       setControlCounts(counts);
@@ -98,7 +103,7 @@ function ObligationsPageContent() {
 
   const filtered = useMemo(() => {
     const needle = filters.q.toLowerCase();
-    return rows.filter((row) => {
+    const rowsFiltered = rows.filter((row) => {
       if (
         needle &&
         !`${row.title} ${row.source} ${row.citation} ${row.requirement_text}`
@@ -126,48 +131,75 @@ function ObligationsPageContent() {
       }
       return true;
     });
-  }, [filters, myPersonId, rows]);
+    return applySort(rowsFiltered, sort, {
+      title: (row) => row.title,
+      source: (row) => row.source,
+      status: (row) => row.status,
+      review: (row) => row.review_date ?? "",
+      controls: (row) => controlCounts[row.id] ?? 0,
+    });
+  }, [controlCounts, filters, myPersonId, rows, sort]);
+
+  const filtersActive = Boolean(filters.q || filters.status || filters.assignee);
+  const view = parseRegisterView(searchParams, filtersActive);
 
   if (authLoading) {
     return <PageLoading />;
   }
 
   return (
-    <div className="min-h-full min-w-0 bg-slate-50 px-6 py-10 dark:bg-slate-950">
-      <main className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-6">
-        <PageHeader
-          title="Obligations"
-          description="Owner-scoped compliance requirements mapped to controls and issues. This is a register, not a regulatory feed."
-          breadcrumbs={[
-            { href: "/", label: "Home" },
-            { label: "Obligations" },
-          ]}
-          actions={
-            obligationsReady ? (
-              <Link href="/obligations/new" className={primaryButtonClassName}>
-                Add obligation
-              </Link>
-            ) : null
-          }
+    <RegisterPageShell
+      title="Obligations"
+      description="Owner-scoped compliance requirements mapped to controls and issues. This is a register, not a regulatory feed."
+      path="/obligations"
+      hasListFilters={filtersActive}
+      actions={
+        obligationsReady ? (
+          <Link href="/obligations/new" className={primaryButtonClassName}>
+            Add obligation
+          </Link>
+        ) : null
+      }
+    >
+      {!obligationsReady && (
+        <SchemaNotice>
+          Run <code className="font-mono">supabase/schema/008_obligations.sql</code>{" "}
+          to enable the obligations register.
+        </SchemaNotice>
+      )}
+
+      <ErrorBanner message={error} />
+
+      {view === "settings" ? (
+        <RegisterSettingsPanel
+          module="obligations"
+          extra="Obligation review dates live on each record. People, taxonomy, and workspace layout stay in Admin."
         />
+      ) : null}
 
-        {!obligationsReady && (
-          <SchemaNotice>
-            Run <code className="font-mono">supabase/schema/008_obligations.sql</code>{" "}
-            to enable the obligations register.
-          </SchemaNotice>
-        )}
+      {view === "summary" ? (
+        loading ? (
+          <LoadingBlock label="Loading obligations..." />
+        ) : rows.length === 0 ? (
+          <ListEmpty>
+            {obligationsReady
+              ? "No obligations yet."
+              : "The obligations table is not available yet."}
+          </ListEmpty>
+        ) : (
+          <ObligationSummary rows={rows} links={links} />
+        )
+      ) : null}
 
-        <ErrorBanner message={error} />
-
+      {view === "register" ? (
         <section className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <ListToolbar
             search={filters.q}
-            onSearchChange={(value) => updateFilters({ q: value })}
+            onSearchChange={(value) => updateRegisterFilters({ q: value })}
             searchPlaceholder="Search title, source, or citation..."
             showing={filtered.length}
             total={rows.length}
-            hasFilters={Boolean(filters.q || filters.status || filters.assignee)}
+            hasFilters={filtersActive}
             onClear={clearFilters}
             actions={
               <>
@@ -205,25 +237,7 @@ function ObligationsPageContent() {
                 ) : null}
               </>
             }
-          >
-            <FilterSelect
-              label="Status"
-              value={filters.status}
-              onChange={(value) => updateFilters({ status: value })}
-              options={OBLIGATION_STATUS_OPTIONS.map((option) => ({
-                value: option.value,
-                label: option.label,
-              }))}
-            />
-            {enterpriseReady ? (
-              <FilterSelect
-                label="Assignee"
-                value={filters.assignee}
-                onChange={(value) => updateFilters({ assignee: value })}
-                options={assigneeFilterOptions(people)}
-              />
-            ) : null}
-          </ListToolbar>
+          />
 
           {loading ? (
             <LoadingBlock label="Loading obligations..." />
@@ -237,11 +251,64 @@ function ObligationsPageContent() {
             <RegisterTable>
               <thead className={registerTheadClassName}>
                 <tr>
-                  <th className="px-6 py-3 font-medium">Title</th>
-                  <th className="px-6 py-3 font-medium">Source</th>
-                  <th className="px-6 py-3 font-medium">Status</th>
-                  <th className="px-6 py-3 font-medium">Review</th>
-                  <th className="px-6 py-3 font-medium">Controls</th>
+                  <th className="px-6 py-3">
+                    <ColumnHeader
+                      label="Title"
+                      sortKey="title"
+                      currentSort={sort}
+                      onSort={(value) => updateRegisterFilters({ sort: value })}
+                      filterValue={enterpriseReady ? filters.assignee : undefined}
+                      filterOptions={
+                        enterpriseReady ? assigneeFilterOptions(people) : undefined
+                      }
+                      onFilterChange={
+                        enterpriseReady
+                          ? (value) => updateRegisterFilters({ assignee: value })
+                          : undefined
+                      }
+                      emptyLabel="All owners"
+                    />
+                  </th>
+                  <th className="px-6 py-3">
+                    <ColumnHeader
+                      label="Source"
+                      sortKey="source"
+                      currentSort={sort}
+                      onSort={(value) => updateRegisterFilters({ sort: value })}
+                    />
+                  </th>
+                  <th className="px-6 py-3">
+                    <ColumnHeader
+                      label="Status"
+                      sortKey="status"
+                      currentSort={sort}
+                      onSort={(value) => updateRegisterFilters({ sort: value })}
+                      filterValue={filters.status}
+                      filterOptions={OBLIGATION_STATUS_OPTIONS.map((option) => ({
+                        value: option.value,
+                        label: option.label,
+                      }))}
+                      onFilterChange={(value) =>
+                        updateRegisterFilters({ status: value })
+                      }
+                    />
+                  </th>
+                  <th className="px-6 py-3">
+                    <ColumnHeader
+                      label="Review"
+                      sortKey="review"
+                      currentSort={sort}
+                      onSort={(value) => updateRegisterFilters({ sort: value })}
+                    />
+                  </th>
+                  <th className="px-6 py-3">
+                    <ColumnHeader
+                      label="Controls"
+                      sortKey="controls"
+                      currentSort={sort}
+                      onSort={(value) => updateRegisterFilters({ sort: value })}
+                    />
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -272,8 +339,8 @@ function ObligationsPageContent() {
             </RegisterTable>
           )}
         </section>
-      </main>
-    </div>
+      ) : null}
+    </RegisterPageShell>
   );
 }
 

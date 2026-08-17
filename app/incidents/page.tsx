@@ -3,24 +3,28 @@
 import Link from "next/link";
 import { Suspense, useCallback, useMemo, useState } from "react";
 import { ClickableRow } from "@/app/components/clickable-row";
+import { ColumnHeader } from "@/app/components/column-header";
 import { QualityTitle } from "@/app/components/quality-indicator";
 import {
   IncidentSeverityBadge,
   IncidentStatusBadge,
 } from "@/app/components/status-badge";
-import { FilterSelect, ListToolbar } from "@/app/components/list-toolbar";
+import { ListToolbar } from "@/app/components/list-toolbar";
 import { RegisterPresets } from "@/app/components/register-presets";
+import { RegisterPageShell } from "@/app/components/register-page-shell";
+import { RegisterSettingsPanel } from "@/app/components/register-settings-panel";
 import {
   ErrorBanner,
   ListEmpty,
   LoadingBlock,
-  PageHeader,
   PageLoading,
   RegisterTable,
   registerTheadClassName,
 } from "@/app/components/page-parts";
 import { primaryButtonClassName, secondaryButtonClassName } from "@/app/components/ui";
+import { IncidentSummary } from "@/app/incidents/_components/incident-summary";
 import { incidentQuality } from "@/lib/data-quality/record";
+import { applySort } from "@/lib/list-sort";
 import { useListFilters } from "@/lib/hooks/use-list-filters";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import {
@@ -29,6 +33,7 @@ import {
   parseIncidentFilters,
   sortIncidentsByPriority,
 } from "@/lib/list-filters";
+import { parseRegisterView } from "@/lib/register/view";
 import { downloadCsv } from "@/lib/export/csv";
 import { useSettings } from "@/lib/settings/context";
 import { getSupabaseClient } from "@/lib/supabase/client";
@@ -64,10 +69,8 @@ import {
 import { countByKey, countGroupedLinks } from "@/lib/types/join-utils";
 
 function IncidentsPageContent() {
-  const { filters, updateFilters, clearFilters } = useListFilters(
-    "/incidents",
-    parseIncidentFilters,
-  );
+  const { filters, updateRegisterFilters, clearFilters, sort, searchParams } =
+    useListFilters("/incidents", parseIncidentFilters);
 
   const { categories, schemaReady, people, enterpriseReady, operatingReady } = useSettings();
   const [incidents, setIncidents] = useState<Incident[]>([]);
@@ -138,17 +141,37 @@ function IncidentsPageContent() {
   const { user, authLoading } = useRequireAuth(loadIncidents);
   const myPersonId = personByEmail(people, user?.email)?.id ?? null;
 
-  const filteredIncidents = useMemo(
-    () =>
-      sortIncidentsByPriority(
-        filterIncidents(incidents, filters, {
-          linkedCategoryIds,
-          myPersonId,
-          people,
-        }),
-      ),
-    [incidents, filters, linkedCategoryIds, myPersonId, people],
-  );
+  const filteredIncidents = useMemo(() => {
+    const rows = sortIncidentsByPriority(
+      filterIncidents(incidents, filters, {
+        linkedCategoryIds,
+        myPersonId,
+        people,
+      }),
+    );
+    return applySort(rows, sort, {
+      title: (incident) => incident.title,
+      category: (incident) =>
+        uniqueCategoryLabels(categories, linkedCategoryIds[incident.id] ?? []),
+      assignee: (incident) => formatPersonName(people, incident.assignee_id),
+      occurred: (incident) => incident.date_occurred,
+      age: (incident) => getOpenIncidentAgeDays(incident) ?? -1,
+      severity: (incident) => incident.severity,
+      status: (incident) => incident.status,
+      risks: (incident) => linkedRiskCounts[incident.id] ?? 0,
+      controls: (incident) => linkedControlCounts[incident.id] ?? 0,
+    });
+  }, [
+    incidents,
+    filters,
+    linkedCategoryIds,
+    myPersonId,
+    people,
+    sort,
+    categories,
+    linkedRiskCounts,
+    linkedControlCounts,
+  ]);
 
   const statusFilterValue =
     filters.status.length === 2 &&
@@ -167,34 +190,58 @@ function IncidentsPageContent() {
     assignee: filters.assignee,
     department: filters.department,
   });
+  const view = parseRegisterView(searchParams, filtersActive);
+  const departmentOptions = departmentFilterOptions(people);
 
   if (authLoading) {
     return <PageLoading />;
   }
 
   return (
-    <div className="min-h-full min-w-0 bg-slate-50 px-6 py-10 dark:bg-slate-950">
-      <main className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-8">
-        <PageHeader
-          title="Incident Register"
-          description="Track and manage security and compliance incidents."
-          breadcrumbs={[
-            { href: "/", label: "Home" },
-            { label: "Incidents" },
-          ]}
-          actions={
-            <Link href="/incidents/new" className={primaryButtonClassName}>
-              Add Incident
-            </Link>
-          }
-        />
-
+    <RegisterPageShell
+      title="Incident Register"
+      description="Track and manage security and compliance incidents."
+      path="/incidents"
+      hasListFilters={filtersActive}
+      actions={
+        <Link href="/incidents/new" className={primaryButtonClassName}>
+          Add Incident
+        </Link>
+      }
+    >
         <ErrorBanner message={error} />
 
+        {view === "settings" ? (
+          <RegisterSettingsPanel
+            module="incidents"
+            extra="Incident severity and status live on each record. People, taxonomy, and workspace layout stay in Admin."
+          />
+        ) : null}
+
+        {view === "summary" ? (
+          loading ? (
+            <LoadingBlock label="Loading incidents..." />
+          ) : incidents.length === 0 ? (
+            <ListEmpty>
+              No incidents yet.{" "}
+              <Link
+                href="/incidents/new"
+                className="font-medium text-teal-700 underline underline-offset-2 dark:text-teal-300"
+              >
+                Add your first incident
+              </Link>
+              .
+            </ListEmpty>
+          ) : (
+            <IncidentSummary incidents={incidents} />
+          )
+        ) : null}
+
+        {view === "register" ? (
         <section className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <ListToolbar
             search={filters.q}
-            onSearchChange={(value) => updateFilters({ q: value })}
+            onSearchChange={(value) => updateRegisterFilters({ q: value })}
             searchPlaceholder="Search title, description, or root cause..."
             showing={filteredIncidents.length}
             total={incidents.length}
@@ -245,61 +292,7 @@ function IncidentsPageContent() {
                 ) : null}
               </>
             }
-          >
-            <FilterSelect
-              label="Severity"
-              value={filters.severity}
-              onChange={(value) => updateFilters({ severity: value })}
-              options={[
-                ...SEVERITY_OPTIONS.map((option) => ({
-                  value: option.value,
-                  label: option.label,
-                })),
-                { value: "high,critical", label: "High or Critical" },
-              ]}
-            />
-            <FilterSelect
-              label="Status"
-              value={statusFilterValue}
-              onChange={(value) => updateFilters({ status: value })}
-              options={[
-                ...STATUS_OPTIONS.map((option) => ({
-                  value: option.value,
-                  label: option.label,
-                })),
-                {
-                  value: "open,investigating",
-                  label: "Open or Investigating",
-                },
-              ]}
-            />
-            {schemaReady && (
-              <FilterSelect
-                label="Category"
-                value={filters.categoryId}
-                onChange={(value) => updateFilters({ category: value })}
-                options={categoryFilterOptions(categories)}
-              />
-            )}
-            {enterpriseReady && (
-              <>
-                <FilterSelect
-                  label="Owner"
-                  value={filters.assignee}
-                  onChange={(value) => updateFilters({ assignee: value })}
-                  options={assigneeFilterOptions(people)}
-                />
-                {departmentFilterOptions(people).length > 0 && (
-                  <FilterSelect
-                    label="Department"
-                    value={filters.department}
-                    onChange={(value) => updateFilters({ department: value })}
-                    options={departmentFilterOptions(people)}
-                  />
-                )}
-              </>
-            )}
-          </ListToolbar>
+          />
 
           {loading ? (
             <LoadingBlock label="Loading incidents..." />
@@ -320,20 +313,129 @@ function IncidentsPageContent() {
             <RegisterTable>
                 <thead className={registerTheadClassName}>
                   <tr>
-                    <th className="px-6 py-3 font-medium">Title</th>
+                    <th className="px-6 py-3">
+                      <ColumnHeader
+                        label="Title"
+                        sortKey="title"
+                        currentSort={sort}
+                        onSort={(value) => updateRegisterFilters({ sort: value })}
+                      />
+                    </th>
                     {schemaReady && (
-                      <th className="px-6 py-3 font-medium">Category</th>
+                      <th className="px-6 py-3">
+                        <ColumnHeader
+                          label="Category"
+                          sortKey="category"
+                          currentSort={sort}
+                          onSort={(value) => updateRegisterFilters({ sort: value })}
+                          filterValue={filters.categoryId}
+                          filterOptions={categoryFilterOptions(categories)}
+                          onFilterChange={(value) =>
+                            updateRegisterFilters({ category: value })
+                          }
+                        />
+                      </th>
                     )}
                     {enterpriseReady && (
-                      <th className="px-6 py-3 font-medium">Assignee</th>
+                      <th className="px-6 py-3">
+                        <ColumnHeader
+                          label="Assignee"
+                          sortKey="assignee"
+                          currentSort={sort}
+                          onSort={(value) => updateRegisterFilters({ sort: value })}
+                          filterValue={filters.assignee}
+                          filterOptions={assigneeFilterOptions(people)}
+                          onFilterChange={(value) =>
+                            updateRegisterFilters({ assignee: value })
+                          }
+                          extraFilter={
+                            departmentOptions.length > 0
+                              ? {
+                                  label: "Department",
+                                  value: filters.department,
+                                  options: departmentOptions,
+                                  onChange: (value) =>
+                                    updateRegisterFilters({ department: value }),
+                                }
+                              : undefined
+                          }
+                        />
+                      </th>
                     )}
-                    <th className="px-6 py-3 font-medium">Date Occurred</th>
-                    <th className="px-6 py-3 font-medium">Age</th>
-                    <th className="px-6 py-3 font-medium">Severity</th>
-                    <th className="px-6 py-3 font-medium">Status</th>
-                    <th className="px-6 py-3 font-medium">Linked Risks</th>
+                    <th className="px-6 py-3">
+                      <ColumnHeader
+                        label="Date Occurred"
+                        sortKey="occurred"
+                        currentSort={sort}
+                        onSort={(value) => updateRegisterFilters({ sort: value })}
+                      />
+                    </th>
+                    <th className="px-6 py-3">
+                      <ColumnHeader
+                        label="Age"
+                        sortKey="age"
+                        currentSort={sort}
+                        onSort={(value) => updateRegisterFilters({ sort: value })}
+                      />
+                    </th>
+                    <th className="px-6 py-3">
+                      <ColumnHeader
+                        label="Severity"
+                        sortKey="severity"
+                        currentSort={sort}
+                        onSort={(value) => updateRegisterFilters({ sort: value })}
+                        filterValue={filters.severity}
+                        filterOptions={[
+                          ...SEVERITY_OPTIONS.map((option) => ({
+                            value: option.value,
+                            label: option.label,
+                          })),
+                          { value: "high,critical", label: "High or Critical" },
+                        ]}
+                        onFilterChange={(value) =>
+                          updateRegisterFilters({ severity: value })
+                        }
+                      />
+                    </th>
+                    <th className="px-6 py-3">
+                      <ColumnHeader
+                        label="Status"
+                        sortKey="status"
+                        currentSort={sort}
+                        onSort={(value) => updateRegisterFilters({ sort: value })}
+                        filterValue={statusFilterValue}
+                        filterOptions={[
+                          ...STATUS_OPTIONS.map((option) => ({
+                            value: option.value,
+                            label: option.label,
+                          })),
+                          {
+                            value: "open,investigating",
+                            label: "Open or Investigating",
+                          },
+                        ]}
+                        onFilterChange={(value) =>
+                          updateRegisterFilters({ status: value })
+                        }
+                      />
+                    </th>
+                    <th className="px-6 py-3">
+                      <ColumnHeader
+                        label="Linked Risks"
+                        sortKey="risks"
+                        currentSort={sort}
+                        onSort={(value) => updateRegisterFilters({ sort: value })}
+                      />
+                    </th>
                     {operatingReady && (
-                      <th className="px-6 py-3 font-medium">Controls</th>
+                      <th className="px-6 py-3">
+                        <ColumnHeader
+                          label="Controls"
+                          sortKey="controls"
+                          currentSort={sort}
+                          onSort={(value) => updateRegisterFilters({ sort: value })}
+                        />
+                      </th>
                     )}
                   </tr>
                 </thead>
@@ -409,8 +511,8 @@ function IncidentsPageContent() {
             </RegisterTable>
           )}
         </section>
-      </main>
-    </div>
+        ) : null}
+    </RegisterPageShell>
   );
 }
 

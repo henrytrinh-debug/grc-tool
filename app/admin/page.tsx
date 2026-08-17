@@ -40,10 +40,8 @@ import {
   type WorkspacePreferences,
 } from "@/lib/settings/preferences";
 import { LINE_OF_DEFENCE_OPTIONS, type LineOfDefence } from "@/lib/types/person";
-import { RISK_SCALE_VALUES } from "@/lib/types/risk";
 
 const BANDS = ["Low", "Medium", "High", "Critical"] as const;
-const ISSUE_SEVERITIES = ["critical", "high", "medium", "low"] as const;
 
 function PreferenceChecklist<T extends string>({
   options,
@@ -264,7 +262,7 @@ function AdminSettings({ user }: { user: User }) {
       <main className="mx-auto flex w-full max-w-5xl flex-col gap-8">
         <PageHeader
           title="Admin"
-          description="Configure how this organisation scores risk, how often it reviews and tests, who is accountable, and the taxonomy used on the registers."
+          description="Organisation identity, people, taxonomy, workspace layout, and demonstration data. Scoring and cadence live on each register’s Settings tab."
           breadcrumbs={[
             { href: "/", label: "Home" },
             { label: "Admin" },
@@ -375,190 +373,34 @@ function AdminSettings({ user }: { user: User }) {
           </SectionCard>
 
           <SectionCard
-            title="Risk rating definitions"
-            description="ISO 31000-style 1–5 labels. These appear on the 5×5 picker, heat map, and register."
+            title="Register methodology"
+            description="Scoring, review cadence, testing cadence, and issue due dates sit on each register’s Settings tab, next to the data they apply to."
           >
-            <div className="grid gap-6 sm:grid-cols-2">
-              <div>
-                <p className={`mb-3 text-sm font-medium ${mutedTextClassName}`}>
-                  Likelihood
-                </p>
-                <div className="space-y-2">
-                  {RISK_SCALE_VALUES.map((value) => (
-                    <label key={`likelihood-${value}`} className="flex items-center gap-3">
-                      <span className="w-6 text-sm text-slate-500">{value}</span>
-                      <input
-                        value={draft.likelihoodLabels[value]}
-                        onChange={(event) =>
-                          setDraft((current) => ({
-                            ...current,
-                            likelihoodLabels: {
-                              ...current.likelihoodLabels,
-                              [value]: event.target.value,
-                            },
-                          }))
-                        }
-                        className={inputClassName}
-                      />
-                    </label>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <p className={`mb-3 text-sm font-medium ${mutedTextClassName}`}>
-                  Impact
-                </p>
-                <div className="space-y-2">
-                  {RISK_SCALE_VALUES.map((value) => (
-                    <label key={`impact-${value}`} className="flex items-center gap-3">
-                      <span className="w-6 text-sm text-slate-500">{value}</span>
-                      <input
-                        value={draft.impactLabels[value]}
-                        onChange={(event) =>
-                          setDraft((current) => ({
-                            ...current,
-                            impactLabels: {
-                              ...current.impactLabels,
-                              [value]: event.target.value,
-                            },
-                          }))
-                        }
-                        className={inputClassName}
-                      />
-                    </label>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-6">
-              <p className={`mb-3 text-sm font-medium ${mutedTextClassName}`}>
-                Score bands (likelihood × impact, max 25)
-              </p>
-              <div className="grid gap-3 sm:grid-cols-3">
-                {(["Low", "Medium", "High"] as const).map((band) => (
-                  <label key={band} className="flex flex-col gap-1">
-                    <span className={labelClassName}>{band} up to</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={24}
-                      value={draft.bandMaxScores[band]}
-                      onChange={(event) =>
-                        setDraft((current) => ({
-                          ...current,
-                          bandMaxScores: {
-                            ...current.bandMaxScores,
-                            [band]: Number(event.target.value),
-                          },
-                        }))
-                      }
-                      className={inputClassName}
-                    />
-                  </label>
-                ))}
-              </div>
-              <p className={`mt-2 text-sm ${mutedTextClassName}`}>
-                Critical is anything above the High threshold.
-              </p>
-            </div>
-          </SectionCard>
-
-          <SectionCard
-            title="Review and testing cadence"
-            description="How often a risk must be re-assessed by score band, and how often controls must be tested."
-          >
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {BANDS.map((band) => (
-                <label key={band} className="flex flex-col gap-1">
-                  <span className={labelClassName}>{band} review (days)</span>
-                  <input
-                    type="number"
-                    min={1}
-                    value={draft.reviewCadenceDays[band]}
-                    onChange={(event) =>
-                      setDraft((current) => ({
-                        ...current,
-                        reviewCadenceDays: {
-                          ...current.reviewCadenceDays,
-                          [band]: Number(event.target.value),
-                        },
-                      }))
-                    }
-                    className={inputClassName}
-                  />
-                </label>
-              ))}
-            </div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <label className="flex flex-col gap-1">
-                <span className={labelClassName}>Key control testing (days)</span>
-                <input
-                  type="number"
-                  min={1}
-                  value={draft.keyTestingCadenceDays}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      keyTestingCadenceDays: Number(event.target.value),
-                    }))
-                  }
-                  className={inputClassName}
-                />
-              </label>
-              <label className="flex flex-col gap-1">
-                <span className={labelClassName}>
-                  Non-key control testing (days)
-                </span>
-                <input
-                  type="number"
-                  min={1}
-                  value={draft.nonKeyTestingCadenceDays}
-                  onChange={(event) =>
-                    setDraft((current) => ({
-                      ...current,
-                      nonKeyTestingCadenceDays: Number(event.target.value),
-                    }))
-                  }
-                  className={inputClassName}
-                />
-              </label>
-            </div>
-          </SectionCard>
-
-          <SectionCard
-            title="Issue target dates"
-            description="Default remediation window when a finding is raised, by severity."
-          >
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {ISSUE_SEVERITIES.map((severity) => (
-                <label key={severity} className="flex flex-col gap-1">
-                  <span className={`${labelClassName} capitalize`}>
-                    {severity} (days)
-                  </span>
-                  <input
-                    type="number"
-                    min={1}
-                    value={draft.issueDueDays[severity]}
-                    onChange={(event) =>
-                      setDraft((current) => ({
-                        ...current,
-                        issueDueDays: {
-                          ...current.issueDueDays,
-                          [severity]: Number(event.target.value),
-                        },
-                      }))
-                    }
-                    className={inputClassName}
-                  />
-                </label>
-              ))}
+            <div className="flex flex-wrap gap-3 text-sm">
+              <Link
+                href="/risks?view=settings"
+                className="font-medium text-teal-800 hover:underline dark:text-teal-300"
+              >
+                Risk scoring and review
+              </Link>
+              <Link
+                href="/controls?view=settings"
+                className="font-medium text-teal-800 hover:underline dark:text-teal-300"
+              >
+                Control testing cadence
+              </Link>
+              <Link
+                href="/issues?view=settings"
+                className="font-medium text-teal-800 hover:underline dark:text-teal-300"
+              >
+                Issue target dates
+              </Link>
             </div>
           </SectionCard>
 
           <SectionCard
             title="Workspace"
-            description="Hide modules and widgets you do not use. Direct URLs still work — this is presentation, not access control. Home and Settings stay visible so you can always get back here."
+            description="Hide overview modules and widgets you do not use. Direct URLs still work — this is presentation, not access control. Home and Settings stay visible. Register methodology is on each register’s Settings tab."
           >
             <fieldset
               disabled={!preferencesReady}

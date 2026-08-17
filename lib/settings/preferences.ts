@@ -15,13 +15,7 @@ export const HOME_WIDGET_IDS = [
   "stats",
   "attention",
   "activity",
-  "heatMap",
-  "taxonomy",
-  "treatment",
-  "issuesStatus",
-  "remediation",
-  "controlsEffectiveness",
-  "incidentsStatus",
+  "trend",
 ] as const;
 
 export type HomeWidgetId = (typeof HOME_WIDGET_IDS)[number];
@@ -30,20 +24,13 @@ export const HOME_WIDGET_OPTIONS: { id: HomeWidgetId; label: string }[] = [
   { id: "stats", label: "Headline stats" },
   { id: "attention", label: "Needs attention" },
   { id: "activity", label: "Recent activity" },
-  { id: "heatMap", label: "Risk heat map" },
-  { id: "taxonomy", label: "Risks by taxonomy" },
-  { id: "treatment", label: "Treatment mix" },
-  { id: "issuesStatus", label: "Issues by status" },
-  { id: "remediation", label: "Remediation health" },
-  { id: "controlsEffectiveness", label: "Controls by effectiveness" },
-  { id: "incidentsStatus", label: "Incidents by status" },
+  { id: "trend", label: "Operating trend" },
 ];
 
 export const OVERSIGHT_SECTION_IDS = [
-  "controls",
-  "risks",
-  "issues",
-  "incidents",
+  "health",
+  "flow",
+  "movement",
 ] as const;
 
 export type OversightSectionId = (typeof OVERSIGHT_SECTION_IDS)[number];
@@ -52,10 +39,9 @@ export const OVERSIGHT_SECTION_OPTIONS: {
   id: OversightSectionId;
   label: string;
 }[] = [
-  { id: "controls", label: "Controls" },
-  { id: "risks", label: "Risks" },
-  { id: "issues", label: "Issues & remediation" },
-  { id: "incidents", label: "Incidents" },
+  { id: "health", label: "Cross-register health" },
+  { id: "flow", label: "Flow and aging" },
+  { id: "movement", label: "Rating movement" },
 ];
 
 export const BOARD_SECTION_IDS = [
@@ -138,7 +124,17 @@ const HIDABLE_MODULES = new Set<WorkspaceModuleId>([
 ]);
 
 const HOME_WIDGET_SET = new Set<string>(HOME_WIDGET_IDS);
+const LEGACY_HOME_WIDGETS = new Set([
+  "heatMap",
+  "taxonomy",
+  "treatment",
+  "issuesStatus",
+  "remediation",
+  "controlsEffectiveness",
+  "incidentsStatus",
+]);
 const OVERSIGHT_SET = new Set<string>(OVERSIGHT_SECTION_IDS);
+const LEGACY_OVERSIGHT = new Set(["controls", "risks", "issues", "incidents"]);
 const BOARD_SET = new Set<string>(BOARD_SECTION_IDS);
 const PRESET_MODULE_SET = new Set<string>(REGISTER_PRESET_MODULES);
 
@@ -235,18 +231,36 @@ export function parseWorkspacePreferences(value: unknown): WorkspacePreferences 
       ? record.defaultHomeCategoryId.trim()
       : "";
 
+  const homeWidgets = pickKnown<HomeWidgetId>(
+    asStringArray(record.homeWidgets),
+    HOME_WIDGET_SET,
+    DEFAULT_WORKSPACE_PREFERENCES.homeWidgets,
+  );
+  const rawHome = asStringArray(record.homeWidgets);
+  const migratedHome =
+    homeWidgets.length === 0 &&
+    rawHome !== undefined &&
+    rawHome.some((id) => LEGACY_HOME_WIDGETS.has(id))
+      ? [...DEFAULT_WORKSPACE_PREFERENCES.homeWidgets]
+      : homeWidgets;
+
+  const oversightSections = pickKnown<OversightSectionId>(
+    asStringArray(record.oversightSections),
+    OVERSIGHT_SET,
+    DEFAULT_WORKSPACE_PREFERENCES.oversightSections,
+  );
+  const rawOversight = asStringArray(record.oversightSections);
+  const migratedOversight =
+    oversightSections.length === 0 &&
+    rawOversight !== undefined &&
+    rawOversight.some((id) => LEGACY_OVERSIGHT.has(id))
+      ? [...DEFAULT_WORKSPACE_PREFERENCES.oversightSections]
+      : oversightSections;
+
   return {
     hiddenModules: [...new Set(hidden)],
-    homeWidgets: pickKnown<HomeWidgetId>(
-      asStringArray(record.homeWidgets),
-      HOME_WIDGET_SET,
-      DEFAULT_WORKSPACE_PREFERENCES.homeWidgets,
-    ),
-    oversightSections: pickKnown<OversightSectionId>(
-      asStringArray(record.oversightSections),
-      OVERSIGHT_SET,
-      DEFAULT_WORKSPACE_PREFERENCES.oversightSections,
-    ),
+    homeWidgets: migratedHome,
+    oversightSections: migratedOversight,
     boardSections: pickKnown<BoardSectionId>(
       asStringArray(record.boardSections),
       BOARD_SET,

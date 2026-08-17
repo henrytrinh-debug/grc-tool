@@ -1,5 +1,7 @@
 import { highCriticalRisks } from "@/lib/metrics/kpis";
 import { getRiskScore, getSeverityBand } from "@/lib/dashboard/analytics";
+import { isReviewDue } from "@/lib/types/rcsa";
+import { todayIsoDate } from "@/lib/dates";
 import { isActiveRisk } from "@/lib/taxonomy";
 import { isIncidentOpen, type Incident } from "@/lib/types/incident";
 import { isIssueOpen, type Issue } from "@/lib/types/issue";
@@ -11,6 +13,15 @@ import {
   type ObligationRecord,
 } from "@/lib/types/obligation";
 import type { Risk } from "@/lib/types/risk";
+import {
+  controlQuality,
+  evidenceQuality,
+  incidentQuality,
+  issueQuality,
+  obligationQuality,
+  riskQuality,
+  summarizeQuality,
+} from "@/lib/data-quality/record";
 import type {
   IssueControlLink,
   IssueRiskLink,
@@ -24,6 +35,43 @@ export type QualityItem = {
   href: string;
 };
 
+export type QualityRegister =
+  | "risks"
+  | "controls"
+  | "incidents"
+  | "issues"
+  | "obligations"
+  | "evidence"
+  | "cross";
+
+export const QUALITY_REGISTER_ORDER: QualityRegister[] = [
+  "risks",
+  "controls",
+  "incidents",
+  "issues",
+  "obligations",
+  "evidence",
+  "cross",
+];
+
+export const QUALITY_REGISTER_LABELS: Record<QualityRegister, string> = {
+  risks: "Risks",
+  controls: "Controls",
+  incidents: "Incidents",
+  issues: "Issues",
+  obligations: "Obligations",
+  evidence: "Evidence",
+  cross: "Cross-register",
+};
+
+export function groupQualityFindings(findings: QualityFinding[]) {
+  return QUALITY_REGISTER_ORDER.map((register) => ({
+    register,
+    label: QUALITY_REGISTER_LABELS[register],
+    findings: findings.filter((finding) => finding.register === register),
+  })).filter((group) => group.findings.length > 0);
+}
+
 export type QualityFinding = {
   id: string;
   title: string;
@@ -31,6 +79,7 @@ export type QualityFinding = {
   href: string;
   count: number;
   items: QualityItem[];
+  register: QualityRegister;
 };
 
 function finding(
@@ -39,8 +88,9 @@ function finding(
   description: string,
   href: string,
   items: QualityItem[],
+  register: QualityRegister,
 ): QualityFinding {
-  return { id, title, description, href, count: items.length, items };
+  return { id, title, description, href, count: items.length, items, register };
 }
 
 function riskHref(id: string) {
@@ -134,6 +184,21 @@ export function buildQualityFindings(input: {
       })),
   ];
 
+  const dueReviews = input.risks
+    .filter((risk) =>
+      isActiveRisk(risk) &&
+      isReviewDue(
+        lastReviewed[risk.id] ?? null,
+        risk.likelihood,
+        risk.impact,
+      ),
+    )
+    .map((risk) => ({
+      id: risk.id,
+      title: risk.title,
+      href: riskHref(risk.id),
+    }));
+
   const findings: QualityFinding[] = [
     finding(
       "uncategorised-risks",
@@ -141,6 +206,7 @@ export function buildQualityFindings(input: {
       "Open or monitoring risks with no taxonomy category.",
       "/risks?category=uncategorised",
       uncategorised,
+      "risks",
     ),
     finding(
       "high-critical-never-reviewed",
@@ -148,6 +214,15 @@ export function buildQualityFindings(input: {
       "Top-band exposure with no RCSA review on record.",
       "/risks?severity=High,Critical&reviewRecency=never",
       neverReviewedHigh,
+      "risks",
+    ),
+    finding(
+      "reviews-due",
+      "Risks due for review",
+      "Active risks past the configured review cadence for their score band.",
+      "/risks?reviewRecency=due",
+      dueReviews,
+      "risks",
     ),
     finding(
       "risks-without-controls",
@@ -155,6 +230,7 @@ export function buildQualityFindings(input: {
       "Active risks with no linked control.",
       "/risks?uncontrolled=true",
       withoutControls,
+      "risks",
     ),
     finding(
       "controls-without-risks",
@@ -162,6 +238,7 @@ export function buildQualityFindings(input: {
       "Controls that are not mapped to any risk.",
       "/controls?unmapped=true",
       orphanControls,
+      "controls",
     ),
     finding(
       "unassigned-active",
@@ -169,6 +246,7 @@ export function buildQualityFindings(input: {
       "Active risks, controls, open incidents, and open issues with no accountable person.",
       "/risks?assignee=unassigned",
       unassigned,
+      "cross",
     ),
   ];
 
@@ -195,6 +273,7 @@ export function buildQualityFindings(input: {
         "Active accepted or transferred risks that do not record why.",
         "/risks",
         missingRationale,
+        "risks",
       ),
     );
   }
@@ -217,6 +296,7 @@ export function buildQualityFindings(input: {
       "Closed incidents that never recorded why they happened.",
       "/incidents?status=resolved",
       resolvedNoCause,
+      "incidents",
     ),
   );
 
@@ -240,6 +320,7 @@ export function buildQualityFindings(input: {
       "Findings in flight that are not mapped to a risk or control.",
       `/issues?status=open,in_progress,pending_review`,
       openUnlinkedIssues,
+      "issues",
     ),
   );
 
@@ -256,6 +337,19 @@ export function buildQualityFindings(input: {
         href: `/obligations/${obligation.id}/edit`,
       }));
 
+    const overdueReviews = obligations
+      .filter(
+        (obligation) =>
+          isObligationActive(obligation) &&
+          Boolean(obligation.review_date) &&
+          (obligation.review_date as string) < todayIsoDate(),
+      )
+      .map((obligation) => ({
+        id: obligation.id,
+        title: obligation.title,
+        href: `/obligations/${obligation.id}/edit`,
+      }));
+
     findings.push(
       finding(
         "obligation-coverage-gaps",
@@ -263,6 +357,15 @@ export function buildQualityFindings(input: {
         "Active obligations that are not linked to any control.",
         "/obligations",
         uncovered,
+        "obligations",
+      ),
+      finding(
+        "obligation-reviews-overdue",
+        "Obligations past review date",
+        "Active obligations whose next review date is in the past.",
+        "/obligations",
+        overdueReviews,
+        "obligations",
       ),
     );
   }
@@ -291,6 +394,7 @@ export function buildQualityFindings(input: {
         "Evidence past its retention date.",
         "/evidence?expired=true",
         expired,
+        "evidence",
       ),
       finding(
         "missing-evidence-files",
@@ -298,9 +402,136 @@ export function buildQualityFindings(input: {
         "Metadata records that have no stored object. Upload is optional until Storage is configured.",
         "/evidence",
         missingFile,
+        "evidence",
       ),
     );
   }
 
   return findings;
+}
+
+export type RegisterQualityScore = {
+  id: QualityRegister;
+  label: string;
+  href: string;
+  score: number;
+  flagged: number;
+  records: number;
+};
+
+export function buildRegisterQualityScores(
+  input: Parameters<typeof buildQualityFindings>[0] & {
+    enterpriseReady?: boolean;
+    evidenceStorageReady?: boolean;
+  },
+): RegisterQualityScore[] {
+  const lastReviewed = input.indexes.lastReviewedByRisk;
+  const linkedControls = input.indexes.linkedControlCountsByRisk;
+  const issuesWithRisks = new Set(input.issueRiskLinks.map((link) => link.issue_id));
+  const issuesWithControls = new Set(
+    input.issueControlLinks.map((link) => link.issue_id),
+  );
+  const controlsWithRisks = new Set(
+    input.riskControlLinks.map((link) => link.control_id),
+  );
+  const obligationCovered = new Set(
+    (input.obligationControlLinks ?? []).map((link) => link.obligation_id),
+  );
+
+  function rollup(
+    id: QualityRegister,
+    label: string,
+    href: string,
+    summaries: Array<{ flags: string[]; applicable: number }>,
+  ): RegisterQualityScore {
+    const applicable = summaries.reduce((sum, item) => sum + item.applicable, 0);
+    const flagged = summaries.reduce((sum, item) => sum + item.flags.length, 0);
+    const summary = summarizeQuality(
+      Array.from({ length: flagged }, () => "flag"),
+      applicable,
+    );
+    return {
+      id,
+      label,
+      href,
+      score: applicable === 0 ? 100 : summary.score,
+      flagged,
+      records: summaries.length,
+    };
+  }
+
+  return [
+    rollup(
+      "risks",
+      "Risks",
+      "/risks?view=summary",
+      input.risks.filter(isActiveRisk).map((risk) =>
+        riskQuality(risk, {
+          controlCount: linkedControls[risk.id] ?? 0,
+          hasReview: Boolean(lastReviewed[risk.id]),
+          operatingReady: input.operatingReady,
+          enterpriseReady: input.enterpriseReady,
+        }),
+      ),
+    ),
+    rollup(
+      "controls",
+      "Controls",
+      "/controls?view=summary",
+      input.controls.map((control) =>
+        controlQuality(control, {
+          mappedToRisk: controlsWithRisks.has(control.id),
+          enterpriseReady: input.enterpriseReady,
+        }),
+      ),
+    ),
+    rollup(
+      "incidents",
+      "Incidents",
+      "/incidents?view=summary",
+      input.incidents.map((incident) =>
+        incidentQuality(incident, { enterpriseReady: input.enterpriseReady }),
+      ),
+    ),
+    rollup(
+      "issues",
+      "Issues",
+      "/issues?view=summary",
+      input.issues.map((issue) =>
+        issueQuality(issue, {
+          linkedToRiskOrControl:
+            issuesWithRisks.has(issue.id) || issuesWithControls.has(issue.id),
+          enterpriseReady: input.enterpriseReady,
+        }),
+      ),
+    ),
+    ...(input.obligations
+      ? [
+          rollup(
+            "obligations",
+            "Obligations",
+            "/obligations?view=summary",
+            input.obligations.map((obligation) =>
+              obligationQuality(obligation, {
+                mappedToControl: obligationCovered.has(obligation.id),
+              }),
+            ),
+          ),
+        ]
+      : []),
+    ...(input.evidence
+      ? [
+          rollup(
+            "evidence",
+            "Evidence",
+            "/evidence?view=summary",
+            input.evidence.map((row) =>
+              evidenceQuality(row, {
+                evidenceStorageReady: input.evidenceStorageReady,
+              }),
+            ),
+          ),
+        ]
+      : []),
+  ];
 }

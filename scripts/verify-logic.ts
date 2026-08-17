@@ -5,11 +5,14 @@
 import { barClickDatum } from "../app/components/chart-theme";
 import { buildActivityFeed } from "../lib/activity/feed";
 import { boardPackCsv, buildBoardPack } from "../lib/board/pack";
-import { buildQualityFindings } from "../lib/data-quality/checks";
+import { buildQualityFindings, buildRegisterQualityScores } from "../lib/data-quality/checks";
 import {
   evidenceQuality,
   riskQuality,
 } from "../lib/data-quality/record";
+import { stackByMonth } from "../lib/charts/time-series";
+import { applySort } from "../lib/list-sort";
+import { parseRegisterView } from "../lib/register/view";
 import {
   incidentEventDrafts,
   riskEventDrafts,
@@ -42,6 +45,7 @@ import { buildSnapshotIndexes } from "../lib/snapshot/grc-snapshot";
 import {
   BOARD_SECTION_IDS,
   HOME_WIDGET_IDS,
+  OVERSIGHT_SECTION_IDS,
   createRegisterPreset,
   parseWorkspacePreferences,
   resolveHomeCategoryId,
@@ -398,13 +402,23 @@ const defaultPrefs = parseWorkspacePreferences({});
 assert(
   defaultPrefs.homeWidgets.length === HOME_WIDGET_IDS.length &&
     defaultPrefs.hiddenModules.length === 0 &&
-    defaultPrefs.oversightSections.length === 4 &&
+    defaultPrefs.oversightSections.length === OVERSIGHT_SECTION_IDS.length &&
     defaultPrefs.boardSections.length === BOARD_SECTION_IDS.length,
   "missing workspace preferences keep the current UI",
 );
 assert(
   parseWorkspacePreferences({ homeWidgets: [] }).homeWidgets.length === 0,
   "empty homeWidgets is an explicit hide-all",
+);
+assert(
+  parseWorkspacePreferences({ homeWidgets: ["heatMap", "taxonomy"] })
+    .homeWidgets.length === HOME_WIDGET_IDS.length,
+  "legacy home widgets remap to the slim Home defaults",
+);
+assert(
+  parseWorkspacePreferences({ oversightSections: ["controls", "risks"] })
+    .oversightSections.length === OVERSIGHT_SECTION_IDS.length,
+  "legacy oversight sections remap to health/flow/movement",
 );
 assert(
   !parseWorkspacePreferences({ hiddenModules: ["home", "admin", "work"] })
@@ -479,6 +493,77 @@ assert(
       finding.id === "resolved-without-root-cause" && finding.count === 0,
   ),
   "open incidents are not flagged for missing root cause",
+);
+assert(
+  quality.some(
+    (finding) =>
+      finding.id === "reviews-due" &&
+      finding.register === "risks" &&
+      finding.items.some((item) => item.id === "r1"),
+  ),
+  "quality flags active risks due for review",
+);
+assert(
+  quality.every((finding) => Boolean(finding.register)),
+  "every quality finding is tagged to a register",
+);
+
+const scores = buildRegisterQualityScores({
+  risks,
+  controls,
+  incidents,
+  issues,
+  indexes,
+  riskControlLinks: [
+    { risk_id: "r1", control_id: "c1" },
+    { risk_id: "r2", control_id: "c1" },
+  ],
+  issueRiskLinks: [{ issue_id: "i1", risk_id: "r1" }],
+  issueControlLinks: [],
+  operatingReady: true,
+  enterpriseReady: true,
+});
+assert(
+  scores.some((score) => score.id === "risks" && score.score < 100),
+  "register quality scores stay live and unstored",
+);
+
+assert(
+  parseRegisterView(new URLSearchParams(), false) === "summary",
+  "bare register URLs open Summary",
+);
+assert(
+  parseRegisterView(new URLSearchParams("severity=High"), true) === "register",
+  "filtered register URLs open the table",
+);
+assert(
+  parseRegisterView(new URLSearchParams("sort=title"), false) === "register",
+  "sorted register URLs open the table",
+);
+assert(
+  parseRegisterView(new URLSearchParams("view=settings&severity=High"), true) ===
+    "settings",
+  "explicit view wins over list filters",
+);
+
+assert(
+  applySort(
+    [{ title: "b" }, { title: "a" }],
+    "title",
+    { title: (row) => row.title },
+  )[0]?.title === "a",
+  "applySort orders by the requested key",
+);
+
+const stacked = stackByMonth(
+  [{ date: "2026-08-01", series: "opened" }],
+  ["opened"],
+  12,
+  "2026-08-17",
+);
+assert(
+  stacked[stacked.length - 1]?.opened === 1 && stacked.length === 12,
+  "stackByMonth buckets the current month in a 12-month window",
 );
 
 assert(

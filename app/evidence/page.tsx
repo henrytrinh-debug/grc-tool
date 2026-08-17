@@ -3,25 +3,30 @@
 import Link from "next/link";
 import { Suspense, useCallback, useMemo, useState } from "react";
 import { ClickableRow } from "@/app/components/clickable-row";
+import { ColumnHeader } from "@/app/components/column-header";
 import { QualityTitle } from "@/app/components/quality-indicator";
-import { FilterSelect, ListToolbar } from "@/app/components/list-toolbar";
+import { ListToolbar } from "@/app/components/list-toolbar";
+import { RegisterPageShell } from "@/app/components/register-page-shell";
+import { RegisterSettingsPanel } from "@/app/components/register-settings-panel";
 import {
   ErrorBanner,
   ListEmpty,
   LoadingBlock,
-  PageHeader,
   PageLoading,
   RegisterTable,
   SchemaNotice,
   registerTheadClassName,
 } from "@/app/components/page-parts";
 import { primaryButtonClassName, secondaryButtonClassName } from "@/app/components/ui";
+import { EvidenceSummary } from "@/app/evidence/_components/evidence-summary";
 import { formatIsoDate } from "@/lib/dates";
 import { evidenceQuality } from "@/lib/data-quality/record";
 import { loadTestControlIds } from "@/lib/evidence/entities";
 import { downloadCsv } from "@/lib/export/csv";
 import { useListFilters } from "@/lib/hooks/use-list-filters";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
+import { applySort } from "@/lib/list-sort";
+import { parseRegisterView } from "@/lib/register/view";
 import { useSettings } from "@/lib/settings/context";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { fetchOwnedTableOptional } from "@/lib/supabase/owned";
@@ -46,10 +51,8 @@ function parseEvidenceFilters(params: URLSearchParams) {
 }
 
 function EvidencePageContent() {
-  const { filters, updateFilters, clearFilters } = useListFilters(
-    "/evidence",
-    parseEvidenceFilters,
-  );
+  const { filters, updateRegisterFilters, clearFilters, sort, searchParams } =
+    useListFilters("/evidence", parseEvidenceFilters);
   const { evidenceReady, evidenceStorageReady } = useSettings();
   const [rows, setRows] = useState<EvidenceRecord[]>([]);
   const [testControlIds, setTestControlIds] = useState<Record<string, string>>(
@@ -81,7 +84,7 @@ function EvidencePageContent() {
 
   const filtered = useMemo(() => {
     const needle = filters.q.toLowerCase();
-    return rows.filter((row) => {
+    const rowsFiltered = rows.filter((row) => {
       if (
         needle &&
         !`${row.title} ${row.source} ${row.description}`.toLowerCase().includes(needle)
@@ -96,62 +99,90 @@ function EvidencePageContent() {
       }
       return true;
     });
-  }, [filters, rows]);
+    return applySort(rowsFiltered, sort, {
+      title: (row) => row.title,
+      type: (row) => row.entity_type,
+      date: (row) => row.evidence_date ?? "",
+      file: (row) => (row.storage_path ? 1 : 0),
+    });
+  }, [filters, rows, sort]);
+
+  const filtersActive = Boolean(
+    filters.q || filters.entityType || filters.expired,
+  );
+  const view = parseRegisterView(searchParams, filtersActive);
 
   if (authLoading) {
     return <PageLoading />;
   }
 
   return (
-    <div className="min-h-full min-w-0 bg-slate-50 px-6 py-10 dark:bg-slate-950">
-      <main className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-6">
-        <PageHeader
-          title="Evidence"
-          description="Metadata and optional files linked to risks, controls, tests, incidents, issues, and obligations."
-          breadcrumbs={[
-            { href: "/", label: "Home" },
-            { label: "Evidence" },
-          ]}
-          actions={
-            evidenceReady ? (
-              <Link href="/evidence/new" className={primaryButtonClassName}>
-                Add evidence
-              </Link>
-            ) : null
-          }
+    <RegisterPageShell
+      title="Evidence"
+      description="Metadata and optional files linked to risks, controls, tests, incidents, issues, and obligations."
+      path="/evidence"
+      hasListFilters={filtersActive}
+      actions={
+        evidenceReady ? (
+          <Link href="/evidence/new" className={primaryButtonClassName}>
+            Add evidence
+          </Link>
+        ) : null
+      }
+    >
+      {!evidenceReady && (
+        <SchemaNotice>
+          Run <code className="font-mono">supabase/schema/009_evidence.sql</code>{" "}
+          to enable the evidence register.
+        </SchemaNotice>
+      )}
+      {evidenceReady && !evidenceStorageReady && (
+        <SchemaNotice>
+          Metadata works. File uploads need the private{" "}
+          <code className="font-mono">grc-evidence</code> bucket and Storage
+          Access Control policies from{" "}
+          <a
+            className="underline"
+            href="https://supabase.com/docs/guides/storage/security/access-control"
+          >
+            the Storage docs
+          </a>
+          . Folder prefix must be <code className="font-mono">auth.uid()</code>.
+        </SchemaNotice>
+      )}
+
+      <ErrorBanner message={error} />
+
+      {view === "settings" ? (
+        <RegisterSettingsPanel
+          module="evidence"
+          extra="Evidence storage is configured in Supabase. Organisation-wide people, taxonomy, and workspace layout stay in Admin."
         />
+      ) : null}
 
-        {!evidenceReady && (
-          <SchemaNotice>
-            Run <code className="font-mono">supabase/schema/009_evidence.sql</code>{" "}
-            to enable the evidence register.
-          </SchemaNotice>
-        )}
-        {evidenceReady && !evidenceStorageReady && (
-          <SchemaNotice>
-            Metadata works. File uploads need the private{" "}
-            <code className="font-mono">grc-evidence</code> bucket and Storage
-            Access Control policies from{" "}
-            <a
-              className="underline"
-              href="https://supabase.com/docs/guides/storage/security/access-control"
-            >
-              the Storage docs
-            </a>
-            . Folder prefix must be <code className="font-mono">auth.uid()</code>.
-          </SchemaNotice>
-        )}
+      {view === "summary" ? (
+        loading ? (
+          <LoadingBlock label="Loading evidence..." />
+        ) : rows.length === 0 ? (
+          <ListEmpty>
+            {evidenceReady
+              ? "No evidence yet."
+              : "The evidence table is not available yet."}
+          </ListEmpty>
+        ) : (
+          <EvidenceSummary rows={rows} />
+        )
+      ) : null}
 
-        <ErrorBanner message={error} />
-
+      {view === "register" ? (
         <section className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <ListToolbar
             search={filters.q}
-            onSearchChange={(value) => updateFilters({ q: value })}
+            onSearchChange={(value) => updateRegisterFilters({ q: value })}
             searchPlaceholder="Search title or source..."
             showing={filtered.length}
             total={rows.length}
-            hasFilters={Boolean(filters.q || filters.entityType || filters.expired)}
+            hasFilters={filtersActive}
             onClear={clearFilters}
             actions={
               filtered.length > 0 ? (
@@ -177,25 +208,7 @@ function EvidencePageContent() {
                 </button>
               ) : null
             }
-          >
-            <FilterSelect
-              label="Linked type"
-              value={filters.entityType}
-              onChange={(value) => updateFilters({ entityType: value })}
-              options={EVIDENCE_ENTITY_OPTIONS.map((option) => ({
-                value: option.value,
-                label: option.label,
-              }))}
-            />
-            <FilterSelect
-              label="Retention"
-              value={filters.expired ? "expired" : ""}
-              onChange={(value) =>
-                updateFilters({ expired: value === "expired" ? "true" : "" })
-              }
-              options={[{ value: "expired", label: "Expired" }]}
-            />
-          </ListToolbar>
+          />
 
           {loading ? (
             <LoadingBlock label="Loading evidence..." />
@@ -209,10 +222,53 @@ function EvidencePageContent() {
             <RegisterTable>
               <thead className={registerTheadClassName}>
                 <tr>
-                  <th className="px-6 py-3 font-medium">Title</th>
-                  <th className="px-6 py-3 font-medium">Linked to</th>
-                  <th className="px-6 py-3 font-medium">Date</th>
-                  <th className="px-6 py-3 font-medium">File</th>
+                  <th className="px-6 py-3">
+                    <ColumnHeader
+                      label="Title"
+                      sortKey="title"
+                      currentSort={sort}
+                      onSort={(value) => updateRegisterFilters({ sort: value })}
+                    />
+                  </th>
+                  <th className="px-6 py-3">
+                    <ColumnHeader
+                      label="Linked to"
+                      sortKey="type"
+                      currentSort={sort}
+                      onSort={(value) => updateRegisterFilters({ sort: value })}
+                      filterValue={filters.entityType}
+                      filterOptions={EVIDENCE_ENTITY_OPTIONS.map((option) => ({
+                        value: option.value,
+                        label: option.label,
+                      }))}
+                      onFilterChange={(value) =>
+                        updateRegisterFilters({ entityType: value })
+                      }
+                    />
+                  </th>
+                  <th className="px-6 py-3">
+                    <ColumnHeader
+                      label="Date"
+                      sortKey="date"
+                      currentSort={sort}
+                      onSort={(value) => updateRegisterFilters({ sort: value })}
+                    />
+                  </th>
+                  <th className="px-6 py-3">
+                    <ColumnHeader
+                      label="File"
+                      sortKey="file"
+                      currentSort={sort}
+                      onSort={(value) => updateRegisterFilters({ sort: value })}
+                      filterValue={filters.expired ? "expired" : ""}
+                      filterOptions={[{ value: "expired", label: "Expired" }]}
+                      onFilterChange={(value) =>
+                        updateRegisterFilters({
+                          expired: value === "expired" ? "true" : "",
+                        })
+                      }
+                    />
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -252,8 +308,8 @@ function EvidencePageContent() {
             </RegisterTable>
           )}
         </section>
-      </main>
-    </div>
+      ) : null}
+    </RegisterPageShell>
   );
 }
 

@@ -4,14 +4,16 @@ import Link from "next/link";
 import { Suspense, useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ClickableRow } from "@/app/components/clickable-row";
+import { ColumnHeader } from "@/app/components/column-header";
 import { QualityTitle } from "@/app/components/quality-indicator";
-import { FilterSelect, ListToolbar } from "@/app/components/list-toolbar";
+import { ListToolbar } from "@/app/components/list-toolbar";
 import { RegisterPresets } from "@/app/components/register-presets";
+import { RegisterPageShell } from "@/app/components/register-page-shell";
+import { RegisterSettingsPanel } from "@/app/components/register-settings-panel";
 import {
   ErrorBanner,
   ListEmpty,
   LoadingBlock,
-  PageHeader,
   PageLoading,
   RegisterTable,
   registerTheadClassName,
@@ -22,8 +24,10 @@ import {
   SeverityBandBadge,
 } from "@/app/components/status-badge";
 import { primaryButtonClassName, secondaryButtonClassName } from "@/app/components/ui";
+import { RiskSummary } from "@/app/risks/_components/risk-summary";
 import { getRiskScore, getSeverityBand } from "@/lib/dashboard/analytics";
 import { riskQuality } from "@/lib/data-quality/record";
+import { applySort } from "@/lib/list-sort";
 import { useListFilters } from "@/lib/hooks/use-list-filters";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import {
@@ -32,6 +36,7 @@ import {
   parseRiskFilters,
   sortRisksByExposure,
 } from "@/lib/list-filters";
+import { parseRegisterView } from "@/lib/register/view";
 import { categoryFilterOptions, assigneeFilterOptions, isAppetiteBreach } from "@/lib/taxonomy";
 import { formatIsoDate } from "@/lib/dates";
 import { downloadCsv } from "@/lib/export/csv";
@@ -78,10 +83,8 @@ import {
 
 function RisksPageContent() {
   const router = useRouter();
-  const { filters, updateFilters, clearFilters } = useListFilters(
-    "/risks",
-    parseRiskFilters,
-  );
+  const { filters, updateRegisterFilters, clearFilters, sort, searchParams } =
+    useListFilters("/risks", parseRiskFilters);
 
   const { categories, schemaReady, people, enterpriseReady, operatingReady } = useSettings();
   const [risks, setRisks] = useState<Risk[]>([]);
@@ -97,6 +100,7 @@ function RisksPageContent() {
   const [lastReviewedByRisk, setLastReviewedByRisk] = useState<
     Record<string, string>
   >({});
+  const [reviews, setReviews] = useState<Array<{ reviewed_at: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -183,6 +187,11 @@ function RisksPageContent() {
           >[],
         ),
       );
+      setReviews(
+        ((reviewsResult.data ?? []) as Pick<RcsaReview, "reviewed_at">[]).map(
+          (review) => ({ reviewed_at: review.reviewed_at }),
+        ),
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load risks");
     } finally {
@@ -194,20 +203,6 @@ function RisksPageContent() {
 
   const myPersonId = personByEmail(people, user?.email)?.id ?? null;
 
-  const filteredRisks = useMemo(
-    () =>
-      sortRisksByExposure(
-        filterRisks(risks, filters, {
-          lastReviewedByRisk,
-          linkedControlCounts,
-          categories,
-          myPersonId,
-          people,
-        }),
-      ),
-    [risks, filters, lastReviewedByRisk, linkedControlCounts, categories, myPersonId, people],
-  );
-
   const categoryNameById = useMemo(() => {
     const names: Record<string, string> = {};
     for (const category of categories) {
@@ -215,6 +210,47 @@ function RisksPageContent() {
     }
     return names;
   }, [categories]);
+
+  const filteredRisks = useMemo(() => {
+    const rows = sortRisksByExposure(
+      filterRisks(risks, filters, {
+        lastReviewedByRisk,
+        linkedControlCounts,
+        categories,
+        myPersonId,
+        people,
+      }),
+    );
+    return applySort(rows, sort, {
+      title: (risk) => risk.title,
+      category: (risk) =>
+        (risk.category_id && categoryNameById[risk.category_id]) ||
+        "Uncategorised",
+      treatment: (risk) => risk.treatment ?? "mitigate",
+      status: (risk) => risk.status ?? "open",
+      assignee: (risk) => formatPersonName(people, risk.assignee_id),
+      likelihood: (risk) => risk.likelihood,
+      impact: (risk) => risk.impact,
+      score: (risk) => getRiskScore(risk.likelihood, risk.impact),
+      controls: (risk) => linkedControlCounts[risk.id] ?? 0,
+      incidents: (risk) => linkedIncidentCounts[risk.id] ?? 0,
+      issues: (risk) => openIssueCounts[risk.id] ?? 0,
+      review: (risk) => lastReviewedByRisk[risk.id] ?? "",
+      target: (risk) => risk.target_date ?? "",
+    });
+  }, [
+    risks,
+    filters,
+    lastReviewedByRisk,
+    linkedControlCounts,
+    linkedIncidentCounts,
+    openIssueCounts,
+    categories,
+    myPersonId,
+    people,
+    sort,
+    categoryNameById,
+  ]);
 
   const filtersActive = hasActiveFilters({
     q: filters.q,
@@ -230,34 +266,62 @@ function RisksPageContent() {
     appetiteBreach: filters.appetiteBreach,
     department: filters.department,
   });
+  const view = parseRegisterView(searchParams, filtersActive);
+  const departmentOptions = departmentFilterOptions(people);
 
   if (authLoading) {
     return <PageLoading />;
   }
 
   return (
-    <div className="min-h-full min-w-0 bg-slate-50 px-6 py-10 dark:bg-slate-950">
-      <main className="mx-auto flex w-full min-w-0 max-w-7xl flex-col gap-8">
-        <PageHeader
-          title="Risk Register"
-          description="Track and assess organizational risks."
-          breadcrumbs={[
-            { href: "/", label: "Home" },
-            { label: "Risks" },
-          ]}
-          actions={
-            <Link href="/risks/new" className={primaryButtonClassName}>
-              Add Risk
-            </Link>
-          }
-        />
-
+    <RegisterPageShell
+      title="Risk Register"
+      description="Track and assess organizational risks."
+      path="/risks"
+      hasListFilters={filtersActive}
+      actions={
+        <Link href="/risks/new" className={primaryButtonClassName}>
+          Add Risk
+        </Link>
+      }
+    >
         <ErrorBanner message={error} />
 
+        {view === "settings" ? (
+          <RegisterSettingsPanel module="risks" sections={["scoring", "review"]} />
+        ) : null}
+
+        {view === "summary" ? (
+          loading ? (
+            <LoadingBlock label="Loading risks..." />
+          ) : risks.length === 0 ? (
+            <ListEmpty>
+              No risks yet.{" "}
+              <Link
+                href="/risks/new"
+                className="font-medium text-teal-700 underline underline-offset-2 dark:text-teal-300"
+              >
+                Add your first risk
+              </Link>
+              .
+            </ListEmpty>
+          ) : (
+            <RiskSummary
+              risks={risks}
+              categories={categories}
+              lastReviewedByRisk={lastReviewedByRisk}
+              linkedControlCounts={linkedControlCounts}
+              reviews={reviews}
+              schemaReady={schemaReady}
+            />
+          )
+        ) : null}
+
+        {view === "register" ? (
         <section className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <ListToolbar
             search={filters.q}
-            onSearchChange={(value) => updateFilters({ q: value })}
+            onSearchChange={(value) => updateRegisterFilters({ q: value })}
             searchPlaceholder="Search title or description..."
             showing={filteredRisks.length}
             total={risks.length}
@@ -335,106 +399,7 @@ function RisksPageContent() {
                 ) : null}
               </>
             }
-          >
-            <FilterSelect
-              label="Risk Score"
-              value={filters.severity}
-              onChange={(value) => updateFilters({ severity: value })}
-              options={[
-                { value: "Low", label: "Low" },
-                { value: "Medium", label: "Medium" },
-                { value: "High", label: "High" },
-                { value: "Critical", label: "Critical" },
-                { value: "High,Critical", label: "High or Critical" },
-              ]}
-            />
-            {schemaReady && (
-              <FilterSelect
-                label="Category"
-                value={filters.categoryId}
-                onChange={(value) => updateFilters({ category: value })}
-                options={categoryFilterOptions(categories)}
-              />
-            )}
-            {schemaReady && (
-              <FilterSelect
-                label="Treatment"
-                value={filters.treatment}
-                onChange={(value) => updateFilters({ treatment: value })}
-                options={RISK_TREATMENT_OPTIONS.map((option) => ({
-                  value: option.value,
-                  label: option.label,
-                }))}
-              />
-            )}
-            {enterpriseReady && (
-              <>
-                <FilterSelect
-                  label="Status"
-                  value={filters.status}
-                  onChange={(value) => updateFilters({ status: value })}
-                  options={RISK_STATUS_OPTIONS.map((option) => ({
-                    value: option.value,
-                    label: option.label,
-                  }))}
-                />
-                <FilterSelect
-                  label="Owner"
-                  value={filters.assignee}
-                  onChange={(value) => updateFilters({ assignee: value })}
-                  options={assigneeFilterOptions(people)}
-                />
-                {departmentFilterOptions(people).length > 0 && (
-                  <FilterSelect
-                    label="Department"
-                    value={filters.department}
-                    onChange={(value) => updateFilters({ department: value })}
-                    options={departmentFilterOptions(people)}
-                  />
-                )}
-                <FilterSelect
-                  label="Appetite"
-                  value={filters.appetiteBreach ? "true" : ""}
-                  onChange={(value) => updateFilters({ appetiteBreach: value })}
-                  options={[{ value: "true", label: "Above appetite" }]}
-                />
-              </>
-            )}
-            <FilterSelect
-              label="Likelihood"
-              value={filters.likelihood?.toString() ?? ""}
-              onChange={(value) => updateFilters({ likelihood: value })}
-              options={RISK_SCALE_VALUES.map((value) => ({
-                value: String(value),
-                label: formatLikelihoodOption(value),
-              }))}
-            />
-            <FilterSelect
-              label="Impact"
-              value={filters.impact?.toString() ?? ""}
-              onChange={(value) => updateFilters({ impact: value })}
-              options={RISK_SCALE_VALUES.map((value) => ({
-                value: String(value),
-                label: formatImpactOption(value),
-              }))}
-            />
-            <FilterSelect
-              label="Review"
-              value={filters.reviewRecency}
-              onChange={(value) => updateFilters({ reviewRecency: value })}
-              options={[
-                { value: "due", label: "Due for review" },
-                { value: "never", label: "Never reviewed" },
-                { value: "over365", label: "Reviewed > 365 days ago" },
-              ]}
-            />
-            <FilterSelect
-              label="Controls"
-              value={filters.uncontrolled ? "true" : ""}
-              onChange={(value) => updateFilters({ uncontrolled: value })}
-              options={[{ value: "true", label: "Uncontrolled only" }]}
-            />
-          </ListToolbar>
+          />
 
           {loading ? (
             <LoadingBlock label="Loading risks..." />
@@ -455,28 +420,212 @@ function RisksPageContent() {
             <RegisterTable>
                 <thead className={registerTheadClassName}>
                   <tr>
-                    <th className="px-6 py-3 font-medium">Title</th>
+                    <th className="px-6 py-3">
+                      <ColumnHeader
+                        label="Title"
+                        sortKey="title"
+                        currentSort={sort}
+                        onSort={(value) => updateRegisterFilters({ sort: value })}
+                      />
+                    </th>
                     {schemaReady && (
                       <>
-                        <th className="px-6 py-3 font-medium">Category</th>
-                        <th className="px-6 py-3 font-medium">Treatment</th>
+                        <th className="px-6 py-3">
+                          <ColumnHeader
+                            label="Category"
+                            sortKey="category"
+                            currentSort={sort}
+                            onSort={(value) => updateRegisterFilters({ sort: value })}
+                            filterValue={filters.categoryId}
+                            filterOptions={categoryFilterOptions(categories)}
+                            onFilterChange={(value) =>
+                              updateRegisterFilters({ category: value })
+                            }
+                          />
+                        </th>
+                        <th className="px-6 py-3">
+                          <ColumnHeader
+                            label="Treatment"
+                            sortKey="treatment"
+                            currentSort={sort}
+                            onSort={(value) => updateRegisterFilters({ sort: value })}
+                            filterValue={filters.treatment}
+                            filterOptions={RISK_TREATMENT_OPTIONS.map((option) => ({
+                              value: option.value,
+                              label: option.label,
+                            }))}
+                            onFilterChange={(value) =>
+                              updateRegisterFilters({ treatment: value })
+                            }
+                          />
+                        </th>
                       </>
                     )}
                     {enterpriseReady && (
                       <>
-                        <th className="px-6 py-3 font-medium">Status</th>
-                        <th className="px-6 py-3 font-medium">Assignee</th>
+                        <th className="px-6 py-3">
+                          <ColumnHeader
+                            label="Status"
+                            sortKey="status"
+                            currentSort={sort}
+                            onSort={(value) => updateRegisterFilters({ sort: value })}
+                            filterValue={filters.status}
+                            filterOptions={RISK_STATUS_OPTIONS.map((option) => ({
+                              value: option.value,
+                              label: option.label,
+                            }))}
+                            onFilterChange={(value) =>
+                              updateRegisterFilters({ status: value })
+                            }
+                          />
+                        </th>
+                        <th className="px-6 py-3">
+                          <ColumnHeader
+                            label="Assignee"
+                            sortKey="assignee"
+                            currentSort={sort}
+                            onSort={(value) => updateRegisterFilters({ sort: value })}
+                            filterValue={filters.assignee}
+                            filterOptions={assigneeFilterOptions(people)}
+                            onFilterChange={(value) =>
+                              updateRegisterFilters({ assignee: value })
+                            }
+                            extraFilter={
+                              departmentOptions.length > 0
+                                ? {
+                                    label: "Department",
+                                    value: filters.department,
+                                    options: departmentOptions,
+                                    onChange: (value) =>
+                                      updateRegisterFilters({ department: value }),
+                                  }
+                                : undefined
+                            }
+                          />
+                        </th>
                       </>
                     )}
-                    <th className="px-6 py-3 font-medium">Likelihood</th>
-                    <th className="px-6 py-3 font-medium">Impact</th>
-                    <th className="px-6 py-3 font-medium">Risk Score</th>
-                    <th className="px-6 py-3 font-medium">Controls</th>
-                    <th className="px-6 py-3 font-medium">Incidents</th>
-                    <th className="px-6 py-3 font-medium">Open Issues</th>
-                    <th className="px-6 py-3 font-medium">Review</th>
+                    <th className="px-6 py-3">
+                      <ColumnHeader
+                        label="Likelihood"
+                        sortKey="likelihood"
+                        currentSort={sort}
+                        onSort={(value) => updateRegisterFilters({ sort: value })}
+                        filterValue={filters.likelihood?.toString() ?? ""}
+                        filterOptions={RISK_SCALE_VALUES.map((value) => ({
+                          value: String(value),
+                          label: formatLikelihoodOption(value),
+                        }))}
+                        onFilterChange={(value) =>
+                          updateRegisterFilters({ likelihood: value })
+                        }
+                      />
+                    </th>
+                    <th className="px-6 py-3">
+                      <ColumnHeader
+                        label="Impact"
+                        sortKey="impact"
+                        currentSort={sort}
+                        onSort={(value) => updateRegisterFilters({ sort: value })}
+                        filterValue={filters.impact?.toString() ?? ""}
+                        filterOptions={RISK_SCALE_VALUES.map((value) => ({
+                          value: String(value),
+                          label: formatImpactOption(value),
+                        }))}
+                        onFilterChange={(value) =>
+                          updateRegisterFilters({ impact: value })
+                        }
+                      />
+                    </th>
+                    <th className="px-6 py-3">
+                      <ColumnHeader
+                        label="Risk Score"
+                        sortKey="score"
+                        currentSort={sort}
+                        onSort={(value) => updateRegisterFilters({ sort: value })}
+                        filterValue={filters.severity}
+                        filterOptions={[
+                          { value: "Low", label: "Low" },
+                          { value: "Medium", label: "Medium" },
+                          { value: "High", label: "High" },
+                          { value: "Critical", label: "Critical" },
+                          { value: "High,Critical", label: "High or Critical" },
+                        ]}
+                        onFilterChange={(value) =>
+                          updateRegisterFilters({ severity: value })
+                        }
+                        extraFilter={
+                          enterpriseReady
+                            ? {
+                                label: "Appetite",
+                                value: filters.appetiteBreach ? "true" : "",
+                                options: [
+                                  { value: "true", label: "Above appetite" },
+                                ],
+                                onChange: (value) =>
+                                  updateRegisterFilters({ appetiteBreach: value }),
+                              }
+                            : undefined
+                        }
+                      />
+                    </th>
+                    <th className="px-6 py-3">
+                      <ColumnHeader
+                        label="Controls"
+                        sortKey="controls"
+                        currentSort={sort}
+                        onSort={(value) => updateRegisterFilters({ sort: value })}
+                        filterValue={filters.uncontrolled ? "true" : ""}
+                        filterOptions={[
+                          { value: "true", label: "Uncontrolled only" },
+                        ]}
+                        onFilterChange={(value) =>
+                          updateRegisterFilters({ uncontrolled: value })
+                        }
+                      />
+                    </th>
+                    <th className="px-6 py-3">
+                      <ColumnHeader
+                        label="Incidents"
+                        sortKey="incidents"
+                        currentSort={sort}
+                        onSort={(value) => updateRegisterFilters({ sort: value })}
+                      />
+                    </th>
+                    <th className="px-6 py-3">
+                      <ColumnHeader
+                        label="Open Issues"
+                        sortKey="issues"
+                        currentSort={sort}
+                        onSort={(value) => updateRegisterFilters({ sort: value })}
+                      />
+                    </th>
+                    <th className="px-6 py-3">
+                      <ColumnHeader
+                        label="Review"
+                        sortKey="review"
+                        currentSort={sort}
+                        onSort={(value) => updateRegisterFilters({ sort: value })}
+                        filterValue={filters.reviewRecency}
+                        filterOptions={[
+                          { value: "due", label: "Due for review" },
+                          { value: "never", label: "Never reviewed" },
+                          { value: "over365", label: "Reviewed > 365 days ago" },
+                        ]}
+                        onFilterChange={(value) =>
+                          updateRegisterFilters({ reviewRecency: value })
+                        }
+                      />
+                    </th>
                     {operatingReady && (
-                      <th className="px-6 py-3 font-medium">Target</th>
+                      <th className="px-6 py-3">
+                        <ColumnHeader
+                          label="Target"
+                          sortKey="target"
+                          currentSort={sort}
+                          onSort={(value) => updateRegisterFilters({ sort: value })}
+                        />
+                      </th>
                     )}
                     <th className="px-6 py-3 font-medium">Actions</th>
                   </tr>
@@ -635,8 +784,8 @@ function RisksPageContent() {
             </RegisterTable>
           )}
         </section>
-      </main>
-    </div>
+        ) : null}
+    </RegisterPageShell>
   );
 }
 

@@ -212,7 +212,7 @@ export const STATIC_COMMANDS: StaticCommand[] = [
     module: "admin",
     label: "Admin settings",
     href: "/admin",
-    keywords: "admin organisation taxonomy cadence demo people",
+    keywords: "admin organisation taxonomy workspace demo people",
   },
   {
     module: "quality",

@@ -5,29 +5,18 @@ import Link from "next/link";
 import { ActivityList } from "@/app/components/dashboard/activity-list";
 import { AttentionList } from "@/app/components/dashboard/attention-list";
 import { ChartCard } from "@/app/components/dashboard/chart-card";
-import {
-  ControlsEffectivenessDonut,
-  IncidentsStatusDonut,
-  IssuesStatusDonut,
-} from "@/app/components/dashboard/donut-charts";
-import { RemediationHealth } from "@/app/components/dashboard/remediation-health";
-import { RiskHeatMap } from "@/app/components/dashboard/risk-heat-map";
 import { StatCard } from "@/app/components/dashboard/stat-card";
-import { TaxonomyBarChart } from "@/app/components/dashboard/taxonomy-bar-chart";
+import { StackedTimeChart } from "@/app/components/dashboard/time-charts";
 import { FilterSelect } from "@/app/components/list-toolbar";
 import { ErrorBanner, PageHeader, PageLoading } from "@/app/components/page-parts";
 import { mutedTextClassName, primaryButtonClassName, secondaryButtonClassName } from "@/app/components/ui";
 import { buildActivityFeed } from "@/lib/activity/feed";
-import { buildAttentionItems } from "@/lib/dashboard/attention";
 import {
-  buildControlEffectivenessCounts,
-  buildIncidentStatusCounts,
-  buildIssueStatusCounts,
-  buildOpenIssueSeverityBreakdown,
-  buildTaxonomyRiskCounts,
-  buildTreatmentCounts,
-  summariseIssues,
-} from "@/lib/dashboard/analytics";
+  buildOperatingTrend,
+  OPERATING_TREND_SERIES,
+} from "@/lib/charts/time-series";
+import { buildAttentionItems } from "@/lib/dashboard/attention";
+import { summariseIssues } from "@/lib/dashboard/analytics";
 import { useListFilters } from "@/lib/hooks/use-list-filters";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import { useSettings } from "@/lib/settings/context";
@@ -55,7 +44,6 @@ import {
 } from "@/lib/snapshot/grc-snapshot";
 import {
   categoryFilterOptions,
-  isActiveRisk,
   matchesCategoryFilter,
   matchesInheritedCategory,
 } from "@/lib/taxonomy";
@@ -124,7 +112,6 @@ function HomePageContent() {
     const myPersonId = personByEmail(people, user?.email)?.id ?? null;
 
     return {
-      risks,
       riskCount: activeRisks(risks).length,
       overdueControlCount: lateControls.length,
       overdueKeyControlCount: lateControls.filter((control) => control.is_key)
@@ -138,12 +125,6 @@ function HomePageContent() {
         issues.filter((issue) => issue.assignee_id === myPersonId).length,
       appetiteBreaches: appetiteBreachingRisks(risks, categories).length,
       issuesSummary: summariseIssues(issues, snapshot.actions),
-      taxonomyCounts: buildTaxonomyRiskCounts(risks, categories),
-      treatmentCounts: buildTreatmentCounts(risks),
-      controlEffectiveness: buildControlEffectivenessCounts(controls),
-      incidentStatus: buildIncidentStatusCounts(incidents),
-      issueStatus: buildIssueStatusCounts(issues),
-      issueSeverityBreakdown: buildOpenIssueSeverityBreakdown(issues),
       attention: buildAttentionItems(controls, incidents, issues, risks, {
         lastReviewedByRisk: snapshot.indexes.lastReviewedByRisk,
         linkedControlCounts: snapshot.indexes.linkedControlCountsByRisk,
@@ -169,6 +150,11 @@ function HomePageContent() {
         incidentEvents: snapshot.incidentEvents,
         limit: 8,
       }),
+      operatingTrend: buildOperatingTrend({
+        incidents,
+        issues,
+        tests: snapshot.tests,
+      }),
     };
   }, [categories, filters.categoryId, people, settings.workspacePreferences.defaultHomeCategoryId, snapshot, user?.email]);
 
@@ -193,7 +179,11 @@ function HomePageContent() {
       <main className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-10">
         <PageHeader
           title="Dashboard"
-          description={user?.email ? `Welcome back, ${user.email}` : undefined}
+          description={
+            user?.email
+              ? `Welcome back, ${user.email}. Cross-register work sits here; each register has its own Summary tab.`
+              : "Cross-register work sits here; each register has its own Summary tab."
+          }
           breadcrumbs={[{ label: "Home" }]}
           actions={
             <div className="flex w-full min-w-0 flex-wrap items-end gap-3 sm:w-auto">
@@ -342,96 +332,23 @@ function HomePageContent() {
               </section>
             ) : null}
 
-            {shows("heatMap") ||
-            shows("taxonomy") ||
-            shows("treatment") ||
-            shows("issuesStatus") ||
-            shows("remediation") ||
-            shows("controlsEffectiveness") ||
-            shows("incidentsStatus") ? (
-              <section className="grid min-w-0 gap-6 lg:grid-cols-2">
-                {shows("heatMap") ? (
-                  <ChartCard
-                    title="Risk Heat Map"
-                    description="Click a cell to filter risks by likelihood and impact. Closed risks are excluded."
-                  >
-                    <div className="mt-2">
-                      <RiskHeatMap risks={data.risks.filter(isActiveRisk)} />
-                    </div>
-                  </ChartCard>
-                ) : null}
-
-                {schemaReady && shows("taxonomy") ? (
-                  <ChartCard
-                    title="Risks by taxonomy"
-                    description="Click a bar to filter the risk register by category."
-                  >
-                    <TaxonomyBarChart data={data.taxonomyCounts} />
-                  </ChartCard>
-                ) : null}
-                {schemaReady && shows("treatment") ? (
-                  <ChartCard
-                    title="Treatment mix"
-                    description="How open risks are being treated. Click a bar to filter."
-                  >
-                    <TaxonomyBarChart
-                      data={data.treatmentCounts}
-                      queryParam="treatment"
-                    />
-                  </ChartCard>
-                ) : null}
-
-                {shows("issuesStatus") ? (
-                  <ChartCard
-                    title="Issues by Status"
-                    description="Click a slice to filter the issue log."
-                  >
-                    <IssuesStatusDonut data={data.issueStatus} />
-                  </ChartCard>
-                ) : null}
-
-                {shows("remediation") ? (
-                  <ChartCard
-                    title="Remediation Health"
-                    description="Open issues by severity, and how far their action plans have progressed."
-                  >
-                    <RemediationHealth
-                      summary={data.issuesSummary}
-                      breakdown={data.issueSeverityBreakdown}
-                    />
-                  </ChartCard>
-                ) : null}
-
-                {shows("controlsEffectiveness") ? (
-                  <ChartCard
-                    title="Controls by Effectiveness"
-                    description="Click a slice to filter controls."
-                  >
-                    <ControlsEffectivenessDonut data={data.controlEffectiveness} />
-                  </ChartCard>
-                ) : null}
-
-                {shows("incidentsStatus") ? (
-                  <ChartCard
-                    title="Incidents by Status"
-                    description="Click a slice to filter incidents."
-                  >
-                    <IncidentsStatusDonut data={data.incidentStatus} />
-                  </ChartCard>
-                ) : null}
-              </section>
+            {shows("trend") ? (
+              <ChartCard
+                title="Operating trend"
+                description="Incidents occurred, issues identified, and control tests recorded over the last 12 months. Register-specific charts live on each register’s Summary tab."
+              >
+                <StackedTimeChart
+                  data={data.operatingTrend}
+                  series={[...OPERATING_TREND_SERIES]}
+                  empty="No incidents, issues, or tests in the last 12 months."
+                />
+              </ChartCard>
             ) : null}
 
             {!shows("stats") &&
             !shows("attention") &&
             !shows("activity") &&
-            !shows("heatMap") &&
-            !shows("taxonomy") &&
-            !shows("treatment") &&
-            !shows("issuesStatus") &&
-            !shows("remediation") &&
-            !shows("controlsEffectiveness") &&
-            !shows("incidentsStatus") ? (
+            !shows("trend") ? (
               <p className={mutedTextClassName}>
                 Home widgets are hidden. Restore them from Admin → Workspace.
               </p>

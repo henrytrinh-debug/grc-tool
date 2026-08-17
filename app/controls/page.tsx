@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Suspense, useCallback, useMemo, useState } from "react";
 import { ClickableRow } from "@/app/components/clickable-row";
+import { ColumnHeader } from "@/app/components/column-header";
 import { QualityTitle } from "@/app/components/quality-indicator";
 import {
   ControlTypeBadge,
@@ -10,19 +11,22 @@ import {
   KeyBadge,
   TestingStatusBadge,
 } from "@/app/components/status-badge";
-import { FilterSelect, ListToolbar } from "@/app/components/list-toolbar";
+import { ListToolbar } from "@/app/components/list-toolbar";
 import { RegisterPresets } from "@/app/components/register-presets";
+import { RegisterPageShell } from "@/app/components/register-page-shell";
+import { RegisterSettingsPanel } from "@/app/components/register-settings-panel";
 import {
   ErrorBanner,
   ListEmpty,
   LoadingBlock,
-  PageHeader,
   PageLoading,
   RegisterTable,
   registerTheadClassName,
 } from "@/app/components/page-parts";
 import { primaryButtonClassName, secondaryButtonClassName } from "@/app/components/ui";
+import { ControlSummary } from "@/app/controls/_components/control-summary";
 import { controlQuality } from "@/lib/data-quality/record";
+import { applySort } from "@/lib/list-sort";
 import { useListFilters } from "@/lib/hooks/use-list-filters";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import {
@@ -31,6 +35,7 @@ import {
   parseControlFilters,
   sortControlsByAttention,
 } from "@/lib/list-filters";
+import { parseRegisterView } from "@/lib/register/view";
 import { downloadCsv } from "@/lib/export/csv";
 import { useSettings } from "@/lib/settings/context";
 import { getSupabaseClient } from "@/lib/supabase/client";
@@ -72,10 +77,8 @@ import {
 } from "@/lib/types/risk-control";
 
 function ControlsPageContent() {
-  const { filters, updateFilters, clearFilters } = useListFilters(
-    "/controls",
-    parseControlFilters,
-  );
+  const { filters, updateRegisterFilters, clearFilters, sort, searchParams } =
+    useListFilters("/controls", parseControlFilters);
 
   const { categories, schemaReady, people, enterpriseReady } = useSettings();
   const [controls, setControls] = useState<Control[]>([]);
@@ -88,6 +91,9 @@ function ControlsPageContent() {
   const [openIssueCounts, setOpenIssueCounts] = useState<
     Record<string, number>
   >({});
+  const [tests, setTests] = useState<
+    Array<{ tested_at: string; effectiveness: string }>
+  >([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -96,7 +102,8 @@ function ControlsPageContent() {
 
     try {
       const supabase = getSupabaseClient();
-      const [controlsResult, linksResult, issueLinksResult] = await Promise.all([
+      const [controlsResult, linksResult, issueLinksResult, testsResult] =
+        await Promise.all([
         supabase
           .from("controls")
           .select("*")
@@ -114,9 +121,18 @@ function ControlsPageContent() {
           .from("issue_controls")
           .select(ISSUE_CONTROL_ISSUE_SELECT)
           .eq("owner_id", ownerId),
+        supabase
+          .from("control_test_results")
+          .select("tested_at, effectiveness")
+          .eq("owner_id", ownerId),
       ]);
 
-      throwIfAnyQueryError([controlsResult, linksResult, issueLinksResult]);
+      throwIfAnyQueryError([
+        controlsResult,
+        linksResult,
+        issueLinksResult,
+        testsResult,
+      ]);
 
       setControls((controlsResult.data ?? []) as Control[]);
 
@@ -136,6 +152,12 @@ function ControlsPageContent() {
         ).length;
       }
       setOpenIssueCounts(openCounts);
+      setTests(
+        (testsResult.data ?? []) as Array<{
+          tested_at: string;
+          effectiveness: string;
+        }>,
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load controls");
     } finally {
@@ -146,18 +168,42 @@ function ControlsPageContent() {
   const { user, authLoading } = useRequireAuth(loadControls);
   const myPersonId = personByEmail(people, user?.email)?.id ?? null;
 
-  const filteredControls = useMemo(
-    () =>
-      sortControlsByAttention(
-        filterControls(controls, filters, {
-          linkedRiskCounts,
-          linkedCategoryIds,
-          myPersonId,
-          people,
-        }),
-      ),
-    [controls, filters, linkedRiskCounts, linkedCategoryIds, myPersonId, people],
-  );
+  const filteredControls = useMemo(() => {
+    const rows = sortControlsByAttention(
+      filterControls(controls, filters, {
+        linkedRiskCounts,
+        linkedCategoryIds,
+        myPersonId,
+        people,
+      }),
+    );
+    return applySort(rows, sort, {
+      title: (control) => control.title,
+      key: (control) => Number(control.is_key),
+      type: (control) => control.control_type ?? "preventive",
+      category: (control) =>
+        uniqueCategoryLabels(categories, linkedCategoryIds[control.id] ?? []),
+      assignee: (control) => formatPersonName(people, control.assignee_id),
+      effectiveness: (control) => control.effectiveness,
+      lastTested: (control) => control.last_tested_at ?? "",
+      testingStatus: (control) =>
+        getTestingStatus(control.last_tested_at, control.is_key),
+      nextTest: (control) =>
+        formatNextTestDue(control.last_tested_at, control.is_key),
+      risks: (control) => linkedRiskCounts[control.id] ?? 0,
+      issues: (control) => openIssueCounts[control.id] ?? 0,
+    });
+  }, [
+    controls,
+    filters,
+    linkedRiskCounts,
+    linkedCategoryIds,
+    myPersonId,
+    people,
+    sort,
+    categories,
+    openIssueCounts,
+  ]);
 
   const filtersActive = hasActiveFilters({
     q: filters.q,
@@ -170,34 +216,59 @@ function ControlsPageContent() {
     assignee: filters.assignee,
     department: filters.department,
   });
+  const view = parseRegisterView(searchParams, filtersActive);
+  const departmentOptions = departmentFilterOptions(people);
 
   if (authLoading) {
     return <PageLoading />;
   }
 
   return (
-    <div className="min-h-full min-w-0 bg-slate-50 px-6 py-10 dark:bg-slate-950">
-      <main className="mx-auto flex w-full min-w-0 max-w-7xl flex-col gap-8">
-        <PageHeader
-          title="Control Register"
-          description="Manage and track your assigned controls."
-          breadcrumbs={[
-            { href: "/", label: "Home" },
-            { label: "Controls" },
-          ]}
-          actions={
-            <Link href="/controls/new" className={primaryButtonClassName}>
-              Add Control
-            </Link>
-          }
-        />
-
+    <RegisterPageShell
+      title="Control Register"
+      description="Manage and track your assigned controls."
+      path="/controls"
+      hasListFilters={filtersActive}
+      actions={
+        <Link href="/controls/new" className={primaryButtonClassName}>
+          Add Control
+        </Link>
+      }
+    >
         <ErrorBanner message={error} />
 
+        {view === "settings" ? (
+          <RegisterSettingsPanel module="controls" sections={["testing"]} />
+        ) : null}
+
+        {view === "summary" ? (
+          loading ? (
+            <LoadingBlock label="Loading controls..." />
+          ) : controls.length === 0 ? (
+            <ListEmpty>
+              No controls yet.{" "}
+              <Link
+                href="/controls/new"
+                className="font-medium text-teal-700 underline underline-offset-2 dark:text-teal-300"
+              >
+                Add your first control
+              </Link>
+              .
+            </ListEmpty>
+          ) : (
+            <ControlSummary
+              controls={controls}
+              linkedRiskCounts={linkedRiskCounts}
+              tests={tests}
+            />
+          )
+        ) : null}
+
+        {view === "register" ? (
         <section className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <ListToolbar
             search={filters.q}
-            onSearchChange={(value) => updateFilters({ q: value })}
+            onSearchChange={(value) => updateRegisterFilters({ q: value })}
             searchPlaceholder="Search title or description..."
             showing={filteredControls.length}
             total={controls.length}
@@ -252,77 +323,7 @@ function ControlsPageContent() {
                 ) : null}
               </>
             }
-          >
-            <FilterSelect
-              label="Key"
-              value={filters.isKey}
-              onChange={(value) => updateFilters({ isKey: value })}
-              options={[
-                { value: "true", label: "Key" },
-                { value: "false", label: "Non-Key" },
-              ]}
-            />
-            <FilterSelect
-              label="Effectiveness"
-              value={filters.effectiveness}
-              onChange={(value) => updateFilters({ effectiveness: value })}
-              options={EFFECTIVENESS_OPTIONS.map((option) => ({
-                value: option.value,
-                label: option.label,
-              }))}
-            />
-            <FilterSelect
-              label="Testing Status"
-              value={filters.testingStatus}
-              onChange={(value) => updateFilters({ testingStatus: value })}
-              options={[
-                { value: "Never Tested", label: "Never Tested" },
-                { value: "Tested", label: "Tested" },
-                { value: "Overdue", label: "Overdue" },
-              ]}
-            />
-            <FilterSelect
-              label="Mapping"
-              value={filters.unmapped ? "true" : ""}
-              onChange={(value) => updateFilters({ unmapped: value })}
-              options={[{ value: "true", label: "Unmapped only" }]}
-            />
-            {schemaReady && (
-              <FilterSelect
-                label="Category"
-                value={filters.categoryId}
-                onChange={(value) => updateFilters({ category: value })}
-                options={categoryFilterOptions(categories)}
-              />
-            )}
-            {enterpriseReady && (
-              <>
-                <FilterSelect
-                  label="Type"
-                  value={filters.controlType}
-                  onChange={(value) => updateFilters({ controlType: value })}
-                  options={CONTROL_TYPE_OPTIONS.map((option) => ({
-                    value: option.value,
-                    label: option.label,
-                  }))}
-                />
-                <FilterSelect
-                  label="Owner"
-                  value={filters.assignee}
-                  onChange={(value) => updateFilters({ assignee: value })}
-                  options={assigneeFilterOptions(people)}
-                />
-                {departmentFilterOptions(people).length > 0 && (
-                  <FilterSelect
-                    label="Department"
-                    value={filters.department}
-                    onChange={(value) => updateFilters({ department: value })}
-                    options={departmentFilterOptions(people)}
-                  />
-                )}
-              </>
-            )}
-          </ListToolbar>
+          />
 
           {loading ? (
             <LoadingBlock label="Loading controls..." />
@@ -343,23 +344,159 @@ function ControlsPageContent() {
             <RegisterTable>
                 <thead className={registerTheadClassName}>
                   <tr>
-                    <th className="px-6 py-3 font-medium">Title</th>
-                    <th className="px-6 py-3 font-medium">Key</th>
+                    <th className="px-6 py-3">
+                      <ColumnHeader
+                        label="Title"
+                        sortKey="title"
+                        currentSort={sort}
+                        onSort={(value) => updateRegisterFilters({ sort: value })}
+                      />
+                    </th>
+                    <th className="px-6 py-3">
+                      <ColumnHeader
+                        label="Key"
+                        sortKey="key"
+                        currentSort={sort}
+                        onSort={(value) => updateRegisterFilters({ sort: value })}
+                        filterValue={filters.isKey}
+                        filterOptions={[
+                          { value: "true", label: "Key" },
+                          { value: "false", label: "Non-Key" },
+                        ]}
+                        onFilterChange={(value) =>
+                          updateRegisterFilters({ isKey: value })
+                        }
+                      />
+                    </th>
                     {enterpriseReady && (
-                      <th className="px-6 py-3 font-medium">Type</th>
+                      <th className="px-6 py-3">
+                        <ColumnHeader
+                          label="Type"
+                          sortKey="type"
+                          currentSort={sort}
+                          onSort={(value) => updateRegisterFilters({ sort: value })}
+                          filterValue={filters.controlType}
+                          filterOptions={CONTROL_TYPE_OPTIONS.map((option) => ({
+                            value: option.value,
+                            label: option.label,
+                          }))}
+                          onFilterChange={(value) =>
+                            updateRegisterFilters({ controlType: value })
+                          }
+                        />
+                      </th>
                     )}
                     {schemaReady && (
-                      <th className="px-6 py-3 font-medium">Category</th>
+                      <th className="px-6 py-3">
+                        <ColumnHeader
+                          label="Category"
+                          sortKey="category"
+                          currentSort={sort}
+                          onSort={(value) => updateRegisterFilters({ sort: value })}
+                          filterValue={filters.categoryId}
+                          filterOptions={categoryFilterOptions(categories)}
+                          onFilterChange={(value) =>
+                            updateRegisterFilters({ category: value })
+                          }
+                        />
+                      </th>
                     )}
                     {enterpriseReady && (
-                      <th className="px-6 py-3 font-medium">Assignee</th>
+                      <th className="px-6 py-3">
+                        <ColumnHeader
+                          label="Assignee"
+                          sortKey="assignee"
+                          currentSort={sort}
+                          onSort={(value) => updateRegisterFilters({ sort: value })}
+                          filterValue={filters.assignee}
+                          filterOptions={assigneeFilterOptions(people)}
+                          onFilterChange={(value) =>
+                            updateRegisterFilters({ assignee: value })
+                          }
+                          extraFilter={
+                            departmentOptions.length > 0
+                              ? {
+                                  label: "Department",
+                                  value: filters.department,
+                                  options: departmentOptions,
+                                  onChange: (value) =>
+                                    updateRegisterFilters({ department: value }),
+                                }
+                              : undefined
+                          }
+                        />
+                      </th>
                     )}
-                    <th className="px-6 py-3 font-medium">Effectiveness</th>
-                    <th className="px-6 py-3 font-medium">Last Tested</th>
-                    <th className="px-6 py-3 font-medium">Testing Status</th>
-                    <th className="px-6 py-3 font-medium">Next Test</th>
-                    <th className="px-6 py-3 font-medium">Linked Risks</th>
-                    <th className="px-6 py-3 font-medium">Open Issues</th>
+                    <th className="px-6 py-3">
+                      <ColumnHeader
+                        label="Effectiveness"
+                        sortKey="effectiveness"
+                        currentSort={sort}
+                        onSort={(value) => updateRegisterFilters({ sort: value })}
+                        filterValue={filters.effectiveness}
+                        filterOptions={EFFECTIVENESS_OPTIONS.map((option) => ({
+                          value: option.value,
+                          label: option.label,
+                        }))}
+                        onFilterChange={(value) =>
+                          updateRegisterFilters({ effectiveness: value })
+                        }
+                      />
+                    </th>
+                    <th className="px-6 py-3">
+                      <ColumnHeader
+                        label="Last Tested"
+                        sortKey="lastTested"
+                        currentSort={sort}
+                        onSort={(value) => updateRegisterFilters({ sort: value })}
+                      />
+                    </th>
+                    <th className="px-6 py-3">
+                      <ColumnHeader
+                        label="Testing Status"
+                        sortKey="testingStatus"
+                        currentSort={sort}
+                        onSort={(value) => updateRegisterFilters({ sort: value })}
+                        filterValue={filters.testingStatus}
+                        filterOptions={[
+                          { value: "Never Tested", label: "Never Tested" },
+                          { value: "Tested", label: "Tested" },
+                          { value: "Overdue", label: "Overdue" },
+                        ]}
+                        onFilterChange={(value) =>
+                          updateRegisterFilters({ testingStatus: value })
+                        }
+                      />
+                    </th>
+                    <th className="px-6 py-3">
+                      <ColumnHeader
+                        label="Next Test"
+                        sortKey="nextTest"
+                        currentSort={sort}
+                        onSort={(value) => updateRegisterFilters({ sort: value })}
+                      />
+                    </th>
+                    <th className="px-6 py-3">
+                      <ColumnHeader
+                        label="Linked Risks"
+                        sortKey="risks"
+                        currentSort={sort}
+                        onSort={(value) => updateRegisterFilters({ sort: value })}
+                        filterValue={filters.unmapped ? "true" : ""}
+                        filterOptions={[{ value: "true", label: "Unmapped only" }]}
+                        onFilterChange={(value) =>
+                          updateRegisterFilters({ unmapped: value })
+                        }
+                      />
+                    </th>
+                    <th className="px-6 py-3">
+                      <ColumnHeader
+                        label="Open Issues"
+                        sortKey="issues"
+                        currentSort={sort}
+                        onSort={(value) => updateRegisterFilters({ sort: value })}
+                      />
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -476,8 +613,8 @@ function ControlsPageContent() {
             </RegisterTable>
           )}
         </section>
-      </main>
-    </div>
+        ) : null}
+    </RegisterPageShell>
   );
 }
 

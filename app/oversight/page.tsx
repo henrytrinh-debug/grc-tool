@@ -2,24 +2,22 @@
 
 import { useCallback, useState } from "react";
 import { ChartCard } from "@/app/components/dashboard/chart-card";
-import { RiskSeverityBarChart } from "@/app/components/dashboard/risk-severity-bar-chart";
 import { StatCard } from "@/app/components/dashboard/stat-card";
+import { LineTimeChart, StackedTimeChart } from "@/app/components/dashboard/time-charts";
 import {
   StaleReviewsBreakdownList,
   UncontrolledRisksBreakdownList,
 } from "@/app/components/oversight/breakdown-rows";
 import { FlowBarChart } from "@/app/components/oversight/flow-chart";
-import {
-  ControlKeySplitDonut,
-  IncidentSeverityDonut,
-  OpenIssuesBySourceDonut,
-  TestingCoverageDonut,
-} from "@/app/components/oversight/oversight-donuts";
 import { IssueAgingChart } from "@/app/components/oversight/aging-chart";
 import { RatingMovementList } from "@/app/components/oversight/movement-list";
-import { TaxonomyOverviewTable } from "@/app/components/oversight/taxonomy-table";
 import { ErrorBanner, PageHeader, PageLoading } from "@/app/components/page-parts";
 import { mutedTextClassName } from "@/app/components/ui";
+import {
+  buildOpenedClosedTrend,
+  buildOperatingTrend,
+  OPERATING_TREND_SERIES,
+} from "@/lib/charts/time-series";
 import { useSettings } from "@/lib/settings/context";
 import {
   isOversightSectionVisible,
@@ -29,24 +27,12 @@ import {
   formatKeyTestingCadenceHint,
   formatReviewCadenceHint,
 } from "@/lib/settings/store";
-import {
-  buildSeverityBandCounts,
-  summariseIssues,
-  type IssueSummary,
-  type SeverityBandCount,
-} from "@/lib/dashboard/analytics";
 import { appetiteBreachingRisks } from "@/lib/metrics/kpis";
 import {
-  buildTaxonomyOverview,
-  buildAvgDaysToCloseIssues,
-  buildAvgDaysToResolveIncidents,
-  buildControlKeyStats,
   buildIncidentFlow,
-  buildIncidentSeverityCounts,
   buildIncidentStock,
   buildIssueFlow,
   buildOpenIssueAgingBuckets,
-  buildOpenIssuesBySource,
   buildStaleReviewBreakdown,
   buildTestingCoverage,
   buildTestPassRate,
@@ -54,17 +40,12 @@ import {
   countOrphanedControls,
   countReviewsDue,
   getOpenIssueOverduePercent,
-  toControlKeySplitChartCounts,
-  toTestingCoverageChartCounts,
-  type ControlKeyStats,
   type IncidentFlow,
   type IncidentStock,
   type IssueAgingBucket,
   type IssueFlow,
   type StaleReviewBreakdown,
-  type TestingCoverage,
   type TestPassRate,
-  type TaxonomyOverviewRow,
   type UncontrolledRiskBreakdown,
 } from "@/lib/oversight/metrics";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
@@ -76,7 +57,6 @@ import {
   fallbackResolvedAt,
   type Incident,
 } from "@/lib/types/incident";
-import type { ChartCount } from "@/lib/dashboard/analytics";
 import {
   obligationCoverage,
   type ObligationRecord,
@@ -84,43 +64,31 @@ import {
 import type { ObligationControlLink } from "@/lib/types/obligation-links";
 
 type OversightData = {
-  controlKeyStats: ControlKeyStats;
-  allTestingCoverage: TestingCoverage;
-  keyTestingCoverage: TestingCoverage;
+  keyTestingOverdue: number;
   testPassRate: TestPassRate;
   uncontrolledRisks: UncontrolledRiskBreakdown[];
-  severityBands: SeverityBandCount[];
   staleReviews: StaleReviewBreakdown;
   reviewsDue: number;
   orphanedControls: number;
   agingBuckets: IssueAgingBucket[];
   issueFlow: IssueFlow;
-  issuesSummary: IssueSummary;
   openIssueOverduePercent: number;
-  avgDaysToCloseIssues: number | null;
-  openIssuesBySource: ChartCount[];
   incidentStock: IncidentStock;
   incidentFlow: IncidentFlow;
-  avgDaysToResolveIncidents: number | null;
-  incidentSeverityCounts: ChartCount[];
-  taxonomyOverview: TaxonomyOverviewRow[];
   appetiteBreaches: number;
   ratingMovement: RatingMovementSummary;
-  obligationCoverage: { active: number; covered: number; uncovered: number } | null;
-};
-
-const emptyIssueSummary: IssueSummary = {
-  total: 0,
-  open: 0,
-  overdue: 0,
-  awaitingReview: 0,
-  actionCompletionPercent: 0,
+  obligationCoverage: {
+    active: number;
+    covered: number;
+    uncovered: number;
+  } | null;
+  operatingTrend: ReturnType<typeof buildOperatingTrend>;
+  issueMonthly: ReturnType<typeof buildOpenedClosedTrend>;
+  incidentMonthly: ReturnType<typeof buildOpenedClosedTrend>;
 };
 
 const emptyData: OversightData = {
-  controlKeyStats: { total: 0, key: 0, nonKey: 0, keyPercent: 0 },
-  allTestingCoverage: { neverTested: 0, tested: 0, overdue: 0 },
-  keyTestingCoverage: { neverTested: 0, tested: 0, overdue: 0 },
+  keyTestingOverdue: 0,
   testPassRate: {
     effectiveCount: 0,
     ineffectiveCount: 0,
@@ -128,25 +96,18 @@ const emptyData: OversightData = {
     passRatePercent: null,
   },
   uncontrolledRisks: [],
-  severityBands: [],
   staleReviews: { never: 0, within180: 0, between180And365: 0, over365: 0 },
   reviewsDue: 0,
   orphanedControls: 0,
   agingBuckets: [],
   issueFlow: { last30: { opened: 0, closed: 0 }, last90: { opened: 0, closed: 0 } },
-  issuesSummary: emptyIssueSummary,
   openIssueOverduePercent: 0,
-  avgDaysToCloseIssues: null,
-  openIssuesBySource: [],
   incidentStock: { openCount: 0, averageAgeDays: null },
   incidentFlow: {
     last30: { opened: 0, closed: 0 },
     last90: { opened: 0, closed: 0 },
     hasResolvedData: false,
   },
-  avgDaysToResolveIncidents: null,
-  incidentSeverityCounts: [],
-  taxonomyOverview: [],
   appetiteBreaches: 0,
   ratingMovement: {
     reviewed: 0,
@@ -156,6 +117,9 @@ const emptyData: OversightData = {
     moves: [],
   },
   obligationCoverage: null,
+  operatingTrend: [],
+  issueMonthly: [],
+  incidentMonthly: [],
 };
 
 /**
@@ -203,7 +167,7 @@ async function stampMissingResolvedAt(
 }
 
 export default function OversightPage() {
-  const { settings, categories, schemaReady, obligationsReady } = useSettings();
+  const { settings, categories, obligationsReady } = useSettings();
   const [data, setData] = useState<OversightData>(emptyData);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -222,7 +186,6 @@ export default function OversightPage() {
         risks,
         controls,
         issues,
-        actions,
         reviews,
         tests: testResults,
         riskControlLinks,
@@ -232,12 +195,6 @@ export default function OversightPage() {
         ownerId,
         snapshot.incidents,
       );
-      const {
-        lastReviewedByRisk,
-        linkedControlCountsByRisk,
-        issueCategoryIds,
-        incidentCategoryIds,
-      } = snapshot.indexes;
 
       const keyControls = controls.filter((control) => control.is_key);
       const [obligationRows, obligationLinks] = obligationsReady
@@ -260,40 +217,40 @@ export default function OversightPage() {
           ];
 
       setData({
-        controlKeyStats: buildControlKeyStats(controls),
-        allTestingCoverage: buildTestingCoverage(controls),
-        keyTestingCoverage: buildTestingCoverage(keyControls),
+        keyTestingOverdue: buildTestingCoverage(keyControls).overdue,
         testPassRate: buildTestPassRate(testResults),
         uncontrolledRisks: buildUncontrolledRisks(risks, riskControlLinks),
-        severityBands: buildSeverityBandCounts(risks),
         staleReviews: buildStaleReviewBreakdown(risks, reviews),
         reviewsDue: countReviewsDue(risks, reviews),
         orphanedControls: countOrphanedControls(controls, riskControlLinks),
         agingBuckets: buildOpenIssueAgingBuckets(issues),
         issueFlow: buildIssueFlow(issues),
-        issuesSummary: summariseIssues(issues, actions),
         openIssueOverduePercent: getOpenIssueOverduePercent(issues),
-        avgDaysToCloseIssues: buildAvgDaysToCloseIssues(issues),
-        openIssuesBySource: buildOpenIssuesBySource(issues),
         incidentStock: buildIncidentStock(incidents),
         incidentFlow: buildIncidentFlow(incidents),
-        avgDaysToResolveIncidents: buildAvgDaysToResolveIncidents(incidents),
-        incidentSeverityCounts: buildIncidentSeverityCounts(incidents),
-        taxonomyOverview: buildTaxonomyOverview(
-          categories,
-          risks,
-          lastReviewedByRisk,
-          linkedControlCountsByRisk,
-          issueCategoryIds,
-          incidentCategoryIds,
-          issues,
-          incidents,
-        ),
         appetiteBreaches: appetiteBreachingRisks(risks, categories).length,
         ratingMovement: buildRatingMovement(reviews, risks),
         obligationCoverage: obligationsReady
           ? obligationCoverage(obligationRows, obligationLinks)
           : null,
+        operatingTrend: buildOperatingTrend({
+          incidents,
+          issues,
+          tests: testResults,
+        }),
+        issueMonthly: buildOpenedClosedTrend(
+          issues.map((issue) => ({ date: issue.identified_at })),
+          issues
+            .filter((issue) => issue.closed_at)
+            .map((issue) => ({ date: issue.closed_at })),
+        ),
+        incidentMonthly: buildOpenedClosedTrend(
+          incidents.map((incident) => ({ date: incident.date_occurred })),
+          incidents
+            .filter((incident) => incident.resolved_at)
+            .map((incident) => ({ date: incident.resolved_at })),
+          "resolved",
+        ),
       });
     } catch (err) {
       setError(
@@ -310,11 +267,6 @@ export default function OversightPage() {
     return <PageLoading />;
   }
 
-  const keyControlsOverdueCount = data.keyTestingCoverage.overdue;
-  const uncontrolledTotal = data.uncontrolledRisks.reduce(
-    (sum, row) => sum + row.count,
-    0,
-  );
   const uncontrolledHighOrCriticalCount = data.uncontrolledRisks
     .filter((row) => row.band === "High" || row.band === "Critical")
     .reduce((sum, row) => sum + row.count, 0);
@@ -326,7 +278,7 @@ export default function OversightPage() {
       <main className="mx-auto flex w-full max-w-6xl flex-col gap-12">
         <PageHeader
           title="Oversight Monitoring"
-          description="A Second Line of Defence view of coverage, aging, and stock/flow trends across the risk and control environment."
+          description="Cross-register Second Line view of health, flow, and rating movement. Asset-specific charts live on each register’s Summary tab."
           breadcrumbs={[
             { href: "/", label: "Home" },
             { label: "Oversight" },
@@ -339,35 +291,75 @@ export default function OversightPage() {
           <p className={mutedTextClassName}>Loading oversight data...</p>
         ) : (
           <>
-            {showSection("controls") ? (
+            {showSection("health") ? (
             <section className="space-y-6">
               <div>
                 <h2 className="text-xl font-semibold text-slate-950 dark:text-slate-50">
-                  Controls
+                  Cross-register health
                 </h2>
                 <p className={`mt-1 text-sm ${mutedTextClassName}`}>
-                  Coverage and design of the control environment.
+                  Coverage gaps that cut across risks, controls, findings, and obligations.
                 </p>
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <StatCard
-                  label="Key Controls"
-                  value={`${data.controlKeyStats.key}/${data.controlKeyStats.total}`}
-                  hint={`${data.controlKeyStats.keyPercent}% of the control environment`}
-                  href="/controls?isKey=true"
-                  linkLabel="View key controls"
-                />
-                <StatCard
-                  label="Key Controls Overdue"
-                  value={keyControlsOverdueCount}
+                  label="Key controls overdue"
+                  value={data.keyTestingOverdue}
                   hint={formatKeyTestingCadenceHint(settings)}
                   href="/controls?isKey=true&testingStatus=Overdue"
                   linkLabel="View overdue key controls"
-                  tone={keyControlsOverdueCount > 0 ? "alert" : "default"}
+                  tone={data.keyTestingOverdue > 0 ? "alert" : "default"}
                 />
                 <StatCard
-                  label="Test Pass Rate"
+                  label="Uncontrolled High / Critical"
+                  value={uncontrolledHighOrCriticalCount}
+                  href="/risks?uncontrolled=true&severity=High,Critical"
+                  linkLabel="View uncontrolled exposure"
+                  tone={uncontrolledHighOrCriticalCount > 0 ? "alert" : "default"}
+                />
+                <StatCard
+                  label="Reviews due"
+                  value={data.reviewsDue}
+                  hint={formatReviewCadenceHint(settings)}
+                  href="/risks?reviewRecency=due"
+                  linkLabel="View risks due"
+                  tone={data.reviewsDue > 0 ? "alert" : "default"}
+                />
+                <StatCard
+                  label="Above appetite"
+                  value={data.appetiteBreaches}
+                  href="/risks?appetiteBreach=true"
+                  linkLabel="View appetite breaches"
+                  tone={data.appetiteBreaches > 0 ? "alert" : "default"}
+                />
+                <StatCard
+                  label="Open issues overdue"
+                  value={`${data.openIssueOverduePercent}%`}
+                  href="/issues?overdue=true"
+                  linkLabel="View overdue issues"
+                  tone={data.openIssueOverduePercent > 0 ? "alert" : "default"}
+                />
+                <StatCard
+                  label="Open incident age"
+                  value={
+                    data.incidentStock.averageAgeDays === null
+                      ? "—"
+                      : `${data.incidentStock.averageAgeDays}d`
+                  }
+                  hint={`${data.incidentStock.openCount} open or investigating`}
+                  href="/incidents?status=open,investigating"
+                  linkLabel="View open incidents"
+                />
+                <StatCard
+                  label="Unmapped controls"
+                  value={data.orphanedControls}
+                  href="/controls?unmapped=true"
+                  linkLabel="View unmapped"
+                  tone={data.orphanedControls > 0 ? "alert" : "default"}
+                />
+                <StatCard
+                  label="Test pass rate"
                   value={
                     data.testPassRate.passRatePercent === null
                       ? "—"
@@ -375,56 +367,34 @@ export default function OversightPage() {
                   }
                   hint={`${data.testPassRate.totalRecorded} tests recorded`}
                 />
-                <StatCard
-                  label="Uncontrolled Risk Exposure"
-                  value={uncontrolledTotal}
-                  hint="Risks with zero linked controls"
-                  href="/risks?uncontrolled=true"
-                  linkLabel="View uncontrolled risks"
-                  tone={uncontrolledHighOrCriticalCount > 0 ? "alert" : "default"}
-                />
-                <StatCard
-                  label="Unmapped Controls"
-                  value={data.orphanedControls}
-                  hint="Controls with no linked risk"
-                  href="/controls?unmapped=true"
-                  linkLabel="View unmapped controls"
-                  tone={data.orphanedControls > 0 ? "alert" : "default"}
-                />
+                {data.obligationCoverage ? (
+                  <StatCard
+                    label="Obligation coverage gaps"
+                    value={data.obligationCoverage.uncovered}
+                    hint={`${data.obligationCoverage.covered}/${data.obligationCoverage.active} mapped`}
+                    href="/quality"
+                    linkLabel="Open data quality"
+                    tone={
+                      data.obligationCoverage.uncovered > 0 ? "alert" : "default"
+                    }
+                  />
+                ) : null}
               </div>
 
               <div className="grid gap-6 lg:grid-cols-2">
                 <ChartCard
-                  title="Testing Coverage — All Controls"
-                  description="Click a slice to filter the control register."
+                  title="Operating volume"
+                  description="Incidents, issues, and control tests across the last 12 months."
                 >
-                  <TestingCoverageDonut
-                    data={toTestingCoverageChartCounts(data.allTestingCoverage)}
+                  <StackedTimeChart
+                    data={data.operatingTrend}
+                    series={[...OPERATING_TREND_SERIES]}
+                    empty="No operating volume in the last 12 months."
                   />
                 </ChartCard>
-
                 <ChartCard
-                  title="Testing Coverage — Key Controls"
-                  description="Same breakdown, restricted to key controls."
-                >
-                  <TestingCoverageDonut
-                    data={toTestingCoverageChartCounts(data.keyTestingCoverage)}
-                    extraParams={{ isKey: "true" }}
-                  />
-                </ChartCard>
-
-                <ChartCard
-                  title="Key vs Non-Key Controls"
-                  description="Click a slice to filter the control register."
-                >
-                  <ControlKeySplitDonut
-                    data={toControlKeySplitChartCounts(data.controlKeyStats)}
-                  />
-                </ChartCard>
-
-                <ChartCard
-                  title="Uncontrolled Risk Exposure"
-                  description="Risks with no linked control, by severity band."
+                  title="Uncontrolled risk exposure"
+                  description="Active risks with no linked control, by severity band."
                 >
                   <UncontrolledRisksBreakdownList breakdown={data.uncontrolledRisks} />
                 </ChartCard>
@@ -432,190 +402,26 @@ export default function OversightPage() {
             </section>
             ) : null}
 
-            {data.obligationCoverage ? (
+            {showSection("flow") ? (
             <section className="space-y-6">
               <div>
                 <h2 className="text-xl font-semibold text-slate-950 dark:text-slate-50">
-                  Obligation coverage
+                  Flow and aging
                 </h2>
                 <p className={`mt-1 text-sm ${mutedTextClassName}`}>
-                  Active compliance requirements mapped to controls.
+                  Whether findings and incidents are being closed as quickly as they arrive.
                 </p>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                <StatCard
-                  label="Active obligations"
-                  value={data.obligationCoverage.active}
-                  href="/obligations"
-                  linkLabel="Open register"
-                />
-                <StatCard
-                  label="Mapped to a control"
-                  value={data.obligationCoverage.covered}
-                  href="/obligations"
-                  linkLabel="View obligations"
-                />
-                <StatCard
-                  label="Coverage gaps"
-                  value={data.obligationCoverage.uncovered}
-                  hint="Active obligations with no mapped control"
-                  href="/quality"
-                  linkLabel="Open data quality"
-                  tone={
-                    data.obligationCoverage.uncovered > 0 ? "alert" : "default"
-                  }
-                />
-              </div>
-            </section>
-            ) : null}
-
-            {showSection("risks") ? (
-            <section className="space-y-6">
-              <div>
-                <h2 className="text-xl font-semibold text-slate-950 dark:text-slate-50">
-                  Risks
-                </h2>
-                <p className={`mt-1 text-sm ${mutedTextClassName}`}>
-                  Distribution and review currency of the risk register.
-                </p>
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <StatCard
-                  label="Total Risks"
-                  value={data.severityBands.reduce((sum, band) => sum + band.count, 0)}
-                  href="/risks"
-                  linkLabel="View risk register"
-                />
-                <StatCard
-                  label="Due for Review"
-                  value={data.reviewsDue}
-                  hint={formatReviewCadenceHint(settings)}
-                  href="/risks?reviewRecency=due"
-                  linkLabel="View risks due for review"
-                  tone={data.reviewsDue > 0 ? "alert" : "default"}
-                />
-                <StatCard
-                  label="Never Reviewed"
-                  value={data.staleReviews.never}
-                  hint="No RCSA review on record"
-                  href="/risks?reviewRecency=never"
-                  linkLabel="View never-reviewed risks"
-                  tone={data.staleReviews.never > 0 ? "alert" : "default"}
-                />
-                <StatCard
-                  label="Reviewed Within 180 Days"
-                  value={data.staleReviews.within180}
-                  hint="Currently in good standing"
-                />
-                <StatCard
-                  label="Above Appetite"
-                  value={data.appetiteBreaches}
-                  hint="Inherent score exceeds category appetite"
-                  href="/risks?appetiteBreach=true"
-                  linkLabel="View appetite breaches"
-                  tone={data.appetiteBreaches > 0 ? "alert" : "default"}
-                />
-                <StatCard
-                  label="Scores increased"
-                  value={data.ratingMovement.increased}
-                  hint={`Latest RCSA vs prior rating · ${data.ratingMovement.reviewed} reviewed`}
-                />
-                <StatCard
-                  label="Scores decreased"
-                  value={data.ratingMovement.decreased}
-                  hint="Latest RCSA vs prior rating"
-                />
               </div>
 
               <div className="grid gap-6 lg:grid-cols-2">
                 <ChartCard
-                  title="Risks by Risk Score"
-                  description="Click a bar to filter the risk register by risk score."
-                >
-                  <RiskSeverityBarChart data={data.severityBands} />
-                </ChartCard>
-
-                <ChartCard
-                  title="Review Recency"
-                  description="Time since each risk's last RCSA review."
-                >
-                  <StaleReviewsBreakdownList
-                    breakdown={data.staleReviews}
-                    dueCount={data.reviewsDue}
-                  />
-                </ChartCard>
-
-                <ChartCard
-                  title="Rating movement"
-                  description="Latest assessment vs the score the reviewer started from. Tightening (down) is usually the healthy direction."
-                >
-                  <RatingMovementList summary={data.ratingMovement} />
-                </ChartCard>
-              </div>
-
-              {schemaReady && (
-                <ChartCard
-                  title="Taxonomy overview"
-                  description="Exposure, control coverage, review currency, and related findings by risk category."
-                >
-                  <TaxonomyOverviewTable rows={data.taxonomyOverview} />
-                </ChartCard>
-              )}
-            </section>
-            ) : null}
-
-            {showSection("issues") ? (
-            <section className="space-y-6">
-              <div>
-                <h2 className="text-xl font-semibold text-slate-950 dark:text-slate-50">
-                  Issues &amp; Remediation
-                </h2>
-                <p className={`mt-1 text-sm ${mutedTextClassName}`}>
-                  Whether remediation is keeping pace with new findings.
-                </p>
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <StatCard
-                  label="Open Issues"
-                  value={data.issuesSummary.open}
-                  href="/issues?status=open,in_progress,pending_review"
-                  linkLabel="View open issues"
-                />
-                <StatCard
-                  label="% Open Issues Overdue"
-                  value={`${data.openIssueOverduePercent}%`}
-                  href="/issues?overdue=true"
-                  linkLabel="View overdue issues"
-                  tone={data.openIssueOverduePercent > 0 ? "alert" : "default"}
-                />
-                <StatCard
-                  label="Avg Action Plan Completion"
-                  value={`${data.issuesSummary.actionCompletionPercent}%`}
-                  hint="Across open issues"
-                />
-                <StatCard
-                  label="Avg Days to Close"
-                  value={
-                    data.avgDaysToCloseIssues === null
-                      ? "—"
-                      : data.avgDaysToCloseIssues
-                  }
-                  hint="Identified to closed"
-                />
-              </div>
-
-              <div className="grid gap-6 lg:grid-cols-2">
-                <ChartCard
-                  title="Open Issue Aging"
+                  title="Open issue aging"
                   description="Days since identification, by severity."
                 >
                   <IssueAgingChart data={data.agingBuckets} />
                 </ChartCard>
-
                 <ChartCard
-                  title="Issue Flow"
+                  title="Issue flow"
                   description="Opened vs closed, trailing 30 / 90 days."
                 >
                   <FlowBarChart
@@ -626,65 +432,21 @@ export default function OversightPage() {
                     emptyMessage="No issues opened or closed in this window."
                   />
                 </ChartCard>
-
                 <ChartCard
-                  title="Open Issues by Source"
-                  description="Which upstream process is generating the most findings."
+                  title="Issues opened vs closed"
+                  description="Monthly identification versus closure."
                 >
-                  <OpenIssuesBySourceDonut data={data.openIssuesBySource} />
+                  <LineTimeChart
+                    data={data.issueMonthly}
+                    series={[
+                      { key: "opened", label: "Opened" },
+                      { key: "closed", label: "Closed" },
+                    ]}
+                    empty="No issue flow in the last 12 months."
+                  />
                 </ChartCard>
-              </div>
-            </section>
-            ) : null}
-
-            {showSection("incidents") ? (
-            <section className="space-y-6">
-              <div>
-                <h2 className="text-xl font-semibold text-slate-950 dark:text-slate-50">
-                  Incidents
-                </h2>
-                <p className={`mt-1 text-sm ${mutedTextClassName}`}>
-                  Open incident stock and resolution flow.
-                </p>
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <StatCard
-                  label="Open Incidents"
-                  value={data.incidentStock.openCount}
-                  hint="Status open or investigating"
-                  href="/incidents?status=open,investigating"
-                  linkLabel="View open incidents"
-                />
-                <StatCard
-                  label="Avg Age (Open)"
-                  value={
-                    data.incidentStock.averageAgeDays === null
-                      ? "—"
-                      : `${data.incidentStock.averageAgeDays}d`
-                  }
-                  hint="Days since occurrence"
-                />
-                <StatCard
-                  label="Avg Days to Resolve"
-                  value={
-                    data.avgDaysToResolveIncidents === null
-                      ? "—"
-                      : data.avgDaysToResolveIncidents
-                  }
-                  hint="Occurred to resolved"
-                />
-                <StatCard
-                  label="Resolved (Last 30 Days)"
-                  value={data.incidentFlow.last30.closed}
-                  href="/incidents?status=resolved"
-                  linkLabel="View resolved incidents"
-                />
-              </div>
-
-              <div className="grid gap-6 lg:grid-cols-2">
                 <ChartCard
-                  title="Incident Flow"
+                  title="Incident flow"
                   description="New vs resolved, trailing 30 / 90 days."
                 >
                   <FlowBarChart
@@ -695,21 +457,82 @@ export default function OversightPage() {
                     emptyMessage="No incidents occurred or were resolved in this window."
                   />
                 </ChartCard>
-
                 <ChartCard
-                  title="Incidents by Severity"
-                  description="Click a slice to filter incidents."
+                  title="Incidents occurred vs resolved"
+                  description="Monthly occurrence versus resolution."
                 >
-                  <IncidentSeverityDonut data={data.incidentSeverityCounts} />
+                  <LineTimeChart
+                    data={data.incidentMonthly}
+                    series={[
+                      { key: "opened", label: "Occurred" },
+                      { key: "resolved", label: "Resolved" },
+                    ]}
+                    empty="No incident flow in the last 12 months."
+                  />
                 </ChartCard>
               </div>
             </section>
             ) : null}
 
-            {!showSection("controls") &&
-            !showSection("risks") &&
-            !showSection("issues") &&
-            !showSection("incidents") ? (
+            {showSection("movement") ? (
+            <section className="space-y-6">
+              <div>
+                <h2 className="text-xl font-semibold text-slate-950 dark:text-slate-50">
+                  Rating movement
+                </h2>
+                <p className={`mt-1 text-sm ${mutedTextClassName}`}>
+                  How inherent scores are changing, and whether reviews are current.
+                </p>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <StatCard
+                  label="Scores increased"
+                  value={data.ratingMovement.increased}
+                  hint={`Latest RCSA vs prior rating · ${data.ratingMovement.reviewed} reviewed`}
+                />
+                <StatCard
+                  label="Scores decreased"
+                  value={data.ratingMovement.decreased}
+                  hint="Latest RCSA vs prior rating"
+                />
+                <StatCard
+                  label="Never reviewed"
+                  value={data.staleReviews.never}
+                  href="/risks?reviewRecency=never"
+                  linkLabel="View never-reviewed risks"
+                  tone={data.staleReviews.never > 0 ? "alert" : "default"}
+                />
+                <StatCard
+                  label="Reviewed within 180 days"
+                  value={data.staleReviews.within180}
+                  hint="Currently in good standing"
+                />
+              </div>
+
+              <div className="grid gap-6 lg:grid-cols-2">
+                <ChartCard
+                  title="Rating movement"
+                  description="Latest assessment vs the score the reviewer started from. Tightening (down) is usually the healthy direction."
+                >
+                  <RatingMovementList summary={data.ratingMovement} />
+                </ChartCard>
+                <ChartCard
+                  title="Review recency"
+                  description="Time since each risk's last RCSA review."
+                >
+                  <StaleReviewsBreakdownList
+                    breakdown={data.staleReviews}
+                    dueCount={data.reviewsDue}
+                  />
+                </ChartCard>
+              </div>
+            </section>
+            ) : null}
+
+            {!showSection("health") &&
+            !showSection("flow") &&
+            !showSection("movement") ? (
               <p className={mutedTextClassName}>
                 Oversight sections are hidden. Restore them from Admin → Workspace.
               </p>

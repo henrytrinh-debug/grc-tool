@@ -100,7 +100,7 @@ export default function LoginPage() {
           </p>
         </div>
         <ul className="relative space-y-3 text-sm text-teal-100/90">
-          <li>Configurable scoring, cadence, and taxonomy</li>
+          <li>Configurable scoring and cadence on each register</li>
           <li>Registers for risks, controls, incidents, and issues</li>
           <li>Second-line oversight of coverage and review currency</li>
         </ul>

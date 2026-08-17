@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import Link from "next/link";
 import {
   ErrorBanner,
   ListEmpty,
@@ -13,7 +12,11 @@ import {
 import { RecordLinkList } from "@/app/components/record-link-list";
 import { StatCard } from "@/app/components/dashboard/stat-card";
 import { mutedTextClassName, pageClassName } from "@/app/components/ui";
-import { buildQualityFindings } from "@/lib/data-quality/checks";
+import {
+  buildQualityFindings,
+  buildRegisterQualityScores,
+  groupQualityFindings,
+} from "@/lib/data-quality/checks";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import { useSettings } from "@/lib/settings/context";
 import { getSupabaseClient } from "@/lib/supabase/client";
@@ -28,7 +31,8 @@ import type { ObligationRecord } from "@/lib/types/obligation";
 import type { EvidenceRecord } from "@/lib/types/evidence";
 
 export default function QualityPage() {
-  const { operatingReady, obligationsReady, evidenceReady } = useSettings();
+  const { operatingReady, obligationsReady, evidenceReady, enterpriseReady, evidenceStorageReady } =
+    useSettings();
   const [snapshot, setSnapshot] = useState<GrcSnapshot>(emptyGrcSnapshot);
   const [obligations, setObligations] = useState<ObligationRecord[]>([]);
   const [obligationControlLinks, setObligationControlLinks] = useState<
@@ -116,8 +120,49 @@ export default function QualityPage() {
     ],
   );
 
+  const registerScores = useMemo(
+    () =>
+      buildRegisterQualityScores({
+        risks: snapshot.risks,
+        controls: snapshot.controls,
+        incidents: snapshot.incidents,
+        issues: snapshot.issues,
+        indexes: snapshot.indexes,
+        riskControlLinks: snapshot.riskControlLinks,
+        issueRiskLinks: snapshot.issueRiskLinks,
+        issueControlLinks: snapshot.issueControlLinks,
+        operatingReady,
+        enterpriseReady,
+        evidenceStorageReady,
+        obligations: obligationsReady ? obligations : undefined,
+        obligationControlLinks: obligationsReady
+          ? obligationControlLinks
+          : undefined,
+        evidence: evidenceReady ? evidence : undefined,
+      }),
+    [
+      enterpriseReady,
+      evidence,
+      evidenceReady,
+      evidenceStorageReady,
+      obligationControlLinks,
+      obligations,
+      obligationsReady,
+      operatingReady,
+      snapshot,
+    ],
+  );
+
   const openFindings = findings.filter((finding) => finding.count > 0);
   const openCount = openFindings.reduce((sum, finding) => sum + finding.count, 0);
+  const grouped = groupQualityFindings(openFindings);
+  const averageScore =
+    registerScores.length === 0
+      ? 100
+      : Math.round(
+          registerScores.reduce((sum, score) => sum + score.score, 0) /
+            registerScores.length,
+        );
 
   if (authLoading) {
     return <PageLoading />;
@@ -128,7 +173,7 @@ export default function QualityPage() {
       <main className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-8">
         <PageHeader
           title="Data quality"
-          description="Completeness and linkage gaps across the registers. This is a live checklist, not a stored score."
+          description="Live completeness by register. Scores are computed on load and are not stored."
           breadcrumbs={[
             { href: "/", label: "Home" },
             { label: "Data quality" },
@@ -149,11 +194,33 @@ export default function QualityPage() {
                 tone={openCount > 0 ? "alert" : "default"}
               />
               <StatCard
+                label="Average completeness"
+                value={`${averageScore}%`}
+                hint="Live rollup across registers · not stored"
+                tone={averageScore < 80 ? "alert" : "default"}
+              />
+              <StatCard
                 label="Checks with gaps"
                 value={openFindings.length}
-                hint={`${findings.length} checks run · no score is stored`}
+                hint={`${findings.length} checks run`}
               />
             </section>
+
+            {registerScores.length > 0 ? (
+              <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {registerScores.map((score) => (
+                  <StatCard
+                    key={score.id}
+                    label={score.label}
+                    value={`${score.score}%`}
+                    hint={`${score.flagged} flags · ${score.records} records`}
+                    href={score.href}
+                    linkLabel="Open summary"
+                    tone={score.score < 80 ? "alert" : "default"}
+                  />
+                ))}
+              </section>
+            ) : null}
 
             {openCount === 0 ? (
               <ListEmpty>
@@ -161,35 +228,36 @@ export default function QualityPage() {
                 filtered registers still work if you want to inspect the data.
               </ListEmpty>
             ) : (
-              <div className="grid min-w-0 gap-6 lg:grid-cols-2">
-                {openFindings.map((finding) => (
-                  <section
-                    key={finding.id}
-                    className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900"
-                  >
-                    <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                          {finding.title}
-                        </h2>
-                        <p className={`mt-1 text-sm ${mutedTextClassName}`}>
-                          {finding.description}
-                        </p>
-                      </div>
-                      <Link
-                        href={finding.href}
-                        className="text-sm font-medium text-teal-800 hover:underline dark:text-teal-300"
-                      >
-                        Open register ({finding.count})
-                      </Link>
+              <div className="flex flex-col gap-10">
+                {grouped.map((group) => (
+                  <section key={group.register} className="space-y-4">
+                    <h2 className="text-lg font-semibold text-slate-950 dark:text-slate-50">
+                      {group.label}
+                    </h2>
+                    <div className="grid min-w-0 gap-6 lg:grid-cols-2">
+                      {group.findings.map((finding) => (
+                        <section
+                          key={finding.id}
+                          className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+                        >
+                          <div className="mb-3">
+                            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                              {finding.title}
+                            </h3>
+                            <p className={`mt-1 text-sm ${mutedTextClassName}`}>
+                              {finding.description}
+                            </p>
+                          </div>
+                          <RecordLinkList
+                            items={finding.items}
+                            empty="No records match this check."
+                            limit={6}
+                            moreHref={finding.href}
+                            moreLabel={`View all (${finding.count})`}
+                          />
+                        </section>
+                      ))}
                     </div>
-                    <RecordLinkList
-                      items={finding.items}
-                      empty="No records match this check."
-                      limit={6}
-                      moreHref={finding.href}
-                      moreLabel={`Open register (${finding.count})`}
-                    />
                   </section>
                 ))}
               </div>

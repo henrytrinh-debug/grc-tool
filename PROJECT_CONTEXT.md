@@ -73,8 +73,8 @@ Independent module — controls can exist without being linked to any risk.
 
 "Testing Status" (Never Tested / Tested / Overdue) is **calculated on the fly**, not stored:
 - No `last_tested_at` → Never Tested
-- Key control, `last_tested_at` older than the Admin **key testing cadence** (default 180 days) → Overdue
-- Non-key control, `last_tested_at` older than the Admin **non-key testing cadence** (default 365 days) → Overdue
+- Key control, `last_tested_at` older than the **key testing cadence** on Controls → Settings (default 180 days) → Overdue
+- Non-key control, `last_tested_at` older than the **non-key testing cadence** on Controls → Settings (default 365 days) → Overdue
 - Otherwise → Tested
 
 Cadence days come from `org_settings` via `getSettings()` / `getTestingCadenceDays`. Until `003_admin_settings.sql` is applied, built-in defaults are used.
@@ -318,27 +318,29 @@ If the app 404s or errors on a whole module, check whether its SQL has been appl
   renders `app/components/app-sidebar.tsx` (active-link highlighting + centralized log out).
   `SettingsProvider` wraps both the login and authenticated trees.
 - **Home page** (`/`) — welcome message + user email, optional **taxonomy lens** filter
-  (inherited onto controls/incidents/issues via linked risks), stat cards (open risks,
+  (inherited onto controls/incidents/issues via linked risks), headline stats (open risks,
   overdue controls, open incidents, open issues, plus assigned-to-me and above-appetite
-  when `004` is applied), a **Needs attention** queue (overdue issues, failed/overdue
-  key controls, open high/critical incidents, appetite breaches, and High/Critical risks
-  that are uncontrolled or past their review cadence), and dashboard visuals, all click-through:
-  - Risk heat map (5×5 grid, likelihood × impact, labeled axes, color-coded; closed risks excluded)
-  - Taxonomy and treatment mix bar charts
-  - Donut charts: controls by effectiveness, incidents by status, issues by status
-  - Remediation health: action-plan completion across open issues, plus open/overdue
-    counts per severity
-  - Built with `recharts`.
+  when `004` is applied), a **Needs attention** queue, **recent activity**, and a
+  12-month **operating trend** (incidents, issues identified, control tests). Asset-specific
+  charts (heat map, taxonomy, treatment mix, donuts) live on each register’s **Summary** tab.
+- **Registers** — each of `/risks`, `/controls`, `/incidents`, `/issues`, `/obligations`,
+  `/evidence` has three tabs: **Summary** (asset overview + time series), **Register** (table),
+  and **Settings** (methodology for that register plus saved views). Bare URLs open Summary;
+  a filter or `sort` query opens the table; `view=` is explicit. Column headers sort on click
+  and expose filters in a popover (`ColumnHeader`) instead of a dropdown grid above the table.
+  Deep links such as `/risks?severity=High,Critical` still land on the filtered table.
+  Lists still support department filter (from the assignee’s `org_people.department`), High or
+  Critical combined severity, sticky table headers, next-test-due on controls, and
+  incident↔control counts after `005`.
 - **My work** (`/work`) — assigned-to-me queue across risks, controls, incidents, and issues.
   Resolves “me” by matching `org_people.email` to the signed-in user.
 - **Horizon** (`/horizon`) — operating calendar of derived obligations: risk reviews, treatment target dates (after `005`), control tests, issue due dates, and action due dates, bucketed overdue / 7 / 30 / 90 days.
 - **Lines of defence** (`/lines`) — workload by assignee and 1st / 2nd / 3rd line from the people directory.
 - **Board pack** (`/board`) — printable committee snapshot: above-appetite, High/Critical risks, overdue key controls, overdue issues, severe open incidents, uncontrolled High/Critical. Print hides the sidebar. CSV export included.
-- **Registers** — department filter (from the assignee’s `org_people.department`), High or Critical combined severity, sticky table headers, next-test-due on controls, incident↔control counts after `005`.
-- **Overview surface boundaries** — Home is the operational landing page, Oversight is the
-  2LoD analytical view (including risk severity distribution), and Board pack is the
-  printable committee view. They intentionally present some of the same control signals
-  for different audiences, but fetch through `lib/snapshot/grc-snapshot.ts` profiles and
+- **Overview surface boundaries** — Home is the operational landing page (cross-register
+  stats, attention, activity, trend). Oversight is the 2LoD analytical view (health, flow,
+  movement). Board pack is the printable committee view. Register Summary tabs own
+  asset-specific visuals. They fetch through `lib/snapshot/grc-snapshot.ts` profiles and
   share KPI predicates from `lib/metrics/kpis.ts`. Do not copy owner-scoped fetch bundles
   or reimplement “open / overdue / above appetite” predicates in a page.
 - **Recent activity** — combines RCSA reviews, tests, incidents, and issue trail entries.
@@ -348,17 +350,18 @@ If the app 404s or errors on a whole module, check whether its SQL has been appl
   register. The person name is not a misleading risks-only link.
 - **Risk ratings** — never two independent dropdowns. Use `RiskScorePicker`
   (`app/components/risk-score-picker.tsx`): a 5×5 heat map so the reviewer sees the
-  resulting score band while choosing. Labels and band thresholds live in Admin
+  resulting score band while choosing. Labels and band thresholds live on **Risks → Settings**
   (`org_settings`); code defaults remain in `lib/settings/defaults.ts` and
   `LIKELIHOOD_LABELS` / `IMPACT_LABELS` in `lib/types/risk.ts`. Stored values stay 1–5 integers.
-- **Admin** (`/admin`) — organisation name, likelihood/impact labels, score bands,
-  review cadence by band, key vs non-key testing cadence, issue due-date windows,
-  risk taxonomy CRUD (including appetite band after `004`), people directory,
-  and load/remove demonstration data (`lib/admin/demo-data.ts`). The seed includes
-  expanded taxonomy (Climate & ESG, Data & Records, Technology Resilience, Legal, Credit),
-  obligations, and metadata-only evidence when those tables exist, plus a few intentional
-  completeness gaps so Data quality has something to show. Re-load after removing an older
-  demo set. `ChartCard` is chrome only — do not add hover that looks like a link.
+- **Admin** (`/admin`) — organisation name, workspace layout (which overview widgets
+  and modules are shown), risk taxonomy CRUD (including appetite band after `004`), people
+  directory, saved-view management, and load/remove demonstration data
+  (`lib/admin/demo-data.ts`). Scoring, review cadence, testing cadence, and issue due-date
+  windows are edited on each register’s **Settings** tab (still stored in `org_settings`).
+  The seed includes expanded taxonomy (Climate & ESG, Data & Records, Technology Resilience,
+  Legal, Credit), obligations, and metadata-only evidence when those tables exist, plus a few
+  intentional completeness gaps so Data quality has something to show. Re-load after removing
+  an older demo set. `ChartCard` is chrome only — do not add hover that looks like a link.
   Requires `003_admin_settings.sql`. `004_enterprise.sql` unlocks people, assignees,
   risk status, control type, and appetite. `005_operating.sql` unlocks treatment
   target dates, incident lessons learned, and incident↔control links. Until those files are run, the page shows
@@ -383,7 +386,7 @@ then extracted. **Reach for these before writing a new page from scratch:**
 | Auth gate + owner-scoped initial load | `useRequireAuth(callback)` — redirects to `/login`, hands you `ownerId` |
 | Owner-scoped table reads / query errors | `fetchOwnedTable` / `fetchOwnedTableOptional` / `throwIfAnyQueryError` in `lib/supabase/owned.ts` |
 | Insert with owner stamp | `insertOwnedRecord` / `insertOwnedRow` in `lib/supabase/records.ts` |
-| Completeness checks (not a stored score) | `buildQualityFindings` in `lib/data-quality/checks.ts`; per-record `*Quality` helpers in `lib/data-quality/record.ts` rendered as `QualityPill` / `QualityCallout` |
+| Completeness checks (not a stored score) | `buildQualityFindings` / `buildRegisterQualityScores` in `lib/data-quality/checks.ts`; per-record `*Quality` helpers in `lib/data-quality/record.ts` rendered as `QualityPill` / `QualityCallout` |
 | Governance gates and event diffs | `lib/governance/gates.ts` / `lib/governance/events.ts` |
 | CSV import preview | `lib/import/csv.ts` / `lib/import/validate.ts` |
 | Overview data bundles + inherited-taxonomy indexes | `fetchGrcSnapshot(profile)` / `buildSnapshotIndexes` in `lib/snapshot/grc-snapshot.ts` |
@@ -391,12 +394,15 @@ then extracted. **Reach for these before writing a new page from scratch:**
 | Navigation + command route catalogue | `lib/navigation.ts` |
 | Linked record/activity/attention list presentation | `RecordLinkList` (`divided` or `cards`) — use `limit` + `moreHref` rather than dumping long lists |
 | Clickable list rows (keyboard + click) | `ClickableRow` |
-| List toolbar (search + filters + CSV) | `ListToolbar` / `FilterSelect` in `app/components/list-toolbar.tsx` — search/export on the first row, filters in a wrapping grid. Do not put filters in the same nowrap row as Search. |
+| List toolbar (search + CSV + count) | `ListToolbar` in `app/components/list-toolbar.tsx`. Register **filters and sort live in column headers** (`ColumnHeader` popovers), not a dropdown grid above the table. `FilterSelect` remains for one-off lenses such as Home’s taxonomy filter. |
+| Register tabs (Summary / Register / Settings) | `RegisterTabs` + `parseRegisterView` in `lib/register/view.ts`; shell in `app/components/register-page-shell.tsx` |
+| Time-series charts | `stackByMonth` / `buildOperatingTrend` in `lib/charts/time-series.ts`; `StackedTimeChart` / `LineTimeChart` in `app/components/dashboard/time-charts.tsx` |
+| Register methodology | `MethodologySettings` / `RegisterSettingsPanel` — scoring, review cadence, testing cadence, issue due days |
 | Sticky register tables | `RegisterTable` / `registerTheadClassName` in `app/components/page-parts.tsx` |
 | CSV download of a filtered list | `downloadCsv` in `lib/export/csv.ts` |
 | Date-only display (no UTC day-shift) | `formatIsoDate` / `todayIsoDate` in `lib/dates.ts` |
 | Dirty-form leave warning | `useUnsavedChanges` |
-| Review cadence (Admin-configured; default 90/180/365 by band) | `isReviewDue` / `getReviewCadenceDays` in `lib/types/rcsa.ts` |
+| Review cadence (register Settings; default 90/180/365 by band) | `isReviewDue` / `getReviewCadenceDays` in `lib/types/rcsa.ts` |
 | Organisation settings snapshot | `getSettings()` / `hydrateSettings()` in `lib/settings/store.ts`; `useSettings()` in React |
 | Link/unlink against a join table | `useEntityLinks` — owns the rows, search/select state, and insert/delete |
 | Rendering linked rows | `LinkedEntitiesPanel` + the builders in `app/components/linked-entity-rows.tsx` (title cell is a link via `href`) |
@@ -563,52 +569,29 @@ the evidence brief, indicative residual, and linked records such an agent would 
 ## Oversight Monitoring (built)
 
 A read-only analytics dashboard at `/oversight`, distinct from the home page (`/`,
-operational/entity-count focused). This one takes a **Second Line of Defence (2LoD)**
-lens on the risk and control environment: not "how many records exist" but "is the
-environment well-controlled, are reviews current, and is remediation keeping pace."
-No create/edit forms — headline stats link out to filtered list views where a
-matching filter already exists on that module's list page.
+cross-register operational landing) and from register **Summary** tabs (asset-specific
+charts). This one takes a **Second Line of Defence (2LoD)** lens: not "how many records
+exist" but "is the environment well-controlled, are reviews current, and is remediation
+keeping pace." No create/edit forms — headline stats link out to filtered register views.
 
-Organized into four sections, each pairing headline `StatCard`s with `ChartCard`
-visuals:
+Organized into three workspace-togglable sections:
 
-- **Controls** — key vs non-key split; testing coverage (Never Tested / Tested /
-  Overdue) both overall and restricted to key controls (key-control-overdue is a
-  headline alert stat, since 2LoD cares more about gaps in key-control testing);
-  test pass rate computed from full `control_test_results` history rather than just
-  each control's cached `effectiveness` snapshot (so a fail-then-pass retest shows
-  real history); risks with zero linked controls (`risk_controls`), broken out by
-  severity band so uncontrolled High/Critical exposure stands out; controls with
-  zero linked risks (unmapped / orphan controls).
-- **Risks** — severity band distribution (reuses `buildSeverityBandCounts`); review
-  recency buckets (never reviewed / >365 days / 180–365 days / within 180 days),
-  derived from the max `reviewed_at` per risk in `rcsa_reviews`, plus a **Due for
-  Review** headline that applies the Admin review cadence by severity band;
-  **taxonomy overview** (exposure, uncontrolled, due reviews, appetite breaches,
-  open issues/incidents per category); **above appetite** headline; **rating
-  movement** from the latest RCSA vs the incoming score. Closed risks
-  are excluded from these risk metrics.
-- **Issues & Remediation** — open-issue aging buckets (0–30/31–60/61–90/90+ days
-  since `identified_at`) broken out by severity; issue flow (opened vs closed,
-  trailing 30/90 days); % of open issues overdue and average action-plan completion
-  (reuses `isIssueOverdue` / `summariseIssues`); average days from `identified_at` to
-  `closed_at`; open issues by source, to show which upstream process (audits,
-  control failures, incidents, ...) is generating the most findings.
-- **Incidents** — stock (open + investigating count, average age since
-  `date_occurred`); flow (new vs resolved, trailing 30/90 days) and mean-time-to-
-  resolve, both driven by the new `resolved_at` column (see the `incidents` table
-  section above); severity distribution.
+- **Health** — key-control testing overdue, uncontrolled High/Critical, reviews due,
+  above appetite, overdue issue %, open incident age, unmapped controls, test pass rate
+  (from `control_test_results` history), obligation coverage gaps, a 12-month stacked
+  operating-volume chart, and uncontrolled exposure by band.
+- **Flow and aging** — open-issue aging; 30/90-day issue and incident flow bars; monthly
+  opened-vs-closed line charts.
+- **Rating movement** — latest RCSA vs incoming score, plus review recency.
 
-All computation lives in `lib/oversight/metrics.ts` — small pure functions taking
-arrays of already-fetched, owner-filtered rows and returning typed summary objects,
-mirroring the style of `lib/dashboard/analytics.ts`. This keeps `app/oversight/page.tsx`
-a thin fetch-and-render shell. New chart components specific to this page (a stacked
-aging bar chart, a generic opened-vs-closed flow bar chart, and a few themed donuts)
-live under `app/components/oversight/`, reusing the existing `ChartCard`/`StatCard`
-shells and the `DashboardDonutChart` primitive (now exported from
-`app/components/dashboard/donut-charts.tsx` for reuse outside the home page).
+Asset-specific visuals (heat map, taxonomy table, testing donuts, incident severity,
+issues by source) live on the matching register’s Summary tab.
 
-**Schema dependency:** incident flow and mean-time-to-resolve need `resolved_at`,
+All computation lives in `lib/oversight/metrics.ts` and `lib/charts/time-series.ts`.
+This keeps `app/oversight/page.tsx` a thin fetch-and-render shell. Chart components
+specific to this page live under `app/components/oversight/`.
+
+**Schema dependency:** incident flow needs `resolved_at`,
 which only exists after `supabase/schema/002_incident_resolved_at.sql` is run (the
 file also backfills existing resolved rows). Until then those specific metrics
 render as "—" / 0; every other metric on the page works against existing columns.

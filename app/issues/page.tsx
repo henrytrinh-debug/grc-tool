@@ -3,14 +3,16 @@
 import Link from "next/link";
 import { Suspense, useCallback, useMemo, useState } from "react";
 import { ClickableRow } from "@/app/components/clickable-row";
+import { ColumnHeader } from "@/app/components/column-header";
 import { QualityTitle } from "@/app/components/quality-indicator";
-import { FilterSelect, ListToolbar } from "@/app/components/list-toolbar";
+import { ListToolbar } from "@/app/components/list-toolbar";
 import { RegisterPresets } from "@/app/components/register-presets";
+import { RegisterPageShell } from "@/app/components/register-page-shell";
+import { RegisterSettingsPanel } from "@/app/components/register-settings-panel";
 import {
   ErrorBanner,
   ListEmpty,
   LoadingBlock,
-  PageHeader,
   PageLoading,
   RegisterTable,
   registerTheadClassName,
@@ -21,7 +23,9 @@ import {
   OverdueBadge,
 } from "@/app/components/status-badge";
 import { primaryButtonClassName, secondaryButtonClassName } from "@/app/components/ui";
+import { IssueSummary } from "@/app/issues/_components/issue-summary";
 import { issueQuality } from "@/lib/data-quality/record";
+import { applySort } from "@/lib/list-sort";
 import { useListFilters } from "@/lib/hooks/use-list-filters";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import {
@@ -30,6 +34,7 @@ import {
   parseIssueFilters,
   sortIssuesByPriority,
 } from "@/lib/list-filters";
+import { parseRegisterView } from "@/lib/register/view";
 import { downloadCsv } from "@/lib/export/csv";
 import { useSettings } from "@/lib/settings/context";
 import { getSupabaseClient } from "@/lib/supabase/client";
@@ -75,10 +80,8 @@ import { countGroupedLinks } from "@/lib/types/join-utils";
 const OPEN_STATUSES = "open,in_progress,pending_review";
 
 function IssuesPageContent() {
-  const { filters, updateFilters, clearFilters } = useListFilters(
-    "/issues",
-    parseIssueFilters,
-  );
+  const { filters, updateRegisterFilters, clearFilters, sort, searchParams } =
+    useListFilters("/issues", parseIssueFilters);
 
   const { categories, schemaReady, people, enterpriseReady } = useSettings();
   const [issues, setIssues] = useState<Issue[]>([]);
@@ -163,17 +166,40 @@ function IssuesPageContent() {
   const { user, authLoading } = useRequireAuth(loadIssues);
   const myPersonId = personByEmail(people, user?.email)?.id ?? null;
 
-  const filteredIssues = useMemo(
-    () =>
-      sortIssuesByPriority(
-        filterIssues(issues, filters, {
-          linkedCategoryIds,
-          myPersonId,
-          people,
-        }),
-      ),
-    [issues, filters, linkedCategoryIds, myPersonId, people],
-  );
+  const filteredIssues = useMemo(() => {
+    const rows = sortIssuesByPriority(
+      filterIssues(issues, filters, {
+        linkedCategoryIds,
+        myPersonId,
+        people,
+      }),
+    );
+    return applySort(rows, sort, {
+      title: (issue) => issue.title,
+      category: (issue) =>
+        uniqueCategoryLabels(categories, linkedCategoryIds[issue.id] ?? []),
+      assignee: (issue) => formatPersonName(people, issue.assignee_id),
+      source: (issue) => issue.source,
+      severity: (issue) => issue.severity,
+      status: (issue) => issue.status,
+      due: (issue) => issue.due_date ?? "",
+      actions: (issue) => getActionProgress(actionsByIssue[issue.id] ?? []).total,
+      linked:
+        (issue) =>
+          (linkedRiskCounts[issue.id] ?? 0) + (linkedControlCounts[issue.id] ?? 0),
+    });
+  }, [
+    issues,
+    filters,
+    linkedCategoryIds,
+    myPersonId,
+    people,
+    sort,
+    categories,
+    actionsByIssue,
+    linkedRiskCounts,
+    linkedControlCounts,
+  ]);
 
   const overdueCount = useMemo(
     () => issues.filter((issue) => isIssueOverdue(issue)).length,
@@ -197,34 +223,60 @@ function IssuesPageContent() {
     assignee: filters.assignee,
     department: filters.department,
   });
+  const view = parseRegisterView(searchParams, filtersActive);
+  const departmentOptions = departmentFilterOptions(people);
+  const allActions = useMemo(
+    () => Object.values(actionsByIssue).flat(),
+    [actionsByIssue],
+  );
 
   if (authLoading) {
     return <PageLoading />;
   }
 
   return (
-    <div className="min-h-full min-w-0 bg-slate-50 px-6 py-10 dark:bg-slate-950">
-      <main className="mx-auto flex w-full min-w-0 max-w-7xl flex-col gap-8">
-        <PageHeader
-          title="Issue Management"
-          description="Track findings through remediation to closure."
-          breadcrumbs={[
-            { href: "/", label: "Home" },
-            { label: "Issues" },
-          ]}
-          actions={
-            <Link href="/issues/new" className={primaryButtonClassName}>
-              Add Issue
-            </Link>
-          }
-        />
-
+    <RegisterPageShell
+      title="Issue Management"
+      description="Track findings through remediation to closure."
+      path="/issues"
+      hasListFilters={filtersActive}
+      actions={
+        <Link href="/issues/new" className={primaryButtonClassName}>
+          Add Issue
+        </Link>
+      }
+    >
         <ErrorBanner message={error} />
 
+        {view === "settings" ? (
+          <RegisterSettingsPanel module="issues" sections={["issueDue"]} />
+        ) : null}
+
+        {view === "summary" ? (
+          loading ? (
+            <LoadingBlock label="Loading issues..." />
+          ) : issues.length === 0 ? (
+            <ListEmpty>
+              No issues yet.{" "}
+              <Link
+                href="/issues/new"
+                className="font-medium text-teal-700 underline underline-offset-2 dark:text-teal-300"
+              >
+                Raise your first issue
+              </Link>
+              .
+            </ListEmpty>
+          ) : (
+            <IssueSummary issues={issues} actions={allActions} />
+          )
+        ) : null}
+
+        {view === "register" ? (
+        <>
         {overdueCount > 0 && !filters.overdue && (
           <button
             type="button"
-            onClick={() => updateFilters({ overdue: "true" })}
+            onClick={() => updateRegisterFilters({ overdue: "true" })}
             className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-left text-sm text-red-800 transition-colors hover:bg-red-100 dark:border-red-900 dark:bg-red-950 dark:text-red-300 dark:hover:bg-red-900/60"
           >
             <span className="font-medium">
@@ -238,7 +290,7 @@ function IssuesPageContent() {
         <section className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <ListToolbar
             search={filters.q}
-            onSearchChange={(value) => updateFilters({ q: value })}
+            onSearchChange={(value) => updateRegisterFilters({ q: value })}
             searchPlaceholder="Search title, description, root cause, or plan..."
             showing={filteredIssues.length}
             total={issues.length}
@@ -298,70 +350,7 @@ function IssuesPageContent() {
                 ) : null}
               </>
             }
-          >
-            <FilterSelect
-              label="Severity"
-              value={filters.severity}
-              onChange={(value) => updateFilters({ severity: value })}
-              options={ISSUE_SEVERITY_OPTIONS.map((option) => ({
-                value: option.value,
-                label: option.label,
-              }))}
-            />
-            <FilterSelect
-              label="Status"
-              value={statusFilterValue}
-              onChange={(value) => updateFilters({ status: value })}
-              options={[
-                ...ISSUE_STATUS_OPTIONS.map((option) => ({
-                  value: option.value,
-                  label: option.label,
-                })),
-                { value: OPEN_STATUSES, label: "Not Closed" },
-              ]}
-            />
-            <FilterSelect
-              label="Source"
-              value={filters.source}
-              onChange={(value) => updateFilters({ source: value })}
-              options={ISSUE_SOURCE_OPTIONS.map((option) => ({
-                value: option.value,
-                label: option.label,
-              }))}
-            />
-            <FilterSelect
-              label="Target Date"
-              value={filters.overdue ? "true" : ""}
-              onChange={(value) => updateFilters({ overdue: value })}
-              options={[{ value: "true", label: "Overdue only" }]}
-            />
-            {schemaReady && (
-              <FilterSelect
-                label="Category"
-                value={filters.categoryId}
-                onChange={(value) => updateFilters({ category: value })}
-                options={categoryFilterOptions(categories)}
-              />
-            )}
-            {enterpriseReady && (
-              <>
-                <FilterSelect
-                  label="Owner"
-                  value={filters.assignee}
-                  onChange={(value) => updateFilters({ assignee: value })}
-                  options={assigneeFilterOptions(people)}
-                />
-                {departmentFilterOptions(people).length > 0 && (
-                  <FilterSelect
-                    label="Department"
-                    value={filters.department}
-                    onChange={(value) => updateFilters({ department: value })}
-                    options={departmentFilterOptions(people)}
-                  />
-                )}
-              </>
-            )}
-          </ListToolbar>
+          />
 
           {loading ? (
             <LoadingBlock label="Loading issues..." />
@@ -382,19 +371,135 @@ function IssuesPageContent() {
             <RegisterTable>
                 <thead className={registerTheadClassName}>
                   <tr>
-                    <th className="px-6 py-3 font-medium">Title</th>
+                    <th className="px-6 py-3">
+                      <ColumnHeader
+                        label="Title"
+                        sortKey="title"
+                        currentSort={sort}
+                        onSort={(value) => updateRegisterFilters({ sort: value })}
+                      />
+                    </th>
                     {schemaReady && (
-                      <th className="px-6 py-3 font-medium">Category</th>
+                      <th className="px-6 py-3">
+                        <ColumnHeader
+                          label="Category"
+                          sortKey="category"
+                          currentSort={sort}
+                          onSort={(value) => updateRegisterFilters({ sort: value })}
+                          filterValue={filters.categoryId}
+                          filterOptions={categoryFilterOptions(categories)}
+                          onFilterChange={(value) =>
+                            updateRegisterFilters({ category: value })
+                          }
+                        />
+                      </th>
                     )}
                     {enterpriseReady && (
-                      <th className="px-6 py-3 font-medium">Assignee</th>
+                      <th className="px-6 py-3">
+                        <ColumnHeader
+                          label="Assignee"
+                          sortKey="assignee"
+                          currentSort={sort}
+                          onSort={(value) => updateRegisterFilters({ sort: value })}
+                          filterValue={filters.assignee}
+                          filterOptions={assigneeFilterOptions(people)}
+                          onFilterChange={(value) =>
+                            updateRegisterFilters({ assignee: value })
+                          }
+                          extraFilter={
+                            departmentOptions.length > 0
+                              ? {
+                                  label: "Department",
+                                  value: filters.department,
+                                  options: departmentOptions,
+                                  onChange: (value) =>
+                                    updateRegisterFilters({ department: value }),
+                                }
+                              : undefined
+                          }
+                        />
+                      </th>
                     )}
-                    <th className="px-6 py-3 font-medium">Source</th>
-                    <th className="px-6 py-3 font-medium">Severity</th>
-                    <th className="px-6 py-3 font-medium">Status</th>
-                    <th className="px-6 py-3 font-medium">Target Date</th>
-                    <th className="px-6 py-3 font-medium">Action Plan</th>
-                    <th className="px-6 py-3 font-medium">Linked</th>
+                    <th className="px-6 py-3">
+                      <ColumnHeader
+                        label="Source"
+                        sortKey="source"
+                        currentSort={sort}
+                        onSort={(value) => updateRegisterFilters({ sort: value })}
+                        filterValue={filters.source}
+                        filterOptions={ISSUE_SOURCE_OPTIONS.map((option) => ({
+                          value: option.value,
+                          label: option.label,
+                        }))}
+                        onFilterChange={(value) =>
+                          updateRegisterFilters({ source: value })
+                        }
+                      />
+                    </th>
+                    <th className="px-6 py-3">
+                      <ColumnHeader
+                        label="Severity"
+                        sortKey="severity"
+                        currentSort={sort}
+                        onSort={(value) => updateRegisterFilters({ sort: value })}
+                        filterValue={filters.severity}
+                        filterOptions={ISSUE_SEVERITY_OPTIONS.map((option) => ({
+                          value: option.value,
+                          label: option.label,
+                        }))}
+                        onFilterChange={(value) =>
+                          updateRegisterFilters({ severity: value })
+                        }
+                      />
+                    </th>
+                    <th className="px-6 py-3">
+                      <ColumnHeader
+                        label="Status"
+                        sortKey="status"
+                        currentSort={sort}
+                        onSort={(value) => updateRegisterFilters({ sort: value })}
+                        filterValue={statusFilterValue}
+                        filterOptions={[
+                          ...ISSUE_STATUS_OPTIONS.map((option) => ({
+                            value: option.value,
+                            label: option.label,
+                          })),
+                          { value: OPEN_STATUSES, label: "Not Closed" },
+                        ]}
+                        onFilterChange={(value) =>
+                          updateRegisterFilters({ status: value })
+                        }
+                      />
+                    </th>
+                    <th className="px-6 py-3">
+                      <ColumnHeader
+                        label="Target Date"
+                        sortKey="due"
+                        currentSort={sort}
+                        onSort={(value) => updateRegisterFilters({ sort: value })}
+                        filterValue={filters.overdue ? "true" : ""}
+                        filterOptions={[{ value: "true", label: "Overdue only" }]}
+                        onFilterChange={(value) =>
+                          updateRegisterFilters({ overdue: value })
+                        }
+                      />
+                    </th>
+                    <th className="px-6 py-3">
+                      <ColumnHeader
+                        label="Action Plan"
+                        sortKey="actions"
+                        currentSort={sort}
+                        onSort={(value) => updateRegisterFilters({ sort: value })}
+                      />
+                    </th>
+                    <th className="px-6 py-3">
+                      <ColumnHeader
+                        label="Linked"
+                        sortKey="linked"
+                        currentSort={sort}
+                        onSort={(value) => updateRegisterFilters({ sort: value })}
+                      />
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -483,8 +588,9 @@ function IssuesPageContent() {
             </RegisterTable>
           )}
         </section>
-      </main>
-    </div>
+        </>
+        ) : null}
+    </RegisterPageShell>
   );
 }
 
