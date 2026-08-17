@@ -32,6 +32,7 @@ import {
   getTransitionPatch,
 } from "@/lib/issues/workflow";
 import { getSupabaseClient } from "@/lib/supabase/client";
+import { useSettings } from "@/lib/settings/context";
 import type { Control } from "@/lib/types/control";
 import {
   formatDueDateLabel,
@@ -75,6 +76,7 @@ function toForm(issue: Issue): NewIssue {
     root_cause: issue.root_cause,
     remediation_plan: issue.remediation_plan,
     closure_notes: issue.closure_notes,
+    assignee_id: issue.assignee_id ?? "",
   };
 }
 
@@ -100,6 +102,7 @@ export default function EditIssuePage() {
   const [updatingActionId, setUpdatingActionId] = useState<string | null>(null);
   const [savingComment, setSavingComment] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { enterpriseReady } = useSettings();
 
   const fetchActions = useCallback(async () => {
     const supabase = getSupabaseClient();
@@ -277,7 +280,7 @@ export default function EditIssuePage() {
       const supabase = getSupabaseClient();
       const { error: updateError } = await supabase
         .from("issues")
-        .update(toIssueFormPayload(form))
+        .update(toIssueFormPayload(form, enterpriseReady))
         .eq("id", issue.id)
         .eq("owner_id", user.id);
 
@@ -286,7 +289,7 @@ export default function EditIssuePage() {
       }
 
       // Keep the workflow gates evaluating against saved values.
-      setIssue({ ...issue, ...toIssueFormPayload(form) } as Issue);
+      setIssue({ ...issue, ...toIssueFormPayload(form, enterpriseReady) } as Issue);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save issue");
     } finally {

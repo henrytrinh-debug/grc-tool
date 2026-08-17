@@ -11,6 +11,7 @@ const navSections = [
     label: "Overview",
     items: [
       { href: "/", label: "Home" },
+      { href: "/work", label: "My work" },
       { href: "/oversight", label: "Oversight" },
     ],
   },

@@ -1,6 +1,8 @@
 "use client";
 
+import { AssigneeField } from "@/app/components/assignee-field";
 import { inputClassName, labelClassName } from "@/app/components/ui";
+import { useSettings } from "@/lib/settings/context";
 import {
   formatDueDateLabel,
   ISSUE_SEVERITY_OPTIONS,
@@ -20,6 +22,8 @@ export function IssueFormFields({
   onChange,
   showClosureNotes = false,
 }: IssueFormFieldsProps) {
+  const { people, enterpriseReady } = useSettings();
+
   return (
     <>
       <label className="flex flex-col gap-1 sm:col-span-2">
@@ -126,6 +130,16 @@ export function IssueFormFields({
           className={inputClassName}
         />
       </label>
+
+      {enterpriseReady && (
+        <div className="sm:col-span-2">
+          <AssigneeField
+            value={form.assignee_id ?? ""}
+            people={people}
+            onChange={(assigneeId) => onChange({ assignee_id: assigneeId })}
+          />
+        </div>
+      )}
 
       {showClosureNotes && (
         <label className="flex flex-col gap-1 sm:col-span-2">

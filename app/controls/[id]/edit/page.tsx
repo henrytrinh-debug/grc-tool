@@ -22,6 +22,7 @@ import { useEntityLinks } from "@/lib/hooks/use-entity-links";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import { useUnsavedChanges } from "@/lib/hooks/use-unsaved-changes";
 import { getSupabaseClient } from "@/lib/supabase/client";
+import { useSettings } from "@/lib/settings/context";
 import {
   toControlFormPayload,
   type Control,
@@ -63,6 +64,7 @@ export default function EditControlPage() {
   const [submitting, setSubmitting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { enterpriseReady } = useSettings();
 
   const fetchTestResults = useCallback(
     async (ownerId: string) => {
@@ -150,6 +152,8 @@ export default function EditControlPage() {
           is_key: loadedControl.is_key,
           effectiveness: loadedControl.effectiveness,
           last_tested_at: loadedControl.last_tested_at,
+          assignee_id: loadedControl.assignee_id ?? "",
+          control_type: loadedControl.control_type ?? "preventive",
         });
 
         const risksResult = await supabase
@@ -188,7 +192,10 @@ export default function EditControlPage() {
         form.description !== control.description ||
         form.is_key !== control.is_key ||
         form.effectiveness !== control.effectiveness ||
-        (form.last_tested_at || "") !== (control.last_tested_at || "")),
+        (form.last_tested_at || "") !== (control.last_tested_at || "") ||
+        (form.assignee_id || "") !== (control.assignee_id ?? "") ||
+        (form.control_type ?? "preventive") !==
+          (control.control_type ?? "preventive")),
   );
   const { confirmLeave } = useUnsavedChanges(dirty);
 
@@ -210,7 +217,7 @@ export default function EditControlPage() {
       const supabase = getSupabaseClient();
       const { error: updateError } = await supabase
         .from("controls")
-        .update(toControlFormPayload(form))
+        .update(toControlFormPayload(form, enterpriseReady))
         .eq("id", control.id)
         .eq("owner_id", user.id);
 

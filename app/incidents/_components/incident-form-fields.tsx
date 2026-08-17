@@ -1,4 +1,8 @@
+"use client";
+
+import { AssigneeField } from "@/app/components/assignee-field";
 import { inputClassName, labelClassName } from "@/app/components/ui";
+import { useSettings } from "@/lib/settings/context";
 import {
   SEVERITY_OPTIONS,
   STATUS_OPTIONS,
@@ -11,6 +15,8 @@ type IncidentFormFieldsProps = {
 };
 
 export function IncidentFormFields({ form, onChange }: IncidentFormFieldsProps) {
+  const { people, enterpriseReady } = useSettings();
+
   return (
     <>
       <label className="flex flex-col gap-1 sm:col-span-2">
@@ -106,6 +112,16 @@ export function IncidentFormFields({ form, onChange }: IncidentFormFieldsProps) 
           className={inputClassName}
         />
       </label>
+
+      {enterpriseReady && (
+        <div className="sm:col-span-2">
+          <AssigneeField
+            value={form.assignee_id ?? ""}
+            people={people}
+            onChange={(assigneeId) => onChange({ assignee_id: assigneeId })}
+          />
+        </div>
+      )}
     </>
   );
 }

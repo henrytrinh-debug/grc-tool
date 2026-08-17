@@ -27,6 +27,7 @@ export type Issue = {
   remediation_plan: string;
   closure_notes: string;
   closed_at: string | null;
+  assignee_id?: string | null;
   owner_email?: string;
   owner_id?: string;
   created_at?: string;
@@ -44,6 +45,7 @@ export type NewIssue = Pick<
   | "root_cause"
   | "remediation_plan"
   | "closure_notes"
+  | "assignee_id"
 >;
 
 export const ISSUE_SOURCE_OPTIONS: { value: IssueSource; label: string }[] = [
@@ -164,8 +166,11 @@ export function formatDueDateLabel(issue: Pick<Issue, "due_date" | "status">) {
   return `Due in ${days} day${days === 1 ? "" : "s"}`;
 }
 
-export function toIssueFormPayload(form: NewIssue) {
-  return {
+export function toIssueFormPayload(
+  form: NewIssue,
+  includeEnterprise = false,
+) {
+  const payload: Record<string, unknown> = {
     title: form.title,
     description: form.description,
     source: form.source,
@@ -177,4 +182,10 @@ export function toIssueFormPayload(form: NewIssue) {
     remediation_plan: form.remediation_plan,
     closure_notes: form.closure_notes,
   };
+
+  if (includeEnterprise) {
+    payload.assignee_id = form.assignee_id || null;
+  }
+
+  return payload;
 }

@@ -13,6 +13,7 @@ import {
   getActionProgress,
   type IssueAction,
 } from "@/lib/types/issue-action";
+import { isActiveRisk } from "@/lib/taxonomy";
 import type { Risk } from "@/lib/types/risk";
 
 export type SeverityBand = "Low" | "Medium" | "High" | "Critical";
@@ -53,7 +54,7 @@ export function getSeverityBand(score: number): SeverityBand {
 export function buildRiskHeatMap(risks: Risk[]) {
   const grid = Array.from({ length: 5 }, () => Array.from({ length: 5 }, () => 0));
 
-  for (const risk of risks) {
+  for (const risk of risks.filter(isActiveRisk)) {
     const likelihoodIndex = risk.likelihood - 1;
     const impactIndex = risk.impact - 1;
 
@@ -78,7 +79,7 @@ export function buildSeverityBandCounts(risks: Risk[]): SeverityBandCount[] {
     Critical: 0,
   };
 
-  for (const risk of risks) {
+  for (const risk of risks.filter(isActiveRisk)) {
     const band = getSeverityBand(getRiskScore(risk.likelihood, risk.impact));
     counts[band] += 1;
   }
@@ -253,5 +254,57 @@ export function buildIncidentStatusCounts(incidents: Incident[]): ChartCount[] {
       value: counts.resolved,
       filterValue: "resolved",
     },
+  ];
+}
+
+export function buildTaxonomyRiskCounts(
+  risks: Risk[],
+  categories: { id: string; name: string }[],
+): ChartCount[] {
+  const active = risks.filter((risk) => risk.status !== "closed");
+  const counts = new Map<string, number>();
+
+  for (const risk of active) {
+    const key = risk.category_id || "uncategorised";
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+
+  const rows: ChartCount[] = categories.map((category) => ({
+    name: category.name,
+    value: counts.get(category.id) ?? 0,
+    filterValue: category.id,
+  }));
+
+  const uncategorised = counts.get("uncategorised") ?? 0;
+  if (uncategorised > 0 || categories.length === 0) {
+    rows.push({
+      name: "Uncategorised",
+      value: uncategorised,
+      filterValue: "uncategorised",
+    });
+  }
+
+  return rows;
+}
+
+export function buildTreatmentCounts(risks: Risk[]): ChartCount[] {
+  const active = risks.filter((risk) => risk.status !== "closed");
+  const counts = {
+    mitigate: 0,
+    accept: 0,
+    transfer: 0,
+    avoid: 0,
+  };
+
+  for (const risk of active) {
+    const treatment = risk.treatment ?? "mitigate";
+    counts[treatment] += 1;
+  }
+
+  return [
+    { name: "Mitigate", value: counts.mitigate, filterValue: "mitigate" },
+    { name: "Accept", value: counts.accept, filterValue: "accept" },
+    { name: "Transfer", value: counts.transfer, filterValue: "transfer" },
+    { name: "Avoid", value: counts.avoid, filterValue: "avoid" },
   ];
 }

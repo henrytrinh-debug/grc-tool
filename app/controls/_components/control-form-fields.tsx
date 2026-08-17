@@ -1,5 +1,13 @@
+"use client";
+
+import { AssigneeField } from "@/app/components/assignee-field";
 import { inputClassName, labelClassName } from "@/app/components/ui";
-import { EFFECTIVENESS_OPTIONS, type NewControl } from "@/lib/types/control";
+import { useSettings } from "@/lib/settings/context";
+import {
+  CONTROL_TYPE_OPTIONS,
+  EFFECTIVENESS_OPTIONS,
+  type NewControl,
+} from "@/lib/types/control";
 
 type ControlFormFieldsProps = {
   form: NewControl;
@@ -7,6 +15,8 @@ type ControlFormFieldsProps = {
 };
 
 export function ControlFormFields({ form, onChange }: ControlFormFieldsProps) {
+  const { people, enterpriseReady } = useSettings();
+
   return (
     <>
       <label className="flex flex-col gap-1 sm:col-span-2">
@@ -82,6 +92,34 @@ export function ControlFormFields({ form, onChange }: ControlFormFieldsProps) {
           className={inputClassName}
         />
       </label>
+
+      {enterpriseReady && (
+        <>
+          <label className="flex flex-col gap-1">
+            <span className={labelClassName}>Control type</span>
+            <select
+              value={form.control_type ?? "preventive"}
+              onChange={(event) =>
+                onChange({
+                  control_type: event.target.value as NewControl["control_type"],
+                })
+              }
+              className={inputClassName}
+            >
+              {CONTROL_TYPE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <AssigneeField
+            value={form.assignee_id ?? ""}
+            people={people}
+            onChange={(assigneeId) => onChange({ assignee_id: assigneeId })}
+          />
+        </>
+      )}
     </>
   );
 }

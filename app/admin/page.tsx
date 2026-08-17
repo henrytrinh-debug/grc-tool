@@ -6,6 +6,7 @@ import {
   ErrorBanner,
   PageHeader,
   PageLoading,
+  SchemaNotice,
   SectionCard,
 } from "@/app/components/page-parts";
 import {
@@ -24,6 +25,7 @@ import {
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import { DEFAULT_SETTINGS, type AppSettings } from "@/lib/settings/defaults";
 import { useSettings } from "@/lib/settings/context";
+import { LINE_OF_DEFENCE_OPTIONS, type LineOfDefence } from "@/lib/types/person";
 import { RISK_SCALE_VALUES } from "@/lib/types/risk";
 
 const BANDS = ["Low", "Medium", "High", "Critical"] as const;
@@ -44,12 +46,17 @@ function AdminSettings({ user }: { user: User }) {
   const {
     settings,
     categories,
+    people,
     schemaReady,
+    enterpriseReady,
     demoIds,
     saveSettings,
     addCategory,
     updateCategory,
     deleteCategory,
+    addPerson,
+    updatePerson,
+    deletePerson,
     setDemoIds,
     reload,
   } = useSettings();
@@ -59,6 +66,11 @@ function AdminSettings({ user }: { user: User }) {
   const [categoryDescription, setCategoryDescription] = useState("");
   const [saving, setSaving] = useState(false);
   const [seeding, setSeeding] = useState(false);
+  const [personName, setPersonName] = useState("");
+  const [personEmail, setPersonEmail] = useState("");
+  const [personTitle, setPersonTitle] = useState("");
+  const [personDepartment, setPersonDepartment] = useState("");
+  const [personLod, setPersonLod] = useState<LineOfDefence>("first");
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -112,14 +124,17 @@ function AdminSettings({ user }: { user: User }) {
     setMessage(null);
 
     try {
-      const ids = await seedDemonstrationData({
-        id: user.id,
-        email: user.email,
-      });
+      const ids = await seedDemonstrationData(
+        {
+          id: user.id,
+          email: user.email,
+        },
+        { includeEnterprise: enterpriseReady },
+      );
       await setDemoIds(ids);
       await reload();
       setMessage(
-        "Demonstration data loaded. Open Home, the risk register, and Oversight to walk the story.",
+        "Demonstration data loaded. Open Home, My work, the risk register, and Oversight to walk the story.",
       );
     } catch (err) {
       setError(
@@ -167,15 +182,27 @@ function AdminSettings({ user }: { user: User }) {
       <main className="mx-auto flex w-full max-w-5xl flex-col gap-8">
         <PageHeader
           title="Admin"
-          description="Configure how this organisation scores risk, how often it reviews and tests, and the taxonomy used on the register."
+          description="Configure how this organisation scores risk, how often it reviews and tests, who is accountable, and the taxonomy used on the registers."
+          breadcrumbs={[
+            { href: "/", label: "Home" },
+            { label: "Admin" },
+          ]}
         />
 
         {!schemaReady && (
-          <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+          <SchemaNotice>
             Run <code className="font-mono">supabase/schema/003_admin_settings.sql</code>{" "}
             in the Supabase SQL editor to enable saved settings, taxonomy, and
             demonstration data. Until then, built-in defaults are used.
-          </p>
+          </SchemaNotice>
+        )}
+
+        {schemaReady && !enterpriseReady && (
+          <SchemaNotice>
+            Run <code className="font-mono">supabase/schema/004_enterprise.sql</code>{" "}
+            after 003 to enable the people directory, assignees, risk status,
+            control type, and category appetite.
+          </SchemaNotice>
         )}
 
         <ErrorBanner message={error} />
@@ -458,7 +485,37 @@ function AdminSettings({ user }: { user: User }) {
                       </p>
                     )}
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {enterpriseReady && (
+                      <select
+                        value={category.appetite_band ?? "High"}
+                        onChange={(event) => {
+                          void updateCategory(category.id, {
+                            name: category.name,
+                            description: category.description,
+                            appetite_band: event.target.value as
+                              | "Low"
+                              | "Medium"
+                              | "High"
+                              | "Critical",
+                          }).catch((err: unknown) =>
+                            setError(
+                              err instanceof Error
+                                ? err.message
+                                : "Failed to update appetite",
+                            ),
+                          );
+                        }}
+                        className={inputClassName}
+                        aria-label={`${category.name} appetite`}
+                      >
+                        {BANDS.map((band) => (
+                          <option key={band} value={band}>
+                            Appetite {band}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                     <button
                       type="button"
                       className={secondaryButtonClassName}
@@ -474,6 +531,7 @@ function AdminSettings({ user }: { user: User }) {
                         void updateCategory(category.id, {
                           name,
                           description: description ?? category.description,
+                          appetite_band: category.appetite_band,
                         }).catch((err: unknown) =>
                           setError(
                             err instanceof Error
@@ -515,8 +573,172 @@ function AdminSettings({ user }: { user: User }) {
         </SectionCard>
 
         <SectionCard
+          title="People directory"
+          description="Accountable owners used on risks, controls, incidents, and issues. Add a person whose email matches your sign-in to use Assigned to me and My work."
+        >
+          {!enterpriseReady ? (
+            <p className={`text-sm ${mutedTextClassName}`}>
+              Available after running 004_enterprise.sql.
+            </p>
+          ) : (
+            <>
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (!personName.trim() || !personEmail.trim()) {
+                    return;
+                  }
+                  void addPerson({
+                    name: personName,
+                    email: personEmail,
+                    title: personTitle,
+                    department: personDepartment,
+                    line_of_defence: personLod,
+                  })
+                    .then(() => {
+                      setPersonName("");
+                      setPersonEmail("");
+                      setPersonTitle("");
+                      setPersonDepartment("");
+                      setPersonLod("first");
+                    })
+                    .catch((err: unknown) =>
+                      setError(
+                        err instanceof Error
+                          ? err.message
+                          : "Failed to add person",
+                      ),
+                    );
+                }}
+                className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-6"
+              >
+                <input
+                  value={personName}
+                  onChange={(event) => setPersonName(event.target.value)}
+                  placeholder="Name"
+                  className={inputClassName}
+                />
+                <input
+                  value={personEmail}
+                  onChange={(event) => setPersonEmail(event.target.value)}
+                  placeholder="Email"
+                  type="email"
+                  className={inputClassName}
+                />
+                <input
+                  value={personTitle}
+                  onChange={(event) => setPersonTitle(event.target.value)}
+                  placeholder="Title"
+                  className={inputClassName}
+                />
+                <input
+                  value={personDepartment}
+                  onChange={(event) => setPersonDepartment(event.target.value)}
+                  placeholder="Department"
+                  className={inputClassName}
+                />
+                <select
+                  value={personLod}
+                  onChange={(event) =>
+                    setPersonLod(event.target.value as LineOfDefence)
+                  }
+                  className={inputClassName}
+                >
+                  {LINE_OF_DEFENCE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label.split(" — ")[0]}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="submit"
+                  disabled={!personName.trim() || !personEmail.trim()}
+                  className={secondaryButtonClassName}
+                >
+                  Add
+                </button>
+              </form>
+              {people.length === 0 ? (
+                <p className={`text-sm ${mutedTextClassName}`}>
+                  No people yet. Load demonstration data or add the first owner.
+                </p>
+              ) : (
+                <ul className="divide-y divide-slate-200 dark:divide-slate-800">
+                  {people.map((person) => (
+                    <li
+                      key={person.id}
+                      className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div>
+                        <p className="text-sm font-medium text-slate-950 dark:text-slate-50">
+                          {person.name}
+                        </p>
+                        <p className={`text-sm ${mutedTextClassName}`}>
+                          {person.email}
+                          {person.title ? ` · ${person.title}` : ""}
+                          {person.department ? ` · ${person.department}` : ""}
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          className={secondaryButtonClassName}
+                          onClick={() => {
+                            const name = window.prompt("Name", person.name);
+                            if (!name?.trim()) {
+                              return;
+                            }
+                            const email = window.prompt("Email", person.email);
+                            if (!email?.trim()) {
+                              return;
+                            }
+                            void updatePerson(person.id, {
+                              name,
+                              email,
+                              title: person.title,
+                              department: person.department,
+                              line_of_defence: person.line_of_defence,
+                            }).catch((err: unknown) =>
+                              setError(
+                                err instanceof Error
+                                  ? err.message
+                                  : "Failed to update person",
+                              ),
+                            );
+                          }}
+                        >
+                          Rename
+                        </button>
+                        <button
+                          type="button"
+                          className={dangerButtonClassName}
+                          onClick={() => {
+                            if (window.confirm(`Remove ${person.name}?`)) {
+                              void deletePerson(person.id).catch(
+                                (err: unknown) =>
+                                  setError(
+                                    err instanceof Error
+                                      ? err.message
+                                      : "Failed to delete person",
+                                  ),
+                              );
+                            }
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+        </SectionCard>
+
+        <SectionCard
           title="Demonstration data"
-          description="Load a sample environment — taxonomy, scored risks, mixed control tests, an open critical incident, and findings in flight — to walk the product."
+          description="Load a sample environment — people, taxonomy with appetite, 70+ register records, mixed control tests, RCSA reviews, open incidents, and findings in flight — to walk the product."
         >
           <div className="flex flex-wrap gap-3">
             <button

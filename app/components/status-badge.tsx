@@ -176,3 +176,37 @@ export function KeyBadge({ isKey }: { isKey: boolean }) {
     </Badge>
   );
 }
+
+export function AppetiteBreachBadge() {
+  return (
+    <Badge className="bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300">
+      Above appetite
+    </Badge>
+  );
+}
+
+export function RiskStatusBadge({
+  status,
+  label,
+}: {
+  status: "open" | "monitoring" | "closed";
+  label: string;
+}) {
+  const classes = {
+    open: "bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300",
+    monitoring:
+      "bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300",
+    closed:
+      "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+  } as const;
+
+  return <Badge className={classes[status]}>{label}</Badge>;
+}
+
+export function ControlTypeBadge({ label }: { label: string }) {
+  return (
+    <Badge className="bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+      {label}
+    </Badge>
+  );
+}

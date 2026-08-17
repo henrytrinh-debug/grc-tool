@@ -6,12 +6,14 @@ import { EntityFormPage } from "@/app/components/entity-form-page";
 import { PageLoading } from "@/app/components/page-parts";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import { insertOwnedRecord } from "@/lib/supabase/records";
+import { useSettings } from "@/lib/settings/context";
 import { toControlFormPayload, type NewControl } from "@/lib/types/control";
 import { ControlFormFields } from "../_components/control-form-fields";
 import { EMPTY_CONTROL_FORM } from "../_components/constants";
 
 export default function NewControlPage() {
   const router = useRouter();
+  const { enterpriseReady } = useSettings();
   const [form, setForm] = useState<NewControl>(EMPTY_CONTROL_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,7 +30,10 @@ export default function NewControlPage() {
     setError(null);
 
     try {
-      await insertOwnedRecord("controls", toControlFormPayload(form));
+      await insertOwnedRecord(
+        "controls",
+        toControlFormPayload(form, enterpriseReady),
+      );
       router.push("/controls");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to add control");
@@ -45,6 +50,11 @@ export default function NewControlPage() {
       backHref="/controls"
       backLabel="Back to controls"
       title="Add Control"
+      breadcrumbs={[
+        { href: "/", label: "Home" },
+        { href: "/controls", label: "Controls" },
+        { label: "Add" },
+      ]}
       error={error}
       submitting={submitting}
       submitLabel="Add Control"

@@ -68,9 +68,12 @@ export type RiskCategory = {
   name: string;
   description: string;
   sort_order: number;
+  appetite_band?: SeverityBandLike;
   owner_id?: string;
   owner_email?: string;
 };
+
+export type SeverityBandLike = "Low" | "Medium" | "High" | "Critical";
 
 export type OrgSettingsRow = {
   owner_id: string;
@@ -101,4 +104,5 @@ export type DemoIds = {
   incidentIds: string[];
   issueIds: string[];
   sessionIds: string[];
+  personIds?: string[];
 };

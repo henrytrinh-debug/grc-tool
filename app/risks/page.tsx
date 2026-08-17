@@ -11,7 +11,11 @@ import {
   PageHeader,
   PageLoading,
 } from "@/app/components/page-parts";
-import { SeverityBandBadge } from "@/app/components/status-badge";
+import {
+  AppetiteBreachBadge,
+  RiskStatusBadge,
+  SeverityBandBadge,
+} from "@/app/components/status-badge";
 import { primaryButtonClassName, secondaryButtonClassName } from "@/app/components/ui";
 import { getRiskScore, getSeverityBand } from "@/lib/dashboard/analytics";
 import { useListFilters } from "@/lib/hooks/use-list-filters";
@@ -22,10 +26,12 @@ import {
   parseRiskFilters,
   sortRisksByExposure,
 } from "@/lib/list-filters";
+import { categoryFilterOptions, assigneeFilterOptions, isAppetiteBreach } from "@/lib/taxonomy";
 import { downloadCsv } from "@/lib/export/csv";
 import { useSettings } from "@/lib/settings/context";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { throwIfAnyQueryError } from "@/lib/supabase/owned";
+import { formatPersonName, personByEmail } from "@/lib/types/person";
 import {
   groupIncidentRiskRowsByRisk,
   type IncidentRiskIncidentRow,
@@ -39,14 +45,17 @@ import { countGroupedLinks } from "@/lib/types/join-utils";
 import {
   buildLastReviewedByRisk,
   formatLastReviewedAt,
+  formatNextReviewDue,
   isReviewDue,
   type RcsaReview,
 } from "@/lib/types/rcsa";
 import {
   formatImpactOption,
   formatLikelihoodOption,
+  formatRiskStatus,
   formatTreatment,
   RISK_SCALE_VALUES,
+  RISK_STATUS_OPTIONS,
   RISK_TREATMENT_OPTIONS,
   type Risk,
 } from "@/lib/types/risk";
@@ -62,7 +71,7 @@ function RisksPageContent() {
     parseRiskFilters,
   );
 
-  const { categories, schemaReady } = useSettings();
+  const { categories, schemaReady, people, enterpriseReady } = useSettings();
   const [risks, setRisks] = useState<Risk[]>([]);
   const [linkedControlCounts, setLinkedControlCounts] = useState<
     Record<string, number>
@@ -169,7 +178,9 @@ function RisksPageContent() {
     }
   }, []);
 
-  const { authLoading } = useRequireAuth(loadRisks);
+  const { user, authLoading } = useRequireAuth(loadRisks);
+
+  const myPersonId = personByEmail(people, user?.email)?.id ?? null;
 
   const filteredRisks = useMemo(
     () =>
@@ -177,9 +188,11 @@ function RisksPageContent() {
         filterRisks(risks, filters, {
           lastReviewedByRisk,
           linkedControlCounts,
+          categories,
+          myPersonId,
         }),
       ),
-    [risks, filters, lastReviewedByRisk, linkedControlCounts],
+    [risks, filters, lastReviewedByRisk, linkedControlCounts, categories, myPersonId],
   );
 
   const categoryNameById = useMemo(() => {
@@ -199,6 +212,9 @@ function RisksPageContent() {
     uncontrolled: filters.uncontrolled,
     categoryId: filters.categoryId,
     treatment: filters.treatment,
+    status: filters.status,
+    assignee: filters.assignee,
+    appetiteBreach: filters.appetiteBreach,
   });
 
   if (authLoading) {
@@ -211,6 +227,10 @@ function RisksPageContent() {
         <PageHeader
           title="Risk Register"
           description="Track and assess organizational risks."
+          breadcrumbs={[
+            { href: "/", label: "Home" },
+            { label: "Risks" },
+          ]}
           actions={
             <Link href="/risks/new" className={primaryButtonClassName}>
               Add Risk
@@ -241,14 +261,18 @@ function RisksPageContent() {
                         "Title",
                         "Category",
                         "Treatment",
+                        "Status",
+                        "Assignee",
                         "Likelihood",
                         "Impact",
                         "Score",
                         "Band",
+                        "Appetite breach",
                         "Controls",
                         "Incidents",
                         "Open Issues",
                         "Last Reviewed",
+                        "Next Review",
                         "Owner",
                       ],
                       filteredRisks.map((risk) => {
@@ -262,15 +286,23 @@ function RisksPageContent() {
                             categoryNameById[risk.category_id]) ||
                             "Uncategorised",
                           formatTreatment(risk.treatment),
+                          formatRiskStatus(risk.status),
+                          formatPersonName(people, risk.assignee_id),
                           risk.likelihood,
                           risk.impact,
                           score,
                           getSeverityBand(score),
+                          isAppetiteBreach(risk, categories) ? "Yes" : "No",
                           linkedControlCounts[risk.id] ?? 0,
                           linkedIncidentCounts[risk.id] ?? 0,
                           openIssueCounts[risk.id] ?? 0,
                           formatLastReviewedAt(
                             lastReviewedByRisk[risk.id] ?? null,
+                          ),
+                          formatNextReviewDue(
+                            lastReviewedByRisk[risk.id] ?? null,
+                            risk.likelihood,
+                            risk.impact,
                           ),
                           risk.owner_email ?? "",
                         ];
@@ -294,15 +326,12 @@ function RisksPageContent() {
                 { value: "Critical", label: "Critical" },
               ]}
             />
-            {schemaReady && categories.length > 0 && (
+            {schemaReady && (
               <FilterSelect
                 label="Category"
                 value={filters.categoryId}
                 onChange={(value) => updateFilters({ category: value })}
-                options={categories.map((category) => ({
-                  value: category.id,
-                  label: category.name,
-                }))}
+                options={categoryFilterOptions(categories)}
               />
             )}
             {schemaReady && (
@@ -315,6 +344,31 @@ function RisksPageContent() {
                   label: option.label,
                 }))}
               />
+            )}
+            {enterpriseReady && (
+              <>
+                <FilterSelect
+                  label="Status"
+                  value={filters.status}
+                  onChange={(value) => updateFilters({ status: value })}
+                  options={RISK_STATUS_OPTIONS.map((option) => ({
+                    value: option.value,
+                    label: option.label,
+                  }))}
+                />
+                <FilterSelect
+                  label="Owner"
+                  value={filters.assignee}
+                  onChange={(value) => updateFilters({ assignee: value })}
+                  options={assigneeFilterOptions(people)}
+                />
+                <FilterSelect
+                  label="Appetite"
+                  value={filters.appetiteBreach ? "true" : ""}
+                  onChange={(value) => updateFilters({ appetiteBreach: value })}
+                  options={[{ value: "true", label: "Above appetite" }]}
+                />
+              </>
             )}
             <FilterSelect
               label="Likelihood"
@@ -379,6 +433,12 @@ function RisksPageContent() {
                         <th className="px-6 py-3 font-medium">Treatment</th>
                       </>
                     )}
+                    {enterpriseReady && (
+                      <>
+                        <th className="px-6 py-3 font-medium">Status</th>
+                        <th className="px-6 py-3 font-medium">Assignee</th>
+                      </>
+                    )}
                     <th className="px-6 py-3 font-medium">Likelihood</th>
                     <th className="px-6 py-3 font-medium">Impact</th>
                     <th className="px-6 py-3 font-medium">Risk Score</th>
@@ -386,6 +446,7 @@ function RisksPageContent() {
                     <th className="px-6 py-3 font-medium">Incidents</th>
                     <th className="px-6 py-3 font-medium">Open Issues</th>
                     <th className="px-6 py-3 font-medium">Last Reviewed</th>
+                    <th className="px-6 py-3 font-medium">Next Review</th>
                     <th className="px-6 py-3 font-medium">Owner</th>
                     <th className="px-6 py-3 font-medium">Actions</th>
                   </tr>
@@ -404,7 +465,11 @@ function RisksPageContent() {
                       risk.likelihood,
                       risk.impact,
                     );
-                    const needsAttention = reviewDue || controlCount === 0;
+                    const appetiteBreach = isAppetiteBreach(risk, categories);
+                    const needsAttention =
+                      (risk.status !== "closed" &&
+                        (reviewDue || controlCount === 0)) ||
+                      appetiteBreach;
 
                     return (
                       <ClickableRow
@@ -418,7 +483,10 @@ function RisksPageContent() {
                         }
                       >
                         <td className="px-6 py-4 font-medium text-slate-950 dark:text-slate-50">
-                          {risk.title}
+                          <div className="flex flex-col gap-1">
+                            <span>{risk.title}</span>
+                            {appetiteBreach && <AppetiteBreachBadge />}
+                          </div>
                         </td>
                         {schemaReady && (
                           <>
@@ -429,6 +497,19 @@ function RisksPageContent() {
                             </td>
                             <td className="px-6 py-4 text-slate-950 dark:text-slate-50">
                               {formatTreatment(risk.treatment)}
+                            </td>
+                          </>
+                        )}
+                        {enterpriseReady && (
+                          <>
+                            <td className="px-6 py-4">
+                              <RiskStatusBadge
+                                status={risk.status ?? "open"}
+                                label={formatRiskStatus(risk.status)}
+                              />
+                            </td>
+                            <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
+                              {formatPersonName(people, risk.assignee_id)}
                             </td>
                           </>
                         )}
@@ -444,7 +525,7 @@ function RisksPageContent() {
                         <td className="px-6 py-4">
                           <span
                             className={
-                              controlCount === 0
+                              controlCount === 0 && risk.status !== "closed"
                                 ? "font-medium text-red-700 dark:text-red-400"
                                 : "text-slate-950 dark:text-slate-50"
                             }
@@ -468,27 +549,46 @@ function RisksPageContent() {
                         </td>
                         <td
                           className={`px-6 py-4 ${
-                            reviewDue
+                            reviewDue && risk.status !== "closed"
                               ? "font-medium text-red-700 dark:text-red-400"
                               : "text-slate-600 dark:text-slate-400"
                           }`}
                         >
                           {formatLastReviewedAt(lastReviewedAt)}
                         </td>
+                        <td
+                          className={`px-6 py-4 ${
+                            reviewDue && risk.status !== "closed"
+                              ? "font-medium text-red-700 dark:text-red-400"
+                              : "text-slate-600 dark:text-slate-400"
+                          }`}
+                        >
+                          {risk.status === "closed"
+                            ? "—"
+                            : formatNextReviewDue(
+                                lastReviewedAt,
+                                risk.likelihood,
+                                risk.impact,
+                              )}
+                        </td>
                         <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
                           {risk.owner_email}
                         </td>
                         <td className="px-6 py-4">
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              router.push(`/rcsa/review?risk=${risk.id}`);
-                            }}
-                            className="rounded-lg border border-teal-700 px-3 py-1.5 text-sm font-medium text-teal-800 transition-colors hover:bg-teal-50 dark:border-teal-400 dark:text-teal-200 dark:hover:bg-teal-950"
-                          >
-                            Review
-                          </button>
+                          {risk.status === "closed" ? (
+                            <span className="text-slate-400">—</span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                router.push(`/rcsa/review?risk=${risk.id}`);
+                              }}
+                              className="rounded-lg border border-teal-700 px-3 py-1.5 text-sm font-medium text-teal-800 transition-colors hover:bg-teal-50 dark:border-teal-400 dark:text-teal-200 dark:hover:bg-teal-950"
+                            >
+                              Review
+                            </button>
+                          )}
                         </td>
                       </ClickableRow>
                     );

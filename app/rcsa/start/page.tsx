@@ -8,7 +8,7 @@ import {
   PageLoading,
 } from "@/app/components/page-parts";
 import { SeverityBandBadge } from "@/app/components/status-badge";
-import { listInputClassName } from "@/app/components/list-toolbar";
+import { FilterSelect, listInputClassName } from "@/app/components/list-toolbar";
 import {
   primaryButtonClassName,
   secondaryButtonClassName,
@@ -18,6 +18,7 @@ import { sortRisksByExposure } from "@/lib/list-filters";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import { useSettings } from "@/lib/settings/context";
 import { formatReviewCadenceHint } from "@/lib/settings/store";
+import { categoryFilterOptions, matchesCategoryFilter } from "@/lib/taxonomy";
 import { throwIfAnyQueryError } from "@/lib/supabase/owned";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import {
@@ -32,12 +33,13 @@ import type { Risk } from "@/lib/types/risk";
 
 export default function RcsaStartPage() {
   const router = useRouter();
-  const { settings } = useSettings();
+  const { settings, categories, schemaReady } = useSettings();
   const [risks, setRisks] = useState<RiskWithLastReviewed[]>([]);
   const [selectedRiskIds, setSelectedRiskIds] = useState<Set<string>>(
     new Set(),
   );
   const [filterText, setFilterText] = useState("");
+  const [categoryId, setCategoryId] = useState("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +52,7 @@ export default function RcsaStartPage() {
       const [risksResult, reviewsResult] = await Promise.all([
         supabase
           .from("risks")
-          .select("id, title, likelihood, impact, owner_email")
+          .select("*")
           .eq("owner_id", ownerId)
           .order("title", { ascending: true }),
         supabase
@@ -69,13 +71,16 @@ export default function RcsaStartPage() {
       );
 
       const checklist = sortRisksByExposure(
-        (risksResult.data ?? []) as Risk[],
+        ((risksResult.data ?? []) as Risk[]).filter(
+          (risk) => risk.status !== "closed",
+        ),
       ).map((risk) => ({
         id: risk.id,
         title: risk.title,
         likelihood: risk.likelihood,
         impact: risk.impact,
         owner_email: risk.owner_email,
+        category_id: risk.category_id,
         lastReviewedAt: lastReviewedByRisk[risk.id] ?? null,
       }));
 
@@ -105,16 +110,20 @@ export default function RcsaStartPage() {
   const filteredRisks = useMemo(() => {
     const query = filterText.trim().toLowerCase();
 
-    if (!query) {
-      return risks;
-    }
-
     return risks.filter((risk) => {
+      if (!matchesCategoryFilter(risk.category_id, categoryId)) {
+        return false;
+      }
+
+      if (!query) {
+        return true;
+      }
+
       const title = risk.title.toLowerCase();
       const owner = (risk.owner_email ?? "").toLowerCase();
       return title.includes(query) || owner.includes(query);
     });
-  }, [filterText, risks]);
+  }, [categoryId, filterText, risks]);
 
   const visibleSelectedCount = useMemo(
     () => filteredRisks.filter((risk) => selectedRiskIds.has(risk.id)).length,
@@ -243,7 +252,11 @@ export default function RcsaStartPage() {
       <main className="mx-auto flex w-full max-w-5xl flex-col gap-8">
         <PageHeader
           title="Risk Assessment"
-          description={`Risks due for review (by severity cadence) are pre-selected. ${formatReviewCadenceHint(settings)}.`}
+          description={`Risks due for review (by severity cadence) are pre-selected. Closed risks are omitted. ${formatReviewCadenceHint(settings)}.`}
+          breadcrumbs={[
+            { href: "/", label: "Home" },
+            { label: "Risk Assessment" },
+          ]}
         />
 
         <ErrorBanner message={error} />
@@ -285,6 +298,15 @@ export default function RcsaStartPage() {
                   className={listInputClassName}
                 />
               </label>
+
+              {schemaReady && (
+                <FilterSelect
+                  label="Category"
+                  value={categoryId}
+                  onChange={setCategoryId}
+                  options={categoryFilterOptions(categories)}
+                />
+              )}
 
               {risks.length > 0 && (
                 <div className="flex flex-wrap gap-2">

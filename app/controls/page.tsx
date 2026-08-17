@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Suspense, useCallback, useMemo, useState } from "react";
 import { ClickableRow } from "@/app/components/clickable-row";
 import {
+  ControlTypeBadge,
   EffectivenessBadge,
   KeyBadge,
   TestingStatusBadge,
@@ -25,10 +26,19 @@ import {
   sortControlsByAttention,
 } from "@/lib/list-filters";
 import { downloadCsv } from "@/lib/export/csv";
+import { useSettings } from "@/lib/settings/context";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { throwIfAnyQueryError } from "@/lib/supabase/owned";
 import {
+  assigneeFilterOptions,
+  categoryFilterOptions,
+  indexLinkedCategoriesFromRisks,
+  uniqueCategoryLabels,
+} from "@/lib/taxonomy";
+import {
+  CONTROL_TYPE_OPTIONS,
   EFFECTIVENESS_OPTIONS,
+  formatControlType,
   formatEffectiveness,
   formatLastTestedAt,
   getTestingStatus,
@@ -39,9 +49,12 @@ import {
   ISSUE_CONTROL_ISSUE_SELECT,
   type IssueControlIssueRow,
 } from "@/lib/types/issue-links";
+import { formatPersonName, personByEmail } from "@/lib/types/person";
 import { countGroupedLinks } from "@/lib/types/join-utils";
 import {
   groupRiskControlRowsByControl,
+  RISK_CONTROL_RISK_SELECT,
+  RISK_CONTROL_RISK_SELECT_WITH_CATEGORY,
   type RiskControlRiskRow,
 } from "@/lib/types/risk-control";
 
@@ -51,9 +64,13 @@ function ControlsPageContent() {
     parseControlFilters,
   );
 
+  const { categories, schemaReady, people, enterpriseReady } = useSettings();
   const [controls, setControls] = useState<Control[]>([]);
   const [linkedRiskCounts, setLinkedRiskCounts] = useState<
     Record<string, number>
+  >({});
+  const [linkedCategoryIds, setLinkedCategoryIds] = useState<
+    Record<string, string[]>
   >({});
   const [openIssueCounts, setOpenIssueCounts] = useState<
     Record<string, number>
@@ -75,7 +92,9 @@ function ControlsPageContent() {
         supabase
           .from("risk_controls")
           .select(
-            "id, risk_id, control_id, risks(title, likelihood, impact, owner_email)",
+            schemaReady
+              ? RISK_CONTROL_RISK_SELECT_WITH_CATEGORY
+              : RISK_CONTROL_RISK_SELECT,
           )
           .eq("owner_id", ownerId),
         supabase
@@ -88,13 +107,11 @@ function ControlsPageContent() {
 
       setControls((controlsResult.data ?? []) as Control[]);
 
-      setLinkedRiskCounts(
-        countGroupedLinks(
-          groupRiskControlRowsByControl(
-            (linksResult.data ?? []) as RiskControlRiskRow[],
-          ),
-        ),
+      const grouped = groupRiskControlRowsByControl(
+        (linksResult.data ?? []) as RiskControlRiskRow[],
       );
+      setLinkedRiskCounts(countGroupedLinks(grouped));
+      setLinkedCategoryIds(indexLinkedCategoriesFromRisks(grouped));
 
       const issuesByControl = groupIssuesByControl(
         (issueLinksResult.data ?? []) as IssueControlIssueRow[],
@@ -111,16 +128,21 @@ function ControlsPageContent() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [schemaReady]);
 
-  const { authLoading } = useRequireAuth(loadControls);
+  const { user, authLoading } = useRequireAuth(loadControls);
+  const myPersonId = personByEmail(people, user?.email)?.id ?? null;
 
   const filteredControls = useMemo(
     () =>
       sortControlsByAttention(
-        filterControls(controls, filters, { linkedRiskCounts }),
+        filterControls(controls, filters, {
+          linkedRiskCounts,
+          linkedCategoryIds,
+          myPersonId,
+        }),
       ),
-    [controls, filters, linkedRiskCounts],
+    [controls, filters, linkedRiskCounts, linkedCategoryIds, myPersonId],
   );
 
   const filtersActive = hasActiveFilters({
@@ -129,6 +151,9 @@ function ControlsPageContent() {
     testingStatus: filters.testingStatus,
     isKey: filters.isKey,
     unmapped: filters.unmapped,
+    categoryId: filters.categoryId,
+    controlType: filters.controlType,
+    assignee: filters.assignee,
   });
 
   if (authLoading) {
@@ -141,6 +166,10 @@ function ControlsPageContent() {
         <PageHeader
           title="Control Register"
           description="Manage and track your assigned controls."
+          breadcrumbs={[
+            { href: "/", label: "Home" },
+            { label: "Controls" },
+          ]}
           actions={
             <Link href="/controls/new" className={primaryButtonClassName}>
               Add Control
@@ -170,6 +199,9 @@ function ControlsPageContent() {
                       [
                         "Title",
                         "Key",
+                        "Type",
+                        "Category",
+                        "Assignee",
                         "Effectiveness",
                         "Last Tested",
                         "Testing Status",
@@ -179,6 +211,12 @@ function ControlsPageContent() {
                       filteredControls.map((control) => [
                         control.title,
                         control.is_key ? "Key" : "Non-Key",
+                        formatControlType(control.control_type),
+                        uniqueCategoryLabels(
+                          categories,
+                          linkedCategoryIds[control.id] ?? [],
+                        ),
+                        formatPersonName(people, control.assignee_id),
                         formatEffectiveness(control.effectiveness),
                         formatLastTestedAt(control.last_tested_at),
                         getTestingStatus(control.last_tested_at, control.is_key),
@@ -227,6 +265,33 @@ function ControlsPageContent() {
               onChange={(value) => updateFilters({ unmapped: value })}
               options={[{ value: "true", label: "Unmapped only" }]}
             />
+            {schemaReady && (
+              <FilterSelect
+                label="Category"
+                value={filters.categoryId}
+                onChange={(value) => updateFilters({ category: value })}
+                options={categoryFilterOptions(categories)}
+              />
+            )}
+            {enterpriseReady && (
+              <>
+                <FilterSelect
+                  label="Type"
+                  value={filters.controlType}
+                  onChange={(value) => updateFilters({ controlType: value })}
+                  options={CONTROL_TYPE_OPTIONS.map((option) => ({
+                    value: option.value,
+                    label: option.label,
+                  }))}
+                />
+                <FilterSelect
+                  label="Owner"
+                  value={filters.assignee}
+                  onChange={(value) => updateFilters({ assignee: value })}
+                  options={assigneeFilterOptions(people)}
+                />
+              </>
+            )}
           </ListToolbar>
 
           {loading ? (
@@ -251,6 +316,15 @@ function ControlsPageContent() {
                   <tr>
                     <th className="px-6 py-3 font-medium">Title</th>
                     <th className="px-6 py-3 font-medium">Key</th>
+                    {enterpriseReady && (
+                      <th className="px-6 py-3 font-medium">Type</th>
+                    )}
+                    {schemaReady && (
+                      <th className="px-6 py-3 font-medium">Category</th>
+                    )}
+                    {enterpriseReady && (
+                      <th className="px-6 py-3 font-medium">Assignee</th>
+                    )}
                     <th className="px-6 py-3 font-medium">Effectiveness</th>
                     <th className="px-6 py-3 font-medium">Last Tested</th>
                     <th className="px-6 py-3 font-medium">Testing Status</th>
@@ -288,6 +362,26 @@ function ControlsPageContent() {
                       <td className="px-6 py-4">
                         <KeyBadge isKey={control.is_key} />
                       </td>
+                      {enterpriseReady && (
+                        <td className="px-6 py-4">
+                          <ControlTypeBadge
+                            label={formatControlType(control.control_type)}
+                          />
+                        </td>
+                      )}
+                      {schemaReady && (
+                        <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
+                          {uniqueCategoryLabels(
+                            categories,
+                            linkedCategoryIds[control.id] ?? [],
+                          )}
+                        </td>
+                      )}
+                      {enterpriseReady && (
+                        <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
+                          {formatPersonName(people, control.assignee_id)}
+                        </td>
+                      )}
                       <td className="px-6 py-4">
                         <EffectivenessBadge
                           effectiveness={control.effectiveness}

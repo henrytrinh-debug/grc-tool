@@ -20,8 +20,16 @@ import {
   sortIssuesByPriority,
 } from "@/lib/list-filters";
 import { downloadCsv } from "@/lib/export/csv";
+import { useSettings } from "@/lib/settings/context";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { throwIfAnyQueryError } from "@/lib/supabase/owned";
+import {
+  assigneeFilterOptions,
+  categoryFilterOptions,
+  indexLinkedCategoriesFromRisks,
+  uniqueCategoryLabels,
+} from "@/lib/taxonomy";
+import { formatPersonName, personByEmail } from "@/lib/types/person";
 import {
   formatDueDateLabel,
   formatIssueSeverity,
@@ -42,6 +50,7 @@ import {
   groupRisksByIssue,
   ISSUE_CONTROL_SELECT,
   ISSUE_RISK_SELECT,
+  ISSUE_RISK_SELECT_WITH_CATEGORY,
   type IssueControlRow,
   type IssueRiskRow,
 } from "@/lib/types/issue-links";
@@ -55,6 +64,7 @@ function IssuesPageContent() {
     parseIssueFilters,
   );
 
+  const { categories, schemaReady, people, enterpriseReady } = useSettings();
   const [issues, setIssues] = useState<Issue[]>([]);
   const [actionsByIssue, setActionsByIssue] = useState<
     Record<string, IssueAction[]>
@@ -64,6 +74,9 @@ function IssuesPageContent() {
   >({});
   const [linkedControlCounts, setLinkedControlCounts] = useState<
     Record<string, number>
+  >({});
+  const [linkedCategoryIds, setLinkedCategoryIds] = useState<
+    Record<string, string[]>
   >({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -86,7 +99,9 @@ function IssuesPageContent() {
           .eq("owner_id", ownerId),
         supabase
           .from("issue_risks")
-          .select(ISSUE_RISK_SELECT)
+          .select(
+            schemaReady ? ISSUE_RISK_SELECT_WITH_CATEGORY : ISSUE_RISK_SELECT,
+          )
           .eq("owner_id", ownerId),
         supabase
           .from("issue_controls")
@@ -110,11 +125,11 @@ function IssuesPageContent() {
         grouped[action.issue_id] = bucket;
       }
       setActionsByIssue(grouped);
-      setLinkedRiskCounts(
-        countGroupedLinks(
-          groupRisksByIssue((riskLinksResult.data ?? []) as IssueRiskRow[]),
-        ),
+      const risksByIssue = groupRisksByIssue(
+        (riskLinksResult.data ?? []) as IssueRiskRow[],
       );
+      setLinkedRiskCounts(countGroupedLinks(risksByIssue));
+      setLinkedCategoryIds(indexLinkedCategoriesFromRisks(risksByIssue));
       setLinkedControlCounts(
         countGroupedLinks(
           groupControlsByIssue(
@@ -127,13 +142,20 @@ function IssuesPageContent() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [schemaReady]);
 
-  const { authLoading } = useRequireAuth(loadIssues);
+  const { user, authLoading } = useRequireAuth(loadIssues);
+  const myPersonId = personByEmail(people, user?.email)?.id ?? null;
 
   const filteredIssues = useMemo(
-    () => sortIssuesByPriority(filterIssues(issues, filters)),
-    [issues, filters],
+    () =>
+      sortIssuesByPriority(
+        filterIssues(issues, filters, {
+          linkedCategoryIds,
+          myPersonId,
+        }),
+      ),
+    [issues, filters, linkedCategoryIds, myPersonId],
   );
 
   const overdueCount = useMemo(
@@ -154,6 +176,8 @@ function IssuesPageContent() {
     status: filters.status,
     source: filters.source,
     overdue: filters.overdue,
+    categoryId: filters.categoryId,
+    assignee: filters.assignee,
   });
 
   if (authLoading) {
@@ -166,6 +190,10 @@ function IssuesPageContent() {
         <PageHeader
           title="Issue Management"
           description="Track findings through remediation to closure."
+          breadcrumbs={[
+            { href: "/", label: "Home" },
+            { label: "Issues" },
+          ]}
           actions={
             <Link href="/issues/new" className={primaryButtonClassName}>
               Add Issue
@@ -211,6 +239,8 @@ function IssuesPageContent() {
                         "Source",
                         "Severity",
                         "Status",
+                        "Category",
+                        "Assignee",
                         "Target Date",
                         "Action Plan",
                         "Linked Risks",
@@ -225,6 +255,11 @@ function IssuesPageContent() {
                           formatIssueSource(issue.source),
                           formatIssueSeverity(issue.severity),
                           formatIssueStatus(issue.status),
+                          uniqueCategoryLabels(
+                            categories,
+                            linkedCategoryIds[issue.id] ?? [],
+                          ),
+                          formatPersonName(people, issue.assignee_id),
                           formatDueDateLabel(issue),
                           progress.total === 0
                             ? "No actions"
@@ -277,6 +312,22 @@ function IssuesPageContent() {
               onChange={(value) => updateFilters({ overdue: value })}
               options={[{ value: "true", label: "Overdue only" }]}
             />
+            {schemaReady && (
+              <FilterSelect
+                label="Category"
+                value={filters.categoryId}
+                onChange={(value) => updateFilters({ category: value })}
+                options={categoryFilterOptions(categories)}
+              />
+            )}
+            {enterpriseReady && (
+              <FilterSelect
+                label="Owner"
+                value={filters.assignee}
+                onChange={(value) => updateFilters({ assignee: value })}
+                options={assigneeFilterOptions(people)}
+              />
+            )}
           </ListToolbar>
 
           {loading ? (
@@ -300,6 +351,12 @@ function IssuesPageContent() {
                 <thead className="bg-slate-50 text-slate-600 dark:bg-slate-950 dark:text-slate-400">
                   <tr>
                     <th className="px-6 py-3 font-medium">Title</th>
+                    {schemaReady && (
+                      <th className="px-6 py-3 font-medium">Category</th>
+                    )}
+                    {enterpriseReady && (
+                      <th className="px-6 py-3 font-medium">Assignee</th>
+                    )}
                     <th className="px-6 py-3 font-medium">Source</th>
                     <th className="px-6 py-3 font-medium">Severity</th>
                     <th className="px-6 py-3 font-medium">Status</th>
@@ -329,6 +386,19 @@ function IssuesPageContent() {
                         <td className="px-6 py-4 font-medium text-slate-950 dark:text-slate-50">
                           {issue.title}
                         </td>
+                        {schemaReady && (
+                          <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
+                            {uniqueCategoryLabels(
+                              categories,
+                              linkedCategoryIds[issue.id] ?? [],
+                            )}
+                          </td>
+                        )}
+                        {enterpriseReady && (
+                          <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
+                            {formatPersonName(people, issue.assignee_id)}
+                          </td>
+                        )}
                         <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
                           {formatIssueSource(issue.source)}
                         </td>

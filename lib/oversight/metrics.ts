@@ -7,7 +7,13 @@ import {
 } from "@/lib/dashboard/analytics";
 import { getTestingStatus, type Control } from "@/lib/types/control";
 import type { ControlTestResult } from "@/lib/types/control-test-result";
-import type { Incident } from "@/lib/types/incident";
+import { isIncidentOpen, type Incident } from "@/lib/types/incident";
+import type { RiskCategory } from "@/lib/settings/defaults";
+import {
+  categoryAppetite,
+  isActiveRisk,
+  isAppetiteBreach,
+} from "@/lib/taxonomy";
 import {
   formatIssueSource,
   isIssueOpen,
@@ -154,7 +160,7 @@ export function buildUncontrolledRisks(
     Critical: 0,
   };
 
-  for (const risk of risks) {
+  for (const risk of risks.filter(isActiveRisk)) {
     if (linkedRiskIds.has(risk.id)) {
       continue;
     }
@@ -196,7 +202,7 @@ export function buildStaleReviewBreakdown(
     over365: 0,
   };
 
-  for (const risk of risks) {
+  for (const risk of risks.filter(isActiveRisk)) {
     breakdown[getReviewRecencyBucket(lastReviewedByRisk[risk.id] ?? null)] += 1;
   }
 
@@ -210,12 +216,14 @@ export function countReviewsDue(
 ) {
   const lastReviewedByRisk = buildLastReviewedByRisk(reviews);
 
-  return risks.filter((risk) =>
-    isReviewDue(
-      lastReviewedByRisk[risk.id] ?? null,
-      risk.likelihood,
-      risk.impact,
-    ),
+  return risks.filter(
+    (risk) =>
+      isActiveRisk(risk) &&
+      isReviewDue(
+        lastReviewedByRisk[risk.id] ?? null,
+        risk.likelihood,
+        risk.impact,
+      ),
   ).length;
 }
 
@@ -474,4 +482,72 @@ export function buildIncidentSeverityCounts(incidents: Incident[]): ChartCount[]
     { name: "High", value: counts.high, filterValue: "high" },
     { name: "Critical", value: counts.critical, filterValue: "critical" },
   ];
+}
+
+export type TaxonomyOverviewRow = {
+  categoryId: string;
+  name: string;
+  appetite: SeverityBand;
+  risks: number;
+  highOrCritical: number;
+  uncontrolled: number;
+  reviewsDue: number;
+  appetiteBreaches: number;
+  openIssues: number;
+  openIncidents: number;
+};
+
+export function buildTaxonomyOverview(
+  categories: RiskCategory[],
+  risks: Risk[],
+  lastReviewedByRisk: Record<string, string>,
+  linkedControlCounts: Record<string, number>,
+  issueCategoryIds: Record<string, string[]>,
+  incidentCategoryIds: Record<string, string[]>,
+  issues: Issue[],
+  incidents: Incident[],
+): TaxonomyOverviewRow[] {
+  const activeRisks = risks.filter(isActiveRisk);
+
+  return categories.map((category) => {
+    const inCategory = activeRisks.filter(
+      (risk) => risk.category_id === category.id,
+    );
+
+    return {
+      categoryId: category.id,
+      name: category.name,
+      appetite: categoryAppetite(categories, category.id),
+      risks: inCategory.length,
+      highOrCritical: inCategory.filter((risk) => {
+        const band = getSeverityBand(
+          getRiskScore(risk.likelihood, risk.impact),
+        );
+        return band === "High" || band === "Critical";
+      }).length,
+      uncontrolled: inCategory.filter(
+        (risk) => (linkedControlCounts[risk.id] ?? 0) === 0,
+      ).length,
+      reviewsDue: inCategory.filter((risk) =>
+        isReviewDue(
+          lastReviewedByRisk[risk.id] ?? null,
+          risk.likelihood,
+          risk.impact,
+        ),
+      ).length,
+      appetiteBreaches: inCategory.filter((risk) =>
+        isAppetiteBreach(risk, categories),
+      ).length,
+      openIssues: issues.filter(
+        (issue) =>
+          isIssueOpen(issue.status) &&
+          (issueCategoryIds[issue.id] ?? []).includes(category.id),
+      ).length,
+      openIncidents: incidents.filter(
+        (incident) =>
+          isIncidentOpen(incident.status) &&
+          (incidentCategoryIds[incident.id] ?? []).includes(category.id),
+      ).length,
+    };
+  });
 }

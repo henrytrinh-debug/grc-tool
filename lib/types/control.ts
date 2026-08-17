@@ -3,6 +3,8 @@ import { daysSinceIso, formatIsoDate } from "@/lib/dates";
 
 export type Effectiveness = "effective" | "ineffective" | "not_tested";
 
+export type ControlType = "preventive" | "detective" | "corrective";
+
 export type Control = {
   id: string;
   title: string;
@@ -10,6 +12,8 @@ export type Control = {
   is_key: boolean;
   effectiveness: Effectiveness;
   last_tested_at: string | null;
+  assignee_id?: string | null;
+  control_type?: ControlType;
   owner_email?: string;
   owner_id?: string;
   created_at?: string;
@@ -17,7 +21,13 @@ export type Control = {
 
 export type NewControl = Pick<
   Control,
-  "title" | "description" | "is_key" | "effectiveness" | "last_tested_at"
+  | "title"
+  | "description"
+  | "is_key"
+  | "effectiveness"
+  | "last_tested_at"
+  | "assignee_id"
+  | "control_type"
 >;
 
 export const EFFECTIVENESS_OPTIONS: {
@@ -46,14 +56,37 @@ export function formatEffectiveness(effectiveness: Effectiveness) {
   );
 }
 
-export function toControlFormPayload(form: NewControl) {
-  return {
+export function toControlFormPayload(
+  form: NewControl,
+  includeEnterprise = false,
+) {
+  const payload: Record<string, unknown> = {
     title: form.title,
     description: form.description,
     is_key: form.is_key,
     effectiveness: form.effectiveness,
     last_tested_at: form.last_tested_at || null,
   };
+
+  if (includeEnterprise) {
+    payload.assignee_id = form.assignee_id || null;
+    payload.control_type = form.control_type ?? "preventive";
+  }
+
+  return payload;
+}
+
+export const CONTROL_TYPE_OPTIONS: { value: ControlType; label: string }[] = [
+  { value: "preventive", label: "Preventive" },
+  { value: "detective", label: "Detective" },
+  { value: "corrective", label: "Corrective" },
+];
+
+export function formatControlType(value: ControlType | null | undefined) {
+  return (
+    CONTROL_TYPE_OPTIONS.find((option) => option.value === value)?.label ??
+    "Preventive"
+  );
 }
 
 export function formatKeyStatus(isKey: boolean) {

@@ -13,6 +13,7 @@ export type Incident = {
   status: IncidentStatus;
   root_cause: string;
   resolved_at?: string | null;
+  assignee_id?: string | null;
   owner_email?: string;
   owner_id?: string;
   created_at?: string;
@@ -26,6 +27,7 @@ export type NewIncident = Pick<
   | "severity"
   | "status"
   | "root_cause"
+  | "assignee_id"
 >;
 
 export const SEVERITY_OPTIONS: { value: Severity; label: string }[] = [
@@ -79,8 +81,11 @@ export function getOpenIncidentAgeDays(incident: Incident) {
   return Math.max(0, Math.round(daysSinceIso(incident.date_occurred)));
 }
 
-export function toIncidentFormPayload(form: NewIncident) {
-  return {
+export function toIncidentFormPayload(
+  form: NewIncident,
+  includeEnterprise = false,
+) {
+  const payload: Record<string, unknown> = {
     title: form.title,
     description: form.description,
     date_occurred: form.date_occurred,
@@ -88,6 +93,12 @@ export function toIncidentFormPayload(form: NewIncident) {
     status: form.status,
     root_cause: form.root_cause,
   };
+
+  if (includeEnterprise) {
+    payload.assignee_id = form.assignee_id || null;
+  }
+
+  return payload;
 }
 
 /**

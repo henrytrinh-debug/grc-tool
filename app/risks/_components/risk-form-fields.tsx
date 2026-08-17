@@ -1,7 +1,14 @@
+"use client";
+
+import { AssigneeField } from "@/app/components/assignee-field";
 import { inputClassName, labelClassName } from "@/app/components/ui";
 import { RiskScorePicker } from "@/app/components/risk-score-picker";
 import { useSettings } from "@/lib/settings/context";
-import { RISK_TREATMENT_OPTIONS, type NewRisk } from "@/lib/types/risk";
+import {
+  RISK_STATUS_OPTIONS,
+  RISK_TREATMENT_OPTIONS,
+  type NewRisk,
+} from "@/lib/types/risk";
 
 type RiskFormFieldsProps = {
   form: NewRisk;
@@ -9,7 +16,7 @@ type RiskFormFieldsProps = {
 };
 
 export function RiskFormFields({ form, onChange }: RiskFormFieldsProps) {
-  const { categories, schemaReady } = useSettings();
+  const { categories, schemaReady, people, enterpriseReady } = useSettings();
 
   return (
     <>
@@ -83,6 +90,32 @@ export function RiskFormFields({ form, onChange }: RiskFormFieldsProps) {
               ))}
             </select>
           </label>
+        </>
+      )}
+
+      {enterpriseReady && (
+        <>
+          <label className="flex flex-col gap-1">
+            <span className={labelClassName}>Status</span>
+            <select
+              value={form.status ?? "open"}
+              onChange={(event) =>
+                onChange({ status: event.target.value as NewRisk["status"] })
+              }
+              className={inputClassName}
+            >
+              {RISK_STATUS_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <AssigneeField
+            value={form.assignee_id ?? ""}
+            people={people}
+            onChange={(assigneeId) => onChange({ assignee_id: assigneeId })}
+          />
         </>
       )}
     </>

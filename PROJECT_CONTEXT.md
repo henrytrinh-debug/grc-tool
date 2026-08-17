@@ -41,13 +41,15 @@ Core risk register entries.
 | impact | int2 | 1–5, constrained. Defaults: Negligible → Severe. Same matrix picker. |
 | category_id | uuid | nullable FK → `risk_categories`, on delete set null. Added in `003_admin_settings.sql`. |
 | treatment | text | `'mitigate' \| 'accept' \| 'transfer' \| 'avoid'`, default `mitigate`. Added in `003`. |
+| status | text | `'open' \| 'monitoring' \| 'closed'`, default `open`. Added in `004_enterprise.sql`. Closed risks are excluded from heat maps, taxonomy counts, attention, and RCSA start. |
+| assignee_id | uuid | nullable FK → `org_people`, on delete set null. Added in `004`. |
 | owner_id | uuid | FK → auth.users, set automatically from logged-in user |
 | owner_email | text | denormalized copy of owner's email, for display (auth.users isn't publicly queryable) |
 | created_at | timestamptz | |
 
-No status field yet (open/closed) — deferred. Inherent vs residual is **not stored**:
-the register holds inherent likelihood × impact; RCSA shows an *indicative* residual
-(likelihood reduced by 1 when all relevant controls are effective) as a reviewer aid only.
+Inherent vs residual is **not stored**: the register holds inherent likelihood × impact;
+RCSA shows an *indicative* residual (likelihood reduced by 1 when all relevant controls
+are effective) as a reviewer aid only.
 
 ### `controls`
 Independent module — controls can exist without being linked to any risk.
@@ -60,6 +62,8 @@ Independent module — controls can exist without being linked to any risk.
 | is_key | boolean | Key vs Non-Key control |
 | effectiveness | text | 'effective' \| 'ineffective' \| 'not_tested' — **cached snapshot of latest test result** |
 | last_tested_at | date | **cached snapshot** — kept in sync with `control_test_results` whenever a new test is recorded |
+| control_type | text | `'preventive' \| 'detective' \| 'corrective'`, default `preventive`. Added in `004`. |
+| assignee_id | uuid | nullable FK → `org_people`, on delete set null. Added in `004`. |
 | owner_id / owner_email | uuid / text | independent from any linked risk's owner |
 | created_at | timestamptz | |
 
@@ -75,7 +79,14 @@ Cadence days come from `org_settings` via `getSettings()` / `getTestingCadenceDa
 One row per owner (`owner_id` PK). Holds organisation name, likelihood/impact labels, score-band thresholds, review cadence by band, control testing cadence, issue due-date windows, and optional `demo_ids` for the demonstration dataset. Schema: `supabase/schema/003_admin_settings.sql`. The app degrades to `DEFAULT_SETTINGS` in `lib/settings/defaults.ts` if the table is missing (`PGRST205` / `42P01` / schema cache).
 
 ### `risk_categories`
-Owner-scoped taxonomy used on the risk register (`name` unique per owner). Risks point at a category via `category_id`.
+Owner-scoped taxonomy used on the risk register (`name` unique per owner). Risks point at a category via `category_id`. `appetite_band` (`Low` \| `Medium` \| `High` \| `Critical`, default `High`) is added in `004` — a risk is an appetite breach when its inherent band is strictly above the category appetite (closed risks are ignored).
+
+Controls, incidents, and issues **inherit** taxonomy from linked risks. List filters use “any linked risk in category X”, with `uncategorised` meaning no linked risk has a `category_id`. Nested PostgREST `risks(..., category_id)` is only requested when `003` is applied.
+
+### `org_people`
+Directory of accountable owners for the signed-in account (not a second tenant). Schema: `supabase/schema/004_enterprise.sql`. Unique `(owner_id, email)`. `line_of_defence` is `'first' \| 'second' \| 'third'`. Assignments on risks/controls/incidents/issues point here. The signed-in user is still the RLS `owner_id` of every row — people are labels for accountability, not additional logins.
+
+The app sets `enterpriseReady` when `org_people` exists. Until `004` is applied, assignee / status / control type / appetite columns are omitted from writes.
 
 The runtime snapshot is hydrated by `SettingsProvider` (`lib/settings/context.tsx`) into `lib/settings/store.ts` so pure helpers (`getSeverityBand`, `getReviewCadenceDays`, `formatLikelihood`, `getDefaultDueDate`) pick up live values without threading React context everywhere.
 
@@ -107,6 +118,7 @@ Recording a new result here also updates `controls.effectiveness` / `controls.la
 | status | text | 'open' \| 'investigating' \| 'resolved' |
 | root_cause | text | optional, filled in once known |
 | resolved_at | timestamptz | nullable — added in `002_incident_resolved_at.sql`, see note below |
+| assignee_id | uuid | nullable FK → `org_people`. Added in `004`. |
 | owner_id / owner_email | uuid / text | |
 | created_at | timestamptz | |
 
@@ -150,10 +162,10 @@ so a rating change has provenance rather than silently overwriting the risk.
 | created_at | timestamptz | |
 
 A risk's "Last Reviewed" is **derived** from the newest `reviewed_at` here, not stored on the
-risk — which is why there's still no review-status field on `risks`. Review **due** is also
-derived from Admin cadence: by default Critical every 90 days, High every 180 days,
-Medium/Low annually. The register filter `reviewRecency=due` and Oversight's "Due for Review"
-stat use `getReviewCadenceDays` / `isReviewDue`, not a single 365-day rule.
+risk. Review **due** is also derived from Admin cadence: by default Critical every 90 days,
+High every 180 days, Medium/Low annually. The register filter `reviewRecency=due` and
+Oversight's "Due for Review" stat use `getReviewCadenceDays` / `isReviewDue`. Next review
+due dates are shown on the risk register via `formatNextReviewDue`.
 
 ### `issues`
 Findings raised from audits, control failures, incidents, or risk assessments. This is the
@@ -174,6 +186,7 @@ issues drive remediation to completion.
 | remediation_plan | text | required before an issue can go to review |
 | closure_notes | text | required before an issue can close |
 | closed_at | timestamptz | stamped by the workflow transition, not hand-edited |
+| assignee_id | uuid | nullable FK → `org_people`. Added in `004`. |
 | owner_id / owner_email | uuid / text | |
 | created_at | timestamptz | |
 
@@ -246,7 +259,7 @@ policy anywhere, it's leftover from before auth and should be replaced with an o
 
 Early tables were created by hand in the Supabase SQL editor with no record in the repo.
 From the Issues module onward, schema lives in versioned files under `supabase/schema/`
-(e.g. `001_issues.sql`, `002_incident_resolved_at.sql`, `003_admin_settings.sql`) which are **run manually in the
+(e.g. `001_issues.sql`, `002_incident_resolved_at.sql`, `003_admin_settings.sql`, `004_enterprise.sql`) which are **run manually in the
 Supabase SQL editor** — there is no migration runner wired up. The files are written to
 be re-runnable (`create table if not exists`, `add column if not exists`, `drop policy
 if exists` before create).
@@ -269,7 +282,7 @@ If the app 404s or errors on a whole module, check whether its SQL has been appl
   issue workflow/action-plan/activity panels, and a `constants.ts` holding the empty-form
   default. The `_` prefix keeps these out of Next.js routing.
 - **Sidebar navigation** — grouped sections rather than a flat module list: Overview
-  (Home, Oversight), Registers (Risks, Controls, Incidents, Issues), Assessment
+  (Home, My work, Oversight), Registers (Risks, Controls, Incidents, Issues), Assessment
   (Risk Assessment), Administration (Settings → `/admin`). The header shows the
   organisation name from Admin. Collapses behind a Menu button on small screens.
   `⌘K` / `Ctrl+K` opens a jump palette (`app/components/command-palette.tsx`).
@@ -277,17 +290,21 @@ If the app 404s or errors on a whole module, check whether its SQL has been appl
   (`app/components/app-shell.tsx`), which hides the sidebar on `/login` and otherwise
   renders `app/components/app-sidebar.tsx` (active-link highlighting + centralized log out).
   `SettingsProvider` wraps both the login and authenticated trees.
-- **Home page** (`/`) — welcome message + user email, stat cards (risks, overdue controls,
-  open incidents, open issues), a **Needs attention** queue (overdue issues, failed/overdue
-  key controls, open high/critical incidents, and High/Critical risks that are uncontrolled
-  or past their review cadence), and dashboard visuals, all click-through:
-  - Risk heat map (5×5 grid, likelihood × impact, labeled axes, color-coded)
-  - Bar chart: risk count by severity band (calculated from likelihood × impact: 1–5 Low,
-    6–10 Medium, 11–19 High, 20–25 Critical)
+- **Home page** (`/`) — welcome message + user email, optional **taxonomy lens** filter
+  (inherited onto controls/incidents/issues via linked risks), stat cards (open risks,
+  overdue controls, open incidents, open issues, plus assigned-to-me and above-appetite
+  when `004` is applied), a **Needs attention** queue (overdue issues, failed/overdue
+  key controls, open high/critical incidents, appetite breaches, and High/Critical risks
+  that are uncontrolled or past their review cadence), and dashboard visuals, all click-through:
+  - Risk heat map (5×5 grid, likelihood × impact, labeled axes, color-coded; closed risks excluded)
+  - Bar chart: risk count by severity band
+  - Taxonomy and treatment mix bar charts
   - Donut charts: controls by effectiveness, incidents by status, issues by status
   - Remediation health: action-plan completion across open issues, plus open/overdue
     counts per severity
   - Built with `recharts`.
+- **My work** (`/work`) — assigned-to-me queue across risks, controls, incidents, and issues.
+  Resolves “me” by matching `org_people.email` to the signed-in user.
 - **Risk ratings** — never two independent dropdowns. Use `RiskScorePicker`
   (`app/components/risk-score-picker.tsx`): a 5×5 heat map so the reviewer sees the
   resulting score band while choosing. Labels and band thresholds live in Admin
@@ -295,9 +312,13 @@ If the app 404s or errors on a whole module, check whether its SQL has been appl
   `LIKELIHOOD_LABELS` / `IMPACT_LABELS` in `lib/types/risk.ts`. Stored values stay 1–5 integers.
 - **Admin** (`/admin`) — organisation name, likelihood/impact labels, score bands,
   review cadence by band, key vs non-key testing cadence, issue due-date windows,
-  risk taxonomy CRUD, and load/remove demonstration data (`lib/admin/demo-data.ts`).
-  Requires `003_admin_settings.sql`. Until that file is run, the page shows a banner
-  and the rest of the app uses built-in defaults.
+  risk taxonomy CRUD (including appetite band after `004`), people directory,
+  and load/remove demonstration data (`lib/admin/demo-data.ts`).
+  Requires `003_admin_settings.sql`. `004_enterprise.sql` unlocks people, assignees,
+  risk status, control type, and appetite. Until those files are run, the page shows
+  banners and the rest of the app omits unknown columns.
+- **Command palette** — pages, filtered views, taxonomy deep-links, and jump-to-record
+  by title (fetched when the palette opens).
 - **Bar-chart hover** — Recharts' default pale overlay is disabled
   (`chartHoverCursor = false` in `app/components/chart-theme.ts`); hovered bars use a
   teal stroke instead.
@@ -408,6 +429,7 @@ a new env var locally.
 | — | RCSA evidence brief, linked issues, 5×5 rating picker, indicative residual | ✅ Done |
 | — | Cadence, attention-queue risks, CSV export, command palette, mobile nav | ✅ Done |
 | — | Admin: configurable methodology, taxonomy, demonstration data, grouped nav | ✅ Done |
+| — | Enterprise operating model: people directory, assignees, risk status, control type, category appetite, inherited taxonomy filters, My work, expanded demo | ✅ Done |
 | 7 | AI-assisted rating recommendations during RCSA | 🔜 Not started |
 
 ---
@@ -449,13 +471,14 @@ session progress isn't tracked; a session is just a grouping for the reviews it 
   failed audit-row write cannot leave a review that disagrees with the register.
 - Residual is a reviewer aid, not a second pair of columns on `risks` — storing
   residual would be a later schema change if 2LoD wants a register of residual scores.
-- The deferred "risk status" field still doesn't exist; "last reviewed" is derived from
-  `rcsa_reviews` instead of stored on the risk.
+- The deferred "risk status" field is now on `risks` (`open` / `monitoring` / `closed`)
+  after `004`. "Last reviewed" remains derived from `rcsa_reviews`.
 
 **Deliberately not built yet** (common GRC features that don't earn a table until
-they're needed): KRIs, explicit risk appetite/tolerance, inherent-vs-residual as
-stored fields, third-party / vendor risk, control design vs operating effectiveness
-as separate ratings.
+they're needed): KRIs, stored residual scores, true org memberships / RBAC (the
+account is still the tenant; `org_people` is a directory, not extra logins),
+third-party / vendor risk as a separate module, control design vs operating
+effectiveness as separate ratings, AI RCSA recommendations.
 
 ## Objective 7 — AI-assisted rating recommendations (not started)
 
@@ -493,7 +516,10 @@ visuals:
 - **Risks** — severity band distribution (reuses `buildSeverityBandCounts`); review
   recency buckets (never reviewed / >365 days / 180–365 days / within 180 days),
   derived from the max `reviewed_at` per risk in `rcsa_reviews`, plus a **Due for
-  Review** headline that applies the Admin review cadence by severity band.
+  Review** headline that applies the Admin review cadence by severity band;
+  **taxonomy overview** (exposure, uncontrolled, due reviews, appetite breaches,
+  open issues/incidents per category); **above appetite** headline. Closed risks
+  are excluded from these risk metrics.
 - **Issues & Remediation** — open-issue aging buckets (0–30/31–60/61–90/90+ days
   since `identified_at`) broken out by severity; issue flow (opened vs closed,
   trailing 30/90 days); % of open issues overdue and average action-plan completion

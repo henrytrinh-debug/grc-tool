@@ -24,8 +24,16 @@ import {
   sortIncidentsByPriority,
 } from "@/lib/list-filters";
 import { downloadCsv } from "@/lib/export/csv";
+import { useSettings } from "@/lib/settings/context";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { throwIfAnyQueryError } from "@/lib/supabase/owned";
+import {
+  assigneeFilterOptions,
+  categoryFilterOptions,
+  indexLinkedCategoriesFromRisks,
+  uniqueCategoryLabels,
+} from "@/lib/taxonomy";
+import { formatPersonName, personByEmail } from "@/lib/types/person";
 import {
   formatDateOccurred,
   formatIncidentStatus,
@@ -38,6 +46,8 @@ import {
 } from "@/lib/types/incident";
 import {
   groupIncidentRiskRowsByIncident,
+  INCIDENT_RISK_RISK_SELECT,
+  INCIDENT_RISK_RISK_SELECT_WITH_CATEGORY,
   type IncidentRiskRow,
 } from "@/lib/types/incident-risk";
 import { countGroupedLinks } from "@/lib/types/join-utils";
@@ -48,9 +58,13 @@ function IncidentsPageContent() {
     parseIncidentFilters,
   );
 
+  const { categories, schemaReady, people, enterpriseReady } = useSettings();
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [linkedRiskCounts, setLinkedRiskCounts] = useState<
     Record<string, number>
+  >({});
+  const [linkedCategoryIds, setLinkedCategoryIds] = useState<
+    Record<string, string[]>
   >({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -69,7 +83,9 @@ function IncidentsPageContent() {
         supabase
           .from("incident_risks")
           .select(
-            "id, incident_id, risk_id, risks(title, likelihood, impact, owner_email)",
+            schemaReady
+              ? INCIDENT_RISK_RISK_SELECT_WITH_CATEGORY
+              : INCIDENT_RISK_RISK_SELECT,
           )
           .eq("owner_id", ownerId),
       ]);
@@ -78,25 +94,30 @@ function IncidentsPageContent() {
 
       setIncidents((incidentsResult.data ?? []) as Incident[]);
 
-      setLinkedRiskCounts(
-        countGroupedLinks(
-          groupIncidentRiskRowsByIncident(
-            (linksResult.data ?? []) as IncidentRiskRow[],
-          ),
-        ),
+      const grouped = groupIncidentRiskRowsByIncident(
+        (linksResult.data ?? []) as IncidentRiskRow[],
       );
+      setLinkedRiskCounts(countGroupedLinks(grouped));
+      setLinkedCategoryIds(indexLinkedCategoriesFromRisks(grouped));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load incidents");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [schemaReady]);
 
-  const { authLoading } = useRequireAuth(loadIncidents);
+  const { user, authLoading } = useRequireAuth(loadIncidents);
+  const myPersonId = personByEmail(people, user?.email)?.id ?? null;
 
   const filteredIncidents = useMemo(
-    () => sortIncidentsByPriority(filterIncidents(incidents, filters)),
-    [incidents, filters],
+    () =>
+      sortIncidentsByPriority(
+        filterIncidents(incidents, filters, {
+          linkedCategoryIds,
+          myPersonId,
+        }),
+      ),
+    [incidents, filters, linkedCategoryIds, myPersonId],
   );
 
   const statusFilterValue =
@@ -112,6 +133,8 @@ function IncidentsPageContent() {
     q: filters.q,
     severity: filters.severity,
     status: filters.status,
+    categoryId: filters.categoryId,
+    assignee: filters.assignee,
   });
 
   if (authLoading) {
@@ -124,6 +147,10 @@ function IncidentsPageContent() {
         <PageHeader
           title="Incident Register"
           description="Track and manage security and compliance incidents."
+          breadcrumbs={[
+            { href: "/", label: "Home" },
+            { label: "Incidents" },
+          ]}
           actions={
             <Link href="/incidents/new" className={primaryButtonClassName}>
               Add Incident
@@ -156,6 +183,8 @@ function IncidentsPageContent() {
                         "Severity",
                         "Status",
                         "Age (days)",
+                        "Category",
+                        "Assignee",
                         "Linked Risks",
                       ],
                       filteredIncidents.map((incident) => [
@@ -164,6 +193,11 @@ function IncidentsPageContent() {
                         formatSeverity(incident.severity),
                         formatIncidentStatus(incident.status),
                         getOpenIncidentAgeDays(incident) ?? "",
+                        uniqueCategoryLabels(
+                          categories,
+                          linkedCategoryIds[incident.id] ?? [],
+                        ),
+                        formatPersonName(people, incident.assignee_id),
                         linkedRiskCounts[incident.id] ?? 0,
                       ]),
                     )
@@ -198,6 +232,22 @@ function IncidentsPageContent() {
                 },
               ]}
             />
+            {schemaReady && (
+              <FilterSelect
+                label="Category"
+                value={filters.categoryId}
+                onChange={(value) => updateFilters({ category: value })}
+                options={categoryFilterOptions(categories)}
+              />
+            )}
+            {enterpriseReady && (
+              <FilterSelect
+                label="Owner"
+                value={filters.assignee}
+                onChange={(value) => updateFilters({ assignee: value })}
+                options={assigneeFilterOptions(people)}
+              />
+            )}
           </ListToolbar>
 
           {loading ? (
@@ -221,6 +271,12 @@ function IncidentsPageContent() {
                 <thead className="bg-slate-50 text-slate-600 dark:bg-slate-950 dark:text-slate-400">
                   <tr>
                     <th className="px-6 py-3 font-medium">Title</th>
+                    {schemaReady && (
+                      <th className="px-6 py-3 font-medium">Category</th>
+                    )}
+                    {enterpriseReady && (
+                      <th className="px-6 py-3 font-medium">Assignee</th>
+                    )}
                     <th className="px-6 py-3 font-medium">Date Occurred</th>
                     <th className="px-6 py-3 font-medium">Age</th>
                     <th className="px-6 py-3 font-medium">Severity</th>
@@ -250,6 +306,19 @@ function IncidentsPageContent() {
                       <td className="px-6 py-4 font-medium text-slate-950 dark:text-slate-50">
                         {incident.title}
                       </td>
+                      {schemaReady && (
+                        <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
+                          {uniqueCategoryLabels(
+                            categories,
+                            linkedCategoryIds[incident.id] ?? [],
+                          )}
+                        </td>
+                      )}
+                      {enterpriseReady && (
+                        <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
+                          {formatPersonName(people, incident.assignee_id)}
+                        </td>
+                      )}
                       <td className="px-6 py-4 text-slate-950 dark:text-slate-50">
                         {formatDateOccurred(incident.date_occurred)}
                       </td>

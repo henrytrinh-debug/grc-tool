@@ -3,6 +3,8 @@ import { getSettings } from "@/lib/settings/store";
 
 export type RiskTreatment = "mitigate" | "accept" | "transfer" | "avoid";
 
+export type RiskStatus = "open" | "monitoring" | "closed";
+
 export type Risk = {
   id: string;
   title: string;
@@ -11,6 +13,8 @@ export type Risk = {
   impact: number;
   category_id?: string | null;
   treatment?: RiskTreatment;
+  assignee_id?: string | null;
+  status?: RiskStatus;
   owner_email?: string;
   owner_id?: string;
   created_at?: string;
@@ -18,7 +22,14 @@ export type Risk = {
 
 export type NewRisk = Pick<
   Risk,
-  "title" | "description" | "likelihood" | "impact" | "category_id" | "treatment"
+  | "title"
+  | "description"
+  | "likelihood"
+  | "impact"
+  | "category_id"
+  | "treatment"
+  | "assignee_id"
+  | "status"
 >;
 
 export const RISK_SCALE_VALUES = [1, 2, 3, 4, 5] as const;
@@ -30,6 +41,19 @@ export const LIKELIHOOD_LABELS = DEFAULT_SETTINGS.likelihoodLabels;
 
 /** ISO 31000-style qualitative labels for the 1–5 impact scale. */
 export const IMPACT_LABELS = DEFAULT_SETTINGS.impactLabels;
+
+export const RISK_STATUS_OPTIONS: { value: RiskStatus; label: string }[] = [
+  { value: "open", label: "Open" },
+  { value: "monitoring", label: "Monitoring" },
+  { value: "closed", label: "Closed" },
+];
+
+export function formatRiskStatus(status: RiskStatus | null | undefined) {
+  return (
+    RISK_STATUS_OPTIONS.find((option) => option.value === status)?.label ??
+    "Open"
+  );
+}
 
 export const RISK_TREATMENT_OPTIONS: {
   value: RiskTreatment;
@@ -72,7 +96,7 @@ export function formatImpactOption(value: number) {
 
 export function toRiskFormPayload(
   form: NewRisk,
-  includeTaxonomy = false,
+  options: { includeTaxonomy?: boolean; includeEnterprise?: boolean } = {},
 ): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     title: form.title,
@@ -81,9 +105,14 @@ export function toRiskFormPayload(
     impact: form.impact,
   };
 
-  if (includeTaxonomy) {
+  if (options.includeTaxonomy) {
     payload.category_id = form.category_id || null;
     payload.treatment = form.treatment ?? "mitigate";
+  }
+
+  if (options.includeEnterprise) {
+    payload.assignee_id = form.assignee_id || null;
+    payload.status = form.status ?? "open";
   }
 
   return payload;

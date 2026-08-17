@@ -7,4 +7,5 @@ export const EMPTY_INCIDENT_FORM: NewIncident = {
   severity: "medium",
   status: "open",
   root_cause: "",
+  assignee_id: "",
 };

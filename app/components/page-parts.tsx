@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { Breadcrumbs } from "./breadcrumbs";
 import { mutedTextClassName } from "./ui";
 
 export function ErrorBanner({ message }: { message: string | null }) {
@@ -49,14 +50,21 @@ export function PageHeader({
   title,
   description,
   actions,
+  breadcrumbs,
 }: {
   title: string;
   description?: string;
   actions?: ReactNode;
+  breadcrumbs?: Array<{ href?: string; label: string }>;
 }) {
   return (
     <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
       <div>
+        {breadcrumbs && breadcrumbs.length > 0 && (
+          <div className="mb-3">
+            <Breadcrumbs items={breadcrumbs} />
+          </div>
+        )}
         <h1 className="text-3xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">
           {title}
         </h1>
@@ -64,6 +72,14 @@ export function PageHeader({
       </div>
       {actions && <div className="flex shrink-0 flex-wrap gap-3">{actions}</div>}
     </header>
+  );
+}
+
+export function SchemaNotice({ children }: { children: ReactNode }) {
+  return (
+    <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+      {children}
+    </p>
   );
 }
 

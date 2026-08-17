@@ -4,7 +4,7 @@ import {
 } from "@/lib/dashboard/analytics";
 import { DEFAULT_SETTINGS } from "@/lib/settings/defaults";
 import { getSettings } from "@/lib/settings/store";
-import { daysSinceIso, formatIsoDate } from "@/lib/dates";
+import { addDaysToIsoDate, daysSinceIso, formatIsoDate, todayIsoDate } from "@/lib/dates";
 
 export type RcsaSession = {
   id: string;
@@ -45,6 +45,7 @@ export type RiskWithLastReviewed = {
   likelihood: number;
   impact: number;
   owner_email?: string;
+  category_id?: string | null;
   lastReviewedAt: string | null;
 };
 
@@ -120,6 +121,34 @@ export function buildLastReviewedByRisk(
   }
 
   return lastReviewedByRisk;
+}
+
+export function getNextReviewDueDate(
+  lastReviewedAt: string | null | undefined,
+  likelihood: number,
+  impact: number,
+) {
+  if (!lastReviewedAt) {
+    return todayIsoDate();
+  }
+
+  const reviewedDate = lastReviewedAt.slice(0, 10);
+  return addDaysToIsoDate(
+    reviewedDate,
+    getReviewCadenceDays(likelihood, impact),
+  );
+}
+
+export function formatNextReviewDue(
+  lastReviewedAt: string | null | undefined,
+  likelihood: number,
+  impact: number,
+) {
+  if (isReviewDue(lastReviewedAt, likelihood, impact)) {
+    return lastReviewedAt ? "Overdue" : "Due now";
+  }
+
+  return formatIsoDate(getNextReviewDueDate(lastReviewedAt, likelihood, impact));
 }
 
 export function toRcsaReviewInsertPayload(

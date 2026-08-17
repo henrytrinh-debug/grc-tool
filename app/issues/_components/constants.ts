@@ -16,5 +16,6 @@ export function createEmptyIssueForm(): NewIssue {
     root_cause: "",
     remediation_plan: "",
     closure_notes: "",
+    assignee_id: "",
   };
 }

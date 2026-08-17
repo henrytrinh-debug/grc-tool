@@ -65,7 +65,7 @@ export default function EditRiskPage() {
   const [submitting, setSubmitting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { schemaReady } = useSettings();
+  const { schemaReady, enterpriseReady } = useSettings();
 
   const {
     linked: linkedControls,
@@ -149,6 +149,8 @@ export default function EditRiskPage() {
           impact: loadedRisk.impact,
           category_id: loadedRisk.category_id ?? "",
           treatment: loadedRisk.treatment ?? "mitigate",
+          assignee_id: loadedRisk.assignee_id ?? "",
+          status: loadedRisk.status ?? "open",
         });
 
         const [controlsResult, incidentsResult] = await Promise.all([
@@ -205,7 +207,9 @@ export default function EditRiskPage() {
         form.likelihood !== risk.likelihood ||
         form.impact !== risk.impact ||
         (form.category_id || "") !== (risk.category_id ?? "") ||
-        (form.treatment ?? "mitigate") !== (risk.treatment ?? "mitigate")),
+        (form.treatment ?? "mitigate") !== (risk.treatment ?? "mitigate") ||
+        (form.assignee_id || "") !== (risk.assignee_id ?? "") ||
+        (form.status ?? "open") !== (risk.status ?? "open")),
   );
   const { confirmLeave } = useUnsavedChanges(dirty);
 
@@ -227,7 +231,12 @@ export default function EditRiskPage() {
       const supabase = getSupabaseClient();
       const { error: updateError } = await supabase
         .from("risks")
-        .update(toRiskFormPayload(form, schemaReady))
+        .update(
+          toRiskFormPayload(form, {
+            includeTaxonomy: schemaReady,
+            includeEnterprise: enterpriseReady,
+          }),
+        )
         .eq("id", risk.id)
         .eq("owner_id", user.id);
 

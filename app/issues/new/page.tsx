@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { FormEvent, Suspense, useCallback, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { Breadcrumbs } from "@/app/components/breadcrumbs";
 import {
-  BackLink,
   ErrorBanner,
   PageLoading,
 } from "@/app/components/page-parts";
@@ -13,6 +13,7 @@ import {
   secondaryButtonClassName,
 } from "@/app/components/ui";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
+import { useSettings } from "@/lib/settings/context";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import {
   getDefaultDueDate,
@@ -77,6 +78,7 @@ function NewIssuePageContent() {
   const [error, setError] = useState<string | null>(null);
 
   const { user, authLoading } = useRequireAuth();
+  const { enterpriseReady } = useSettings();
 
   const updateForm = useCallback((updates: Partial<NewIssue>) => {
     setForm((current) => {
@@ -107,7 +109,7 @@ function NewIssuePageContent() {
       const { data, error: insertError } = await supabase
         .from("issues")
         .insert({
-          ...toIssueFormPayload(form),
+          ...toIssueFormPayload(form, enterpriseReady),
           status: "open",
           owner_id: user.id,
           owner_email: user.email,
@@ -169,7 +171,13 @@ function NewIssuePageContent() {
     <div className="min-h-full bg-slate-50 px-6 py-10 dark:bg-slate-950">
       <main className="mx-auto flex w-full max-w-4xl flex-col gap-8">
         <header>
-          <BackLink href="/issues">← Back to issues</BackLink>
+          <Breadcrumbs
+            items={[
+              { href: "/", label: "Home" },
+              { href: "/issues", label: "Issues" },
+              { label: "Raise" },
+            ]}
+          />
           <h1 className="mt-4 text-3xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">
             Raise Issue
           </h1>

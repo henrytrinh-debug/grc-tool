@@ -2,6 +2,7 @@ import { groupJoinRows } from "@/lib/types/join-utils";
 import {
   INCIDENT_JOIN_COLUMNS,
   RISK_JOIN_COLUMNS,
+  RISK_JOIN_COLUMNS_WITH_CATEGORY,
   toLinkedIncident,
   toLinkedRisk,
   type IncidentJoin,
@@ -10,6 +11,7 @@ import {
 } from "@/lib/types/linked-entities";
 
 export const INCIDENT_RISK_RISK_SELECT = `id, incident_id, risk_id, ${RISK_JOIN_COLUMNS}`;
+export const INCIDENT_RISK_RISK_SELECT_WITH_CATEGORY = `id, incident_id, risk_id, ${RISK_JOIN_COLUMNS_WITH_CATEGORY}`;
 
 export const INCIDENT_RISK_INCIDENT_SELECT = `id, incident_id, risk_id, ${INCIDENT_JOIN_COLUMNS}`;
 

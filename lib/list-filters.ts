@@ -1,3 +1,5 @@
+import { isAppetiteBreach, matchesInheritedCategory, matchesCategoryFilter } from "@/lib/taxonomy";
+import type { RiskCategory } from "@/lib/settings/defaults";
 import {
   getRiskScore,
   getSeverityBand,
@@ -6,6 +8,7 @@ import {
 import {
   getTestingStatus,
   type Control,
+  type ControlType,
   type Effectiveness,
 } from "@/lib/types/control";
 import {
@@ -21,7 +24,7 @@ import {
   type IssueStatus,
 } from "@/lib/types/issue";
 import { getReviewRecencyBucket, isReviewDue } from "@/lib/types/rcsa";
-import type { Risk, RiskTreatment } from "@/lib/types/risk";
+import type { Risk, RiskStatus, RiskTreatment } from "@/lib/types/risk";
 
 const RISK_TREATMENTS: RiskTreatment[] = [
   "mitigate",
@@ -29,6 +32,9 @@ const RISK_TREATMENTS: RiskTreatment[] = [
   "transfer",
   "avoid",
 ];
+
+const RISK_STATUSES: RiskStatus[] = ["open", "monitoring", "closed"];
+const CONTROL_TYPES: ControlType[] = ["preventive", "detective", "corrective"];
 
 export type RiskListFilters = {
   q: string;
@@ -39,6 +45,9 @@ export type RiskListFilters = {
   uncontrolled: boolean;
   categoryId: string;
   treatment: RiskTreatment | "";
+  status: RiskStatus | "";
+  assignee: string;
+  appetiteBreach: boolean;
 };
 
 export type ControlListFilters = {
@@ -47,12 +56,17 @@ export type ControlListFilters = {
   testingStatus: string;
   isKey: "" | "true" | "false";
   unmapped: boolean;
+  categoryId: string;
+  controlType: ControlType | "";
+  assignee: string;
 };
 
 export type IncidentListFilters = {
   q: string;
   severity: Severity | "";
   status: IncidentStatus[];
+  categoryId: string;
+  assignee: string;
 };
 
 export type IssueListFilters = {
@@ -61,6 +75,8 @@ export type IssueListFilters = {
   status: IssueStatus[];
   source: IssueSource | "";
   overdue: boolean;
+  categoryId: string;
+  assignee: string;
 };
 
 const ISSUE_SEVERITIES: IssueSeverity[] = ["low", "medium", "high", "critical"];
@@ -95,6 +111,7 @@ export function parseRiskFilters(params: URLSearchParams): RiskListFilters {
 
   const recencyRaw = getParam(params, "reviewRecency");
   const treatmentRaw = getParam(params, "treatment") as RiskTreatment;
+  const statusRaw = getParam(params, "status");
 
   return {
     q: getParam(params, "q"),
@@ -117,6 +134,11 @@ export function parseRiskFilters(params: URLSearchParams): RiskListFilters {
     uncontrolled: getParam(params, "uncontrolled") === "true",
     categoryId: getParam(params, "category"),
     treatment: RISK_TREATMENTS.includes(treatmentRaw) ? treatmentRaw : "",
+    status: RISK_STATUSES.includes(statusRaw as RiskStatus)
+      ? (statusRaw as RiskStatus)
+      : "",
+    assignee: getParam(params, "assignee"),
+    appetiteBreach: getParam(params, "appetiteBreach") === "true",
   };
 }
 
@@ -126,6 +148,7 @@ export function parseControlFilters(
   const effectivenessRaw = getParam(params, "effectiveness");
   const isKeyRaw = getParam(params, "isKey");
   const testingStatus = getParam(params, "testingStatus");
+  const controlTypeRaw = getParam(params, "controlType");
 
   return {
     q: getParam(params, "q"),
@@ -143,6 +166,11 @@ export function parseControlFilters(
         : "",
     isKey: isKeyRaw === "true" || isKeyRaw === "false" ? isKeyRaw : "",
     unmapped: getParam(params, "unmapped") === "true",
+    categoryId: getParam(params, "category"),
+    controlType: CONTROL_TYPES.includes(controlTypeRaw as ControlType)
+      ? (controlTypeRaw as ControlType)
+      : "",
+    assignee: getParam(params, "assignee"),
   };
 }
 
@@ -173,6 +201,8 @@ export function parseIncidentFilters(
         ? severityRaw
         : "",
     status: statuses,
+    categoryId: getParam(params, "category"),
+    assignee: getParam(params, "assignee"),
   };
 }
 
@@ -196,11 +226,41 @@ export function parseIssueFilters(params: URLSearchParams): IssueListFilters {
     status: statuses,
     source: ISSUE_SOURCES.includes(sourceRaw) ? sourceRaw : "",
     overdue: getParam(params, "overdue") === "true",
+    categoryId: getParam(params, "category"),
+    assignee: getParam(params, "assignee"),
   };
 }
 
-export function filterIssues(issues: Issue[], filters: IssueListFilters) {
+function matchesAssignee(
+  assigneeId: string | null | undefined,
+  filter: string,
+  myPersonId?: string | null,
+) {
+  if (!filter) {
+    return true;
+  }
+
+  if (filter === "unassigned") {
+    return !assigneeId;
+  }
+
+  if (filter === "me") {
+    return Boolean(myPersonId) && assigneeId === myPersonId;
+  }
+
+  return assigneeId === filter;
+}
+
+export function filterIssues(
+  issues: Issue[],
+  filters: IssueListFilters,
+  context: {
+    linkedCategoryIds?: Record<string, string[]>;
+    myPersonId?: string | null;
+  } = {},
+) {
   const query = filters.q.toLowerCase();
+  const linkedCategoryIds = context.linkedCategoryIds ?? {};
 
   return issues.filter((issue) => {
     if (query) {
@@ -224,6 +284,19 @@ export function filterIssues(issues: Issue[], filters: IssueListFilters) {
     }
 
     if (filters.overdue && !isIssueOverdue(issue)) {
+      return false;
+    }
+
+    if (
+      !matchesInheritedCategory(
+        linkedCategoryIds[issue.id] ?? [],
+        filters.categoryId,
+      )
+    ) {
+      return false;
+    }
+
+    if (!matchesAssignee(issue.assignee_id, filters.assignee, context.myPersonId)) {
       return false;
     }
 
@@ -253,11 +326,14 @@ export function filterRisks(
   context: {
     lastReviewedByRisk?: Record<string, string>;
     linkedControlCounts?: Record<string, number>;
+    categories?: RiskCategory[];
+    myPersonId?: string | null;
   } = {},
 ) {
   const query = filters.q.toLowerCase();
   const lastReviewedByRisk = context.lastReviewedByRisk ?? {};
   const linkedControlCounts = context.linkedControlCounts ?? {};
+  const categories = context.categories ?? [];
 
   return risks.filter((risk) => {
     if (query) {
@@ -305,7 +381,7 @@ export function filterRisks(
       return false;
     }
 
-    if (filters.categoryId && risk.category_id !== filters.categoryId) {
+    if (!matchesCategoryFilter(risk.category_id, filters.categoryId)) {
       return false;
     }
 
@@ -316,6 +392,18 @@ export function filterRisks(
       return false;
     }
 
+    if (filters.status && (risk.status ?? "open") !== filters.status) {
+      return false;
+    }
+
+    if (!matchesAssignee(risk.assignee_id, filters.assignee, context.myPersonId)) {
+      return false;
+    }
+
+    if (filters.appetiteBreach && !isAppetiteBreach(risk, categories)) {
+      return false;
+    }
+
     return true;
   });
 }
@@ -323,10 +411,15 @@ export function filterRisks(
 export function filterControls(
   controls: Control[],
   filters: ControlListFilters,
-  context: { linkedRiskCounts?: Record<string, number> } = {},
+  context: {
+    linkedRiskCounts?: Record<string, number>;
+    linkedCategoryIds?: Record<string, string[]>;
+    myPersonId?: string | null;
+  } = {},
 ) {
   const query = filters.q.toLowerCase();
   const linkedRiskCounts = context.linkedRiskCounts ?? {};
+  const linkedCategoryIds = context.linkedCategoryIds ?? {};
 
   return controls.filter((control) => {
     if (query) {
@@ -363,6 +456,28 @@ export function filterControls(
       return false;
     }
 
+    if (
+      !matchesInheritedCategory(
+        linkedCategoryIds[control.id] ?? [],
+        filters.categoryId,
+      )
+    ) {
+      return false;
+    }
+
+    if (
+      filters.controlType &&
+      (control.control_type ?? "preventive") !== filters.controlType
+    ) {
+      return false;
+    }
+
+    if (
+      !matchesAssignee(control.assignee_id, filters.assignee, context.myPersonId)
+    ) {
+      return false;
+    }
+
     return true;
   });
 }
@@ -370,8 +485,13 @@ export function filterControls(
 export function filterIncidents(
   incidents: Incident[],
   filters: IncidentListFilters,
+  context: {
+    linkedCategoryIds?: Record<string, string[]>;
+    myPersonId?: string | null;
+  } = {},
 ) {
   const query = filters.q.toLowerCase();
+  const linkedCategoryIds = context.linkedCategoryIds ?? {};
 
   return incidents.filter((incident) => {
     if (query) {
@@ -387,6 +507,25 @@ export function filterIncidents(
     }
 
     if (filters.status.length > 0 && !filters.status.includes(incident.status)) {
+      return false;
+    }
+
+    if (
+      !matchesInheritedCategory(
+        linkedCategoryIds[incident.id] ?? [],
+        filters.categoryId,
+      )
+    ) {
+      return false;
+    }
+
+    if (
+      !matchesAssignee(
+        incident.assignee_id,
+        filters.assignee,
+        context.myPersonId,
+      )
+    ) {
       return false;
     }
 

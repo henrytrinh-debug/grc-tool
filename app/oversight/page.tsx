@@ -16,6 +16,7 @@ import {
   TestingCoverageDonut,
 } from "@/app/components/oversight/oversight-donuts";
 import { IssueAgingChart } from "@/app/components/oversight/aging-chart";
+import { TaxonomyOverviewTable } from "@/app/components/oversight/taxonomy-table";
 import { ErrorBanner, PageHeader, PageLoading } from "@/app/components/page-parts";
 import { mutedTextClassName } from "@/app/components/ui";
 import { useSettings } from "@/lib/settings/context";
@@ -30,6 +31,7 @@ import {
   type SeverityBandCount,
 } from "@/lib/dashboard/analytics";
 import {
+  buildTaxonomyOverview,
   buildAvgDaysToCloseIssues,
   buildAvgDaysToResolveIncidents,
   buildControlKeyStats,
@@ -56,9 +58,11 @@ import {
   type StaleReviewBreakdown,
   type TestingCoverage,
   type TestPassRate,
+  type TaxonomyOverviewRow,
   type UncontrolledRiskBreakdown,
 } from "@/lib/oversight/metrics";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
+import { indexLinkedCategories, isAppetiteBreach } from "@/lib/taxonomy";
 import { throwIfAnyQueryError } from "@/lib/supabase/owned";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import type { Control } from "@/lib/types/control";
@@ -69,7 +73,9 @@ import {
 } from "@/lib/types/incident";
 import type { Issue } from "@/lib/types/issue";
 import type { IssueAction } from "@/lib/types/issue-action";
+import { buildLastReviewedByRisk } from "@/lib/types/rcsa";
 import type { Risk } from "@/lib/types/risk";
+import { countByKey } from "@/lib/types/join-utils";
 import type { ChartCount } from "@/lib/dashboard/analytics";
 
 type OversightData = {
@@ -92,6 +98,8 @@ type OversightData = {
   incidentFlow: IncidentFlow;
   avgDaysToResolveIncidents: number | null;
   incidentSeverityCounts: ChartCount[];
+  taxonomyOverview: TaxonomyOverviewRow[];
+  appetiteBreaches: number;
 };
 
 const emptyIssueSummary: IssueSummary = {
@@ -131,6 +139,8 @@ const emptyData: OversightData = {
   },
   avgDaysToResolveIncidents: null,
   incidentSeverityCounts: [],
+  taxonomyOverview: [],
+  appetiteBreaches: 0,
 };
 
 /**
@@ -178,7 +188,7 @@ async function stampMissingResolvedAt(
 }
 
 export default function OversightPage() {
-  const { settings } = useSettings();
+  const { settings, categories, schemaReady } = useSettings();
   const [data, setData] = useState<OversightData>(emptyData);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -197,6 +207,8 @@ export default function OversightPage() {
         supabase.from("issues").select("*").eq("owner_id", ownerId),
         supabase.from("issue_actions").select("*").eq("owner_id", ownerId),
         supabase.from("risk_controls").select("risk_id, control_id").eq("owner_id", ownerId),
+        supabase.from("issue_risks").select("issue_id, risk_id").eq("owner_id", ownerId),
+        supabase.from("incident_risks").select("incident_id, risk_id").eq("owner_id", ownerId),
         supabase
           .from("rcsa_reviews")
           .select("risk_id, reviewed_at")
@@ -213,6 +225,8 @@ export default function OversightPage() {
         issuesResult,
         actionsResult,
         riskControlsResult,
+        issueRisksResult,
+        incidentRisksResult,
         reviewsResult,
       ] = results;
 
@@ -234,6 +248,31 @@ export default function OversightPage() {
         risk_id: string;
         reviewed_at: string;
       }[];
+      const lastReviewedByRisk = buildLastReviewedByRisk(reviews);
+      const linkedControlCounts = countByKey(
+        riskControlLinks,
+        (link) => link.risk_id,
+      );
+      const riskById = Object.fromEntries(risks.map((risk) => [risk.id, risk]));
+      const issueCategoryIds = indexLinkedCategories(
+        ((issueRisksResult.data ?? []) as { issue_id: string; risk_id: string }[]).map(
+          (link) => ({
+            parentId: link.issue_id,
+            categoryId: riskById[link.risk_id]?.category_id,
+          }),
+        ),
+      );
+      const incidentCategoryIds = indexLinkedCategories(
+        (
+          (incidentRisksResult.data ?? []) as {
+            incident_id: string;
+            risk_id: string;
+          }[]
+        ).map((link) => ({
+          parentId: link.incident_id,
+          categoryId: riskById[link.risk_id]?.category_id,
+        })),
+      );
 
       const keyControls = controls.filter((control) => control.is_key);
 
@@ -257,6 +296,19 @@ export default function OversightPage() {
         incidentFlow: buildIncidentFlow(incidents),
         avgDaysToResolveIncidents: buildAvgDaysToResolveIncidents(incidents),
         incidentSeverityCounts: buildIncidentSeverityCounts(incidents),
+        taxonomyOverview: buildTaxonomyOverview(
+          categories,
+          risks,
+          lastReviewedByRisk,
+          linkedControlCounts,
+          issueCategoryIds,
+          incidentCategoryIds,
+          issues,
+          incidents,
+        ),
+        appetiteBreaches: risks.filter((risk) =>
+          isAppetiteBreach(risk, categories),
+        ).length,
       });
     } catch (err) {
       setError(
@@ -265,7 +317,7 @@ export default function OversightPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [categories]);
 
   const { authLoading } = useRequireAuth(fetchOversightData);
 
@@ -288,6 +340,10 @@ export default function OversightPage() {
         <PageHeader
           title="Oversight Monitoring"
           description="A Second Line of Defence view of coverage, aging, and stock/flow trends across the risk and control environment."
+          breadcrumbs={[
+            { href: "/", label: "Home" },
+            { label: "Oversight" },
+          ]}
         />
 
         <ErrorBanner message={error} />
@@ -425,6 +481,14 @@ export default function OversightPage() {
                   value={data.staleReviews.within180}
                   hint="Currently in good standing"
                 />
+                <StatCard
+                  label="Above Appetite"
+                  value={data.appetiteBreaches}
+                  hint="Inherent score exceeds category appetite"
+                  href="/risks?appetiteBreach=true"
+                  linkLabel="View appetite breaches"
+                  tone={data.appetiteBreaches > 0 ? "alert" : "default"}
+                />
               </div>
 
               <div className="grid gap-6 lg:grid-cols-2">
@@ -445,6 +509,15 @@ export default function OversightPage() {
                   />
                 </ChartCard>
               </div>
+
+              {schemaReady && (
+                <ChartCard
+                  title="Taxonomy overview"
+                  description="Exposure, control coverage, review currency, and related findings by risk category."
+                >
+                  <TaxonomyOverviewTable rows={data.taxonomyOverview} />
+                </ChartCard>
+              )}
             </section>
 
             <section className="space-y-6">

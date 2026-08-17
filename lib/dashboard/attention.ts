@@ -10,6 +10,8 @@ import {
   type Issue,
 } from "@/lib/types/issue";
 import { getReviewCadenceDays, isReviewDue } from "@/lib/types/rcsa";
+import type { RiskCategory } from "@/lib/settings/defaults";
+import { isActiveRisk, isAppetiteBreach } from "@/lib/taxonomy";
 import type { Risk } from "@/lib/types/risk";
 
 export type AttentionTone = "alert" | "watch";
@@ -22,7 +24,7 @@ export type AttentionItem = {
   tone: AttentionTone;
 };
 
-const MAX_ITEMS = 8;
+const MAX_ITEMS = 12;
 
 function isHighOrCriticalBand(likelihood: number, impact: number) {
   const band = getSeverityBand(getRiskScore(likelihood, impact));
@@ -42,11 +44,13 @@ export function buildAttentionItems(
   context: {
     lastReviewedByRisk?: Record<string, string>;
     linkedControlCounts?: Record<string, number>;
+    categories?: RiskCategory[];
   } = {},
 ): AttentionItem[] {
   const items: AttentionItem[] = [];
   const lastReviewedByRisk = context.lastReviewedByRisk ?? {};
   const linkedControlCounts = context.linkedControlCounts ?? {};
+  const categories = context.categories ?? [];
 
   for (const issue of issues) {
     if (!isIssueOverdue(issue)) {
@@ -107,6 +111,20 @@ export function buildAttentionItems(
   }
 
   for (const risk of risks) {
+    if (!isActiveRisk(risk)) {
+      continue;
+    }
+
+    if (isAppetiteBreach(risk, categories)) {
+      items.push({
+        id: `risk-appetite-${risk.id}`,
+        href: `/risks/${risk.id}/edit`,
+        title: risk.title,
+        reason: "Inherent score is above the category appetite",
+        tone: "alert",
+      });
+    }
+
     if (!isHighOrCriticalBand(risk.likelihood, risk.impact)) {
       continue;
     }

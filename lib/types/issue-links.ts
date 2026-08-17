@@ -3,6 +3,7 @@ import {
   CONTROL_JOIN_COLUMNS,
   ISSUE_JOIN_COLUMNS,
   RISK_JOIN_COLUMNS,
+  RISK_JOIN_COLUMNS_WITH_CATEGORY,
   toLinkedControl,
   toLinkedIssue,
   toLinkedRisk,
@@ -13,6 +14,7 @@ import {
 } from "@/lib/types/linked-entities";
 
 export const ISSUE_RISK_SELECT = `id, issue_id, risk_id, ${RISK_JOIN_COLUMNS}`;
+export const ISSUE_RISK_SELECT_WITH_CATEGORY = `id, issue_id, risk_id, ${RISK_JOIN_COLUMNS_WITH_CATEGORY}`;
 
 export const ISSUE_RISK_ISSUE_SELECT = `id, issue_id, risk_id, ${ISSUE_JOIN_COLUMNS}`;
 

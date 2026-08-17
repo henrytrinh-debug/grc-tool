@@ -14,6 +14,7 @@ export type LinkedRisk = {
   likelihood: number;
   impact: number;
   owner_email?: string;
+  category_id?: string | null;
 };
 
 export type LinkedControl = {
@@ -52,6 +53,8 @@ export type LinkedIssue = {
 export type JoinRelation<T> = T | T[] | null;
 
 export const RISK_JOIN_COLUMNS = "risks(title, likelihood, impact, owner_email)";
+export const RISK_JOIN_COLUMNS_WITH_CATEGORY =
+  "risks(title, likelihood, impact, owner_email, category_id)";
 export const CONTROL_JOIN_COLUMNS =
   "controls(title, effectiveness, last_tested_at, is_key)";
 export const INCIDENT_JOIN_COLUMNS =
@@ -63,6 +66,7 @@ export type RiskJoin = {
   likelihood: number;
   impact: number;
   owner_email?: string;
+  category_id?: string | null;
 };
 
 export type ControlJoin = {
@@ -98,6 +102,7 @@ export function toLinkedRisk(
     likelihood: risk.likelihood,
     impact: risk.impact,
     owner_email: risk.owner_email,
+    category_id: risk.category_id ?? null,
   };
 }
 

@@ -13,7 +13,7 @@ import { RiskFormFields } from "../_components/risk-form-fields";
 
 export default function NewRiskPage() {
   const router = useRouter();
-  const { schemaReady } = useSettings();
+  const { schemaReady, enterpriseReady } = useSettings();
   const [form, setForm] = useState<NewRisk>(EMPTY_RISK_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,7 +30,13 @@ export default function NewRiskPage() {
     setError(null);
 
     try {
-      await insertOwnedRecord("risks", toRiskFormPayload(form, schemaReady));
+      await insertOwnedRecord(
+        "risks",
+        toRiskFormPayload(form, {
+          includeTaxonomy: schemaReady,
+          includeEnterprise: enterpriseReady,
+        }),
+      );
       router.push("/risks");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to add risk");
@@ -47,6 +53,11 @@ export default function NewRiskPage() {
       backHref="/risks"
       backLabel="Back to risks"
       title="Add Risk"
+      breadcrumbs={[
+        { href: "/", label: "Home" },
+        { href: "/risks", label: "Risks" },
+        { label: "Add" },
+      ]}
       error={error}
       submitting={submitting}
       submitLabel="Add Risk"

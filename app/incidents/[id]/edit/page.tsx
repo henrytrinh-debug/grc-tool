@@ -22,6 +22,7 @@ import { useEntityLinks } from "@/lib/hooks/use-entity-links";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import { useUnsavedChanges } from "@/lib/hooks/use-unsaved-changes";
 import { getSupabaseClient } from "@/lib/supabase/client";
+import { useSettings } from "@/lib/settings/context";
 import {
   formatDateForInput,
   nextResolvedAt,
@@ -50,6 +51,7 @@ export default function EditIncidentPage() {
   const [submitting, setSubmitting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { enterpriseReady } = useSettings();
 
   const {
     linked: linkedRisks,
@@ -97,6 +99,7 @@ export default function EditIncidentPage() {
           severity: loadedIncident.severity,
           status: loadedIncident.status,
           root_cause: loadedIncident.root_cause,
+          assignee_id: loadedIncident.assignee_id ?? "",
         });
 
         const risksResult = await supabase
@@ -133,7 +136,8 @@ export default function EditIncidentPage() {
         form.date_occurred !== formatDateForInput(incident.date_occurred) ||
         form.severity !== incident.severity ||
         form.status !== incident.status ||
-        form.root_cause !== incident.root_cause),
+        form.root_cause !== incident.root_cause ||
+        (form.assignee_id || "") !== (incident.assignee_id ?? "")),
   );
   const { confirmLeave } = useUnsavedChanges(dirty);
 
@@ -157,7 +161,7 @@ export default function EditIncidentPage() {
       const { error: updateError } = await supabase
         .from("incidents")
         .update({
-          ...toIncidentFormPayload(form),
+          ...toIncidentFormPayload(form, enterpriseReady),
           resolved_at: nextResolvedAt(form.status, incident.resolved_at),
         })
         .eq("id", incident.id)

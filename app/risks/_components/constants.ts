@@ -7,4 +7,6 @@ export const EMPTY_RISK_FORM: NewRisk = {
   impact: 3,
   category_id: "",
   treatment: "mitigate",
+  assignee_id: "",
+  status: "open",
 };

@@ -2,6 +2,7 @@ import { groupJoinRows } from "@/lib/types/join-utils";
 import {
   CONTROL_JOIN_COLUMNS,
   RISK_JOIN_COLUMNS,
+  RISK_JOIN_COLUMNS_WITH_CATEGORY,
   toLinkedControl,
   toLinkedRisk,
   type ControlJoin,
@@ -12,6 +13,7 @@ import {
 export const RISK_CONTROL_SELECT = `id, risk_id, control_id, ${CONTROL_JOIN_COLUMNS}`;
 
 export const RISK_CONTROL_RISK_SELECT = `id, risk_id, control_id, ${RISK_JOIN_COLUMNS}`;
+export const RISK_CONTROL_RISK_SELECT_WITH_CATEGORY = `id, risk_id, control_id, ${RISK_JOIN_COLUMNS_WITH_CATEGORY}`;
 
 export type RiskControlRow = {
   id: string;

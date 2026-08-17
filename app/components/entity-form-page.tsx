@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import type { FormEvent, ReactNode } from "react";
+import { Breadcrumbs } from "./breadcrumbs";
 import { BackLink, ErrorBanner } from "./page-parts";
 import { primaryButtonClassName, secondaryButtonClassName } from "./ui";
 
@@ -10,6 +11,7 @@ type EntityFormPageProps = {
   backLabel: string;
   title: string;
   description?: string;
+  breadcrumbs?: Array<{ href?: string; label: string }>;
   error: string | null;
   submitting: boolean;
   submitLabel: string;
@@ -29,6 +31,7 @@ export function EntityFormPage({
   backLabel,
   title,
   description,
+  breadcrumbs,
   error,
   submitting,
   submitLabel,
@@ -41,7 +44,11 @@ export function EntityFormPage({
     <div className="min-h-full bg-slate-50 px-6 py-10 dark:bg-slate-950">
       <main className="mx-auto flex w-full max-w-4xl flex-col gap-8">
         <header>
-          <BackLink href={backHref}>← {backLabel}</BackLink>
+          {breadcrumbs && breadcrumbs.length > 0 ? (
+            <Breadcrumbs items={breadcrumbs} />
+          ) : (
+            <BackLink href={backHref}>← {backLabel}</BackLink>
+          )}
           <h1 className="mt-4 text-3xl font-semibold tracking-tight text-slate-950 dark:text-slate-50">
             {title}
           </h1>
