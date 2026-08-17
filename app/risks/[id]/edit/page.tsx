@@ -15,6 +15,9 @@ import {
   ErrorBanner,
   PageLoading,
 } from "@/app/components/page-parts";
+import { EventTimeline } from "@/app/components/event-timeline";
+import { EvidencePanel } from "@/app/components/evidence-panel";
+import { QualityCallout } from "@/app/components/quality-indicator";
 import { RelatedIssuesCard } from "@/app/components/related-issues-card";
 import {
   dangerButtonClassName,
@@ -24,7 +27,15 @@ import {
 import { useEntityLinks } from "@/lib/hooks/use-entity-links";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import { useUnsavedChanges } from "@/lib/hooks/use-unsaved-changes";
+import {
+  type RiskEvent,
+  riskEventDrafts,
+} from "@/lib/governance/events";
+import { riskGovernanceBlockers } from "@/lib/governance/gates";
+import { insertGovernanceEventsOrWarn } from "@/lib/governance/record";
+import { riskQuality } from "@/lib/data-quality/record";
 import { getSupabaseClient } from "@/lib/supabase/client";
+import { isProbeMissing } from "@/lib/supabase/owned";
 import type { Control } from "@/lib/types/control";
 import type { Incident } from "@/lib/types/incident";
 import {
@@ -61,11 +72,14 @@ export default function EditRiskPage() {
   const [userControls, setUserControls] = useState<Control[]>([]);
   const [userIncidents, setUserIncidents] = useState<Incident[]>([]);
   const [relatedIssues, setRelatedIssues] = useState<LinkedIssue[]>([]);
+  const [events, setEvents] = useState<RiskEvent[]>([]);
+  const [hasReviewEvidence, setHasReviewEvidence] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { schemaReady, enterpriseReady } = useSettings();
+  const { schemaReady, enterpriseReady, operatingReady, governanceReady } =
+    useSettings();
 
   const {
     linked: linkedControls,
@@ -151,6 +165,9 @@ export default function EditRiskPage() {
           treatment: loadedRisk.treatment ?? "mitigate",
           assignee_id: loadedRisk.assignee_id ?? "",
           status: loadedRisk.status ?? "open",
+          treatment_rationale: loadedRisk.treatment_rationale ?? "",
+          target_date: loadedRisk.target_date ?? "",
+          closure_rationale: loadedRisk.closure_rationale ?? "",
         });
 
         const [controlsResult, incidentsResult] = await Promise.all([
@@ -182,6 +199,33 @@ export default function EditRiskPage() {
           refreshIncidentLinks(ownerId),
           fetchRelatedIssues(ownerId),
         ]);
+
+        const [reviewsResult, eventsResult] = await Promise.all([
+          supabase
+            .from("rcsa_reviews")
+            .select("id")
+            .eq("owner_id", ownerId)
+            .eq("risk_id", riskId)
+            .limit(1),
+          governanceReady
+            ? supabase
+                .from("risk_events")
+                .select("*")
+                .eq("owner_id", ownerId)
+                .eq("risk_id", riskId)
+                .order("created_at", { ascending: false })
+            : Promise.resolve({ data: [], error: null }),
+        ]);
+
+        if (reviewsResult.error && !isProbeMissing(reviewsResult.error)) {
+          throw reviewsResult.error;
+        }
+        setHasReviewEvidence((reviewsResult.data ?? []).length > 0);
+
+        if (eventsResult.error && !isProbeMissing(eventsResult.error)) {
+          throw eventsResult.error;
+        }
+        setEvents((eventsResult.data ?? []) as RiskEvent[]);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load risk");
       } finally {
@@ -190,6 +234,7 @@ export default function EditRiskPage() {
     },
     [
       fetchRelatedIssues,
+      governanceReady,
       refreshControlLinks,
       refreshIncidentLinks,
       riskId,
@@ -209,7 +254,11 @@ export default function EditRiskPage() {
         (form.category_id || "") !== (risk.category_id ?? "") ||
         (form.treatment ?? "mitigate") !== (risk.treatment ?? "mitigate") ||
         (form.assignee_id || "") !== (risk.assignee_id ?? "") ||
-        (form.status ?? "open") !== (risk.status ?? "open")),
+        (form.status ?? "open") !== (risk.status ?? "open") ||
+        (form.treatment_rationale ?? "") !==
+          (risk.treatment_rationale ?? "") ||
+        (form.closure_rationale ?? "") !== (risk.closure_rationale ?? "") ||
+        (form.target_date || "") !== (risk.target_date ?? "")),
   );
   const { confirmLeave } = useUnsavedChanges(dirty);
 
@@ -224,6 +273,15 @@ export default function EditRiskPage() {
       return;
     }
 
+    const blockers = riskGovernanceBlockers(form, {
+      operatingReady,
+      hasReviewEvidence,
+    });
+    if (blockers.length > 0) {
+      setError(blockers.join(" "));
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
 
@@ -235,6 +293,8 @@ export default function EditRiskPage() {
           toRiskFormPayload(form, {
             includeTaxonomy: schemaReady,
             includeEnterprise: enterpriseReady,
+            includeOperating: operatingReady,
+            includeGovernance: governanceReady,
           }),
         )
         .eq("id", risk.id)
@@ -242,6 +302,36 @@ export default function EditRiskPage() {
 
       if (updateError) {
         throw updateError;
+      }
+
+      if (governanceReady) {
+        const warning = await insertGovernanceEventsOrWarn({
+          table: "risk_events",
+          parentColumn: "risk_id",
+          parentId: risk.id,
+          drafts: riskEventDrafts({
+            previousStatus: risk.status,
+            nextStatus: form.status,
+            previousTreatment: risk.treatment,
+            nextTreatment: form.treatment,
+            previousAssigneeId: risk.assignee_id,
+            nextAssigneeId: form.assignee_id,
+            previousLikelihood: risk.likelihood,
+            nextLikelihood: form.likelihood,
+            previousImpact: risk.impact,
+            nextImpact: form.impact,
+          }),
+          ownerId: user.id,
+          ownerEmail: user.email,
+          actorId: user.id,
+          actorEmail: user.email,
+        });
+        if (warning) {
+          setError(warning);
+          setRisk({ ...risk, ...form });
+          setSubmitting(false);
+          return;
+        }
       }
 
       router.push("/risks");
@@ -296,6 +386,13 @@ export default function EditRiskPage() {
     title: `Issue identified for risk: ${risk.title}`,
   }).toString()}`;
 
+  const quality = riskQuality(form, {
+    controlCount: linkedControls.length,
+    hasReview: hasReviewEvidence,
+    operatingReady,
+    enterpriseReady,
+  });
+
   return (
     <div className="min-h-full bg-slate-50 px-6 py-10 dark:bg-slate-950">
       <main className="mx-auto flex w-full max-w-5xl flex-col gap-8">
@@ -315,6 +412,8 @@ export default function EditRiskPage() {
         </header>
 
         <ErrorBanner message={error} />
+
+        <QualityCallout summary={quality} />
 
         <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2">
@@ -378,6 +477,17 @@ export default function EditRiskPage() {
           options={userIncidents}
           {...incidentPanelProps}
         />
+
+        {governanceReady ? (
+          <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Change history
+            </h2>
+            <EventTimeline events={events} />
+          </section>
+        ) : null}
+
+        <EvidencePanel entityType="risk" entityId={riskId} />
       </main>
     </div>
   );

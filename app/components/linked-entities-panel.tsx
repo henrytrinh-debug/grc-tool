@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { dangerButtonClassName, inputClassName, labelClassName, primaryButtonClassName } from "./ui";
 
 export type LinkedRow = {
   linkId: string;
   entityId: string;
+  href: string;
   title: string;
   cells: ReactNode[];
 };
@@ -56,6 +57,7 @@ export function LinkedEntitiesPanel({
   onLink,
   onUnlink,
 }: LinkedEntitiesPanelProps) {
+  const [expanded, setExpanded] = useState(false);
   const query = search.trim().toLowerCase();
   const linkedIds = new Set(rows.map((row) => row.entityId));
 
@@ -73,6 +75,12 @@ export function LinkedEntitiesPanel({
 
   const singularLower = entityLabel.toLowerCase();
   const pluralLabel = `${singularLower}s`;
+  const previewLimit = 5;
+  const displayRows =
+    !query && !expanded && visibleRows.length > previewLimit
+      ? visibleRows.slice(0, previewLimit)
+      : visibleRows;
+  const hiddenCount = visibleRows.length - displayRows.length;
 
   return (
     <section className="space-y-4 rounded-xl border border-slate-200 bg-slate-50 p-6 dark:border-slate-800 dark:bg-slate-900/60">
@@ -113,14 +121,23 @@ export function LinkedEntitiesPanel({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-              {visibleRows.map((row) => (
+              {displayRows.map((row) => (
                 <tr key={row.linkId}>
                   {row.cells.map((cell, index) => (
                     <td
                       key={columnHeaders[index] ?? index}
                       className="px-4 py-3 text-slate-950 dark:text-slate-50"
                     >
-                      {cell}
+                      {index === 0 ? (
+                        <Link
+                          href={row.href}
+                          className="font-medium text-teal-700 underline underline-offset-2 dark:text-teal-300"
+                        >
+                          {cell}
+                        </Link>
+                      ) : (
+                        cell
+                      )}
                     </td>
                   ))}
                   <td className="px-4 py-3">
@@ -139,6 +156,16 @@ export function LinkedEntitiesPanel({
           </table>
         </div>
       )}
+
+      {hiddenCount > 0 || (expanded && visibleRows.length > previewLimit && !query) ? (
+        <button
+          type="button"
+          onClick={() => setExpanded((current) => !current)}
+          className="text-sm font-medium text-teal-800 hover:underline dark:text-teal-300"
+        >
+          {expanded ? "Show fewer" : `Show ${hiddenCount} more`}
+        </button>
+      ) : null}
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
         <label className="flex flex-1 flex-col gap-1">

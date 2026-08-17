@@ -41,8 +41,8 @@ export function EntityFormPage({
   children,
 }: EntityFormPageProps) {
   return (
-    <div className="min-h-full bg-slate-50 px-6 py-10 dark:bg-slate-950">
-      <main className="mx-auto flex w-full max-w-4xl flex-col gap-8">
+    <div className="min-h-full min-w-0 bg-slate-50 px-6 py-10 dark:bg-slate-950">
+      <main className="mx-auto flex w-full min-w-0 max-w-4xl flex-col gap-8">
         <header>
           {breadcrumbs && breadcrumbs.length > 0 ? (
             <Breadcrumbs items={breadcrumbs} />
@@ -62,7 +62,7 @@ export function EntityFormPage({
         <ErrorBanner message={error} />
 
         <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          <form onSubmit={onSubmit} className="grid gap-4 sm:grid-cols-2">
+          <form onSubmit={onSubmit} className="grid min-w-0 gap-4 sm:grid-cols-2">
             {children}
 
             <div className="flex flex-wrap gap-3 sm:col-span-2">

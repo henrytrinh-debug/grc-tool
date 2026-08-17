@@ -24,6 +24,7 @@ Update it after significant decisions or new modules.
 **Local dev:** `npm run dev` (currently runs on port 3001 if 3000 is occupied by a stale process)
 **Before every push:** run `npm run build` locally first — production builds enforce
 stricter TypeScript checks than dev mode, and this has caught real bugs dev mode missed.
+Filter/taxonomy helpers can also be checked with `npx tsx scripts/verify-logic.ts`.
 
 ---
 
@@ -43,6 +44,9 @@ Core risk register entries.
 | treatment | text | `'mitigate' \| 'accept' \| 'transfer' \| 'avoid'`, default `mitigate`. Added in `003`. |
 | status | text | `'open' \| 'monitoring' \| 'closed'`, default `open`. Added in `004_enterprise.sql`. Closed risks are excluded from heat maps, taxonomy counts, attention, and RCSA start. |
 | assignee_id | uuid | nullable FK → `org_people`, on delete set null. Added in `004`. |
+| treatment_rationale | text | Why this treatment was chosen / acceptance conditions. Added in `005_operating.sql`. Omitted from writes until `operatingReady`. |
+| target_date | date | Optional treatment target. Drives Horizon “treatment target” obligations. Added in `005`. |
+| closure_rationale | text | Why the risk was closed. Added in `007_governance.sql`. Omitted from writes until `governanceReady`. Close is blocked unless this is filled **or** an RCSA review exists for the risk. |
 | owner_id | uuid | FK → auth.users, set automatically from logged-in user |
 | owner_email | text | denormalized copy of owner's email, for display (auth.users isn't publicly queryable) |
 | created_at | timestamptz | |
@@ -76,7 +80,11 @@ Independent module — controls can exist without being linked to any risk.
 Cadence days come from `org_settings` via `getSettings()` / `getTestingCadenceDays`. Until `003_admin_settings.sql` is applied, built-in defaults are used.
 
 ### `org_settings`
-One row per owner (`owner_id` PK). Holds organisation name, likelihood/impact labels, score-band thresholds, review cadence by band, control testing cadence, issue due-date windows, and optional `demo_ids` for the demonstration dataset. Schema: `supabase/schema/003_admin_settings.sql`. The app degrades to `DEFAULT_SETTINGS` in `lib/settings/defaults.ts` if the table is missing (`PGRST205` / `42P01` / schema cache).
+One row per owner (`owner_id` PK). Holds organisation name, likelihood/impact labels, score-band thresholds, review cadence by band, control testing cadence, issue due-date windows, optional `demo_ids` for the demonstration dataset, and optional `workspace_preferences` JSONB (added in `006_workspace_preferences.sql`). Schema: `supabase/schema/003_admin_settings.sql`. The app degrades to `DEFAULT_SETTINGS` in `lib/settings/defaults.ts` if the table is missing (`PGRST205` / `42P01` / schema cache).
+
+`workspace_preferences` is **presentation only** — hiding a module, Home widget, Oversight section, or Board pack section does not change RLS or `owner_id` filtering. Direct URLs still work. Home and Admin cannot be hidden. Until `006` is applied, `preferencesReady` is false: the current layout is used, and writes omit the column (`42703` / missing-column is treated like other schema probes).
+
+Saved register filter presets (name + module + query string) live in the same JSONB blob and appear in the command palette and on register toolbars.
 
 ### `risk_categories`
 Owner-scoped taxonomy used on the risk register (`name` unique per owner). Risks point at a category via `category_id`. `appetite_band` (`Low` \| `Medium` \| `High` \| `Critical`, default `High`) is added in `004` — a risk is an appetite breach when its inherent band is strictly above the category appetite (closed risks are ignored).
@@ -87,6 +95,16 @@ Controls, incidents, and issues **inherit** taxonomy from linked risks. List fil
 Directory of accountable owners for the signed-in account (not a second tenant). Schema: `supabase/schema/004_enterprise.sql`. Unique `(owner_id, email)`. `line_of_defence` is `'first' \| 'second' \| 'third'`. Assignments on risks/controls/incidents/issues point here. The signed-in user is still the RLS `owner_id` of every row — people are labels for accountability, not additional logins.
 
 The app sets `enterpriseReady` when `org_people` exists. Until `004` is applied, assignee / status / control type / appetite columns are omitted from writes.
+
+The app sets `operatingReady` when `incident_controls` exists (`005_operating.sql`). Until then, treatment rationale / target date, incident lessons learned, and incident↔control links are omitted from writes.
+
+The app sets `preferencesReady` when `org_settings.workspace_preferences` exists (`006_workspace_preferences.sql`). Until then, workspace layout stays at the built-in default and the column is omitted from upserts.
+
+The app sets `governanceReady` when `risk_events` exists (`007_governance.sql`). Until then, `closure_rationale` is omitted from writes and change-history rows are not inserted.
+
+The app sets `obligationsReady` when `obligations` exists (`008_obligations.sql`). Until then the register is empty and Horizon/Oversight/quality skip obligation rows.
+
+The app sets `evidenceReady` when `evidence` exists (`009_evidence.sql`), and `evidenceStorageReady` when listing the private `grc-evidence` bucket under `auth.uid()` succeeds. Metadata can be saved without Storage; the UI does not pretend uploads work if the bucket or policies are missing.
 
 The runtime snapshot is hydrated by `SettingsProvider` (`lib/settings/context.tsx`) into `lib/settings/store.ts` so pure helpers (`getSeverityBand`, `getReviewCadenceDays`, `formatLikelihood`, `getDefaultDueDate`) pick up live values without threading React context everywhere.
 
@@ -119,6 +137,7 @@ Recording a new result here also updates `controls.effectiveness` / `controls.la
 | root_cause | text | optional, filled in once known |
 | resolved_at | timestamptz | nullable — added in `002_incident_resolved_at.sql`, see note below |
 | assignee_id | uuid | nullable FK → `org_people`. Added in `004`. |
+| lessons_learned | text | What will change so the incident does not recur. Added in `005`. |
 | owner_id / owner_email | uuid / text | |
 | created_at | timestamptz | |
 
@@ -224,12 +243,24 @@ entries, so the history of an issue is auditable.
 **No `update` or `delete` policy** — like `control_test_results`, this is history. An audit
 trail you can edit isn't an audit trail.
 
+### `risk_events` / `incident_events`
+Append-only change history. Schema: `007_governance.sql`. Select + insert only; insert requires `actor_id = auth.uid()`. Records status, treatment (risks), assignment, and material rating/severity changes. Nullable `organization_id` is reserved for a future membership migration.
+
+### `obligations`
+Owner-scoped compliance requirements (a register, not a regulatory-content engine). Schema: `008_obligations.sql`. Title, source/regulator, citation, requirement text, status (`open` \| `monitoring` \| `retired`), review frequency, effective/review dates, assignee. Mapped to controls and issues via join tables.
+
+### `evidence`
+Metadata linking an artefact to a risk, control, test result, incident, issue, or obligation. Schema: `009_evidence.sql`. Optional private Storage bucket `grc-evidence` with object path `{owner_id}/{evidence_id}/{filename}`. Never use the service-role key. If Storage is not configured, metadata and UI still work.
+
 ### Junction tables (many-to-many relationships)
 
 **`risk_controls`** — links risks ↔ controls (many-to-many: one control can mitigate multiple risks, one risk can have multiple controls)
 **`incident_risks`** — links incidents ↔ risks (many-to-many)
+**`incident_controls`** — links incidents ↔ controls (e.g. the control that failed or contained the event). Added in `005_operating.sql`.
 **`issue_risks`** — links issues ↔ risks
 **`issue_controls`** — links issues ↔ controls
+**`obligation_controls`** — links obligations ↔ controls. Added in `008_obligations.sql`.
+**`obligation_issues`** — links obligations ↔ issues. Added in `008`.
 
 Both follow the same shape: `id`, the two foreign keys (cascade delete), `owner_id`
 (tracks who created the *link*, separate from who owns either linked record), `created_at`,
@@ -237,10 +268,6 @@ and a `unique(a_id, b_id)` constraint to prevent duplicate links.
 
 **No `update` policy on junction tables** — a link either exists or doesn't; changing what's
 linked means delete + re-insert, not editing a row in place.
-
-**Not yet built, but cheap to add later:** `incident_controls` (linking incidents directly to
-controls, e.g. "this control failure caused this incident"). Same pattern as above — deferred
-because it wasn't needed yet, not because it's hard.
 
 ### Row Level Security (RLS)
 Every table has RLS enabled. Standard pattern:
@@ -259,7 +286,7 @@ policy anywhere, it's leftover from before auth and should be replaced with an o
 
 Early tables were created by hand in the Supabase SQL editor with no record in the repo.
 From the Issues module onward, schema lives in versioned files under `supabase/schema/`
-(e.g. `001_issues.sql`, `002_incident_resolved_at.sql`, `003_admin_settings.sql`, `004_enterprise.sql`) which are **run manually in the
+(e.g. `001_issues.sql`, `002_incident_resolved_at.sql`, `003_admin_settings.sql`, `004_enterprise.sql`, `005_operating.sql`, `006_workspace_preferences.sql`, `007_governance.sql`, `008_obligations.sql`, `009_evidence.sql`) which are **run manually in the
 Supabase SQL editor** — there is no migration runner wired up. The files are written to
 be re-runnable (`create table if not exists`, `add column if not exists`, `drop policy
 if exists` before create).
@@ -282,7 +309,7 @@ If the app 404s or errors on a whole module, check whether its SQL has been appl
   issue workflow/action-plan/activity panels, and a `constants.ts` holding the empty-form
   default. The `_` prefix keeps these out of Next.js routing.
 - **Sidebar navigation** — grouped sections rather than a flat module list: Overview
-  (Home, My work, Oversight), Registers (Risks, Controls, Incidents, Issues), Assessment
+  (Home, My work, Horizon, Lines of defence, Board pack, Oversight, Data quality), Registers (Risks, Controls, Incidents, Issues, Obligations, Evidence), Assessment
   (Risk Assessment), Administration (Settings → `/admin`). The header shows the
   organisation name from Admin. Collapses behind a Menu button on small screens.
   `⌘K` / `Ctrl+K` opens a jump palette (`app/components/command-palette.tsx`).
@@ -297,7 +324,6 @@ If the app 404s or errors on a whole module, check whether its SQL has been appl
   key controls, open high/critical incidents, appetite breaches, and High/Critical risks
   that are uncontrolled or past their review cadence), and dashboard visuals, all click-through:
   - Risk heat map (5×5 grid, likelihood × impact, labeled axes, color-coded; closed risks excluded)
-  - Bar chart: risk count by severity band
   - Taxonomy and treatment mix bar charts
   - Donut charts: controls by effectiveness, incidents by status, issues by status
   - Remediation health: action-plan completion across open issues, plus open/overdue
@@ -305,6 +331,21 @@ If the app 404s or errors on a whole module, check whether its SQL has been appl
   - Built with `recharts`.
 - **My work** (`/work`) — assigned-to-me queue across risks, controls, incidents, and issues.
   Resolves “me” by matching `org_people.email` to the signed-in user.
+- **Horizon** (`/horizon`) — operating calendar of derived obligations: risk reviews, treatment target dates (after `005`), control tests, issue due dates, and action due dates, bucketed overdue / 7 / 30 / 90 days.
+- **Lines of defence** (`/lines`) — workload by assignee and 1st / 2nd / 3rd line from the people directory.
+- **Board pack** (`/board`) — printable committee snapshot: above-appetite, High/Critical risks, overdue key controls, overdue issues, severe open incidents, uncontrolled High/Critical. Print hides the sidebar. CSV export included.
+- **Registers** — department filter (from the assignee’s `org_people.department`), High or Critical combined severity, sticky table headers, next-test-due on controls, incident↔control counts after `005`.
+- **Overview surface boundaries** — Home is the operational landing page, Oversight is the
+  2LoD analytical view (including risk severity distribution), and Board pack is the
+  printable committee view. They intentionally present some of the same control signals
+  for different audiences, but fetch through `lib/snapshot/grc-snapshot.ts` profiles and
+  share KPI predicates from `lib/metrics/kpis.ts`. Do not copy owner-scoped fetch bundles
+  or reimplement “open / overdue / above appetite” predicates in a page.
+- **Recent activity** — combines RCSA reviews, tests, incidents, and issue trail entries.
+  Timestamp sorting is normalized through `parseIsoDate`; an issue with an append-only
+  “Issue raised” event is not also emitted as a duplicate synthetic creation row.
+- **Lines of defence links** — each workload count deep-links to the matching filtered
+  register. The person name is not a misleading risks-only link.
 - **Risk ratings** — never two independent dropdowns. Use `RiskScorePicker`
   (`app/components/risk-score-picker.tsx`): a 5×5 heat map so the reviewer sees the
   resulting score band while choosing. Labels and band thresholds live in Admin
@@ -313,9 +354,14 @@ If the app 404s or errors on a whole module, check whether its SQL has been appl
 - **Admin** (`/admin`) — organisation name, likelihood/impact labels, score bands,
   review cadence by band, key vs non-key testing cadence, issue due-date windows,
   risk taxonomy CRUD (including appetite band after `004`), people directory,
-  and load/remove demonstration data (`lib/admin/demo-data.ts`).
+  and load/remove demonstration data (`lib/admin/demo-data.ts`). The seed includes
+  expanded taxonomy (Climate & ESG, Data & Records, Technology Resilience, Legal, Credit),
+  obligations, and metadata-only evidence when those tables exist, plus a few intentional
+  completeness gaps so Data quality has something to show. Re-load after removing an older
+  demo set. `ChartCard` is chrome only — do not add hover that looks like a link.
   Requires `003_admin_settings.sql`. `004_enterprise.sql` unlocks people, assignees,
-  risk status, control type, and appetite. Until those files are run, the page shows
+  risk status, control type, and appetite. `005_operating.sql` unlocks treatment
+  target dates, incident lessons learned, and incident↔control links. Until those files are run, the page shows
   banners and the rest of the app omits unknown columns.
 - **Command palette** — pages, filtered views, taxonomy deep-links, and jump-to-record
   by title (fetched when the palette opens).
@@ -335,16 +381,25 @@ then extracted. **Reach for these before writing a new page from scratch:**
 | Concern | Use |
 |---|---|
 | Auth gate + owner-scoped initial load | `useRequireAuth(callback)` — redirects to `/login`, hands you `ownerId` |
-| Owner-scoped table reads / query errors | `fetchOwnedTable` / `throwIfAnyQueryError` in `lib/supabase/owned.ts` |
+| Owner-scoped table reads / query errors | `fetchOwnedTable` / `fetchOwnedTableOptional` / `throwIfAnyQueryError` in `lib/supabase/owned.ts` |
+| Insert with owner stamp | `insertOwnedRecord` / `insertOwnedRow` in `lib/supabase/records.ts` |
+| Completeness checks (not a stored score) | `buildQualityFindings` in `lib/data-quality/checks.ts`; per-record `*Quality` helpers in `lib/data-quality/record.ts` rendered as `QualityPill` / `QualityCallout` |
+| Governance gates and event diffs | `lib/governance/gates.ts` / `lib/governance/events.ts` |
+| CSV import preview | `lib/import/csv.ts` / `lib/import/validate.ts` |
+| Overview data bundles + inherited-taxonomy indexes | `fetchGrcSnapshot(profile)` / `buildSnapshotIndexes` in `lib/snapshot/grc-snapshot.ts` |
+| Shared operational KPI predicates | `lib/metrics/kpis.ts` |
+| Navigation + command route catalogue | `lib/navigation.ts` |
+| Linked record/activity/attention list presentation | `RecordLinkList` (`divided` or `cards`) — use `limit` + `moreHref` rather than dumping long lists |
 | Clickable list rows (keyboard + click) | `ClickableRow` |
-| List filters held in the URL | `useListFilters` + the `parse*Filters` / `filter*` / `sort*` helpers in `lib/list-filters.ts` |
+| List toolbar (search + filters + CSV) | `ListToolbar` / `FilterSelect` in `app/components/list-toolbar.tsx` — search/export on the first row, filters in a wrapping grid. Do not put filters in the same nowrap row as Search. |
+| Sticky register tables | `RegisterTable` / `registerTheadClassName` in `app/components/page-parts.tsx` |
 | CSV download of a filtered list | `downloadCsv` in `lib/export/csv.ts` |
 | Date-only display (no UTC day-shift) | `formatIsoDate` / `todayIsoDate` in `lib/dates.ts` |
 | Dirty-form leave warning | `useUnsavedChanges` |
 | Review cadence (Admin-configured; default 90/180/365 by band) | `isReviewDue` / `getReviewCadenceDays` in `lib/types/rcsa.ts` |
 | Organisation settings snapshot | `getSettings()` / `hydrateSettings()` in `lib/settings/store.ts`; `useSettings()` in React |
 | Link/unlink against a join table | `useEntityLinks` — owns the rows, search/select state, and insert/delete |
-| Rendering linked rows | `LinkedEntitiesPanel` + the builders in `app/components/linked-entity-rows.tsx` |
+| Rendering linked rows | `LinkedEntitiesPanel` + the builders in `app/components/linked-entity-rows.tsx` (title cell is a link via `href`) |
 | New/edit form scaffolding | `EntityFormPage` |
 | Input/label/button classes | `app/components/ui.ts` — do **not** hand-write these strings |
 | Likelihood × impact rating | `RiskScorePicker` — do **not** add `<select>` 1–5 dropdowns |
@@ -430,6 +485,15 @@ a new env var locally.
 | — | Cadence, attention-queue risks, CSV export, command palette, mobile nav | ✅ Done |
 | — | Admin: configurable methodology, taxonomy, demonstration data, grouped nav | ✅ Done |
 | — | Enterprise operating model: people directory, assignees, risk status, control type, category appetite, inherited taxonomy filters, My work, expanded demo | ✅ Done |
+| — | Operating calendar, 3LoD workload, activity feed, rating movement, board pack, treatment targets, incident lessons, incident↔control links (`005`) | ✅ Done |
+| — | Overview modularization: profiled snapshots, shared KPIs/navigation/link lists, clarified Home/Oversight/Board boundaries | ✅ Done |
+| — | Workspace customization: visible modules, Home/Oversight/Board sections, saved register views (`006`) | ✅ Done |
+| — | Data quality cockpit (`/quality`) | ✅ Done |
+| — | Multi-user tenancy / membership RLS | 📝 Design only — `docs/MULTI_USER_MIGRATION_PLAN.md`. Tenant is still `owner_id = auth user`. |
+| — | Governance gates + immutable risk/incident events (`007`) | ✅ Done |
+| — | Obligations register (`008`) | ✅ Done |
+| — | Evidence metadata + optional Storage (`009`) | ✅ Done |
+| — | CSV import with preview/validation (`/admin/import`) | ✅ Done |
 | 7 | AI-assisted rating recommendations during RCSA | 🔜 Not started |
 
 ---
@@ -476,9 +540,12 @@ session progress isn't tracked; a session is just a grouping for the reviews it 
 
 **Deliberately not built yet** (common GRC features that don't earn a table until
 they're needed): KRIs, stored residual scores, true org memberships / RBAC (the
-account is still the tenant; `org_people` is a directory, not extra logins),
-third-party / vendor risk as a separate module, control design vs operating
-effectiveness as separate ratings, AI RCSA recommendations.
+account is still the tenant; `org_people` is a directory, not extra logins; workspace
+module visibility is presentation only; the cutover is documented in
+`docs/MULTI_USER_MIGRATION_PLAN.md` and must not be implemented as a drive-by RLS
+change), third-party / vendor risk as a separate module, control design vs operating
+effectiveness as separate ratings, AI RCSA recommendations, a stored data-quality
+score, or a regulatory-content ingestion engine.
 
 ## Objective 7 — AI-assisted rating recommendations (not started)
 
@@ -518,7 +585,8 @@ visuals:
   derived from the max `reviewed_at` per risk in `rcsa_reviews`, plus a **Due for
   Review** headline that applies the Admin review cadence by severity band;
   **taxonomy overview** (exposure, uncontrolled, due reviews, appetite breaches,
-  open issues/incidents per category); **above appetite** headline. Closed risks
+  open issues/incidents per category); **above appetite** headline; **rating
+  movement** from the latest RCSA vs the incoming score. Closed risks
   are excluded from these risk metrics.
 - **Issues & Remediation** — open-issue aging buckets (0–30/31–60/61–90/90+ days
   since `identified_at`) broken out by severity; issue flow (opened vs closed,

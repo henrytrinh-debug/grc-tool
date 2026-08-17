@@ -14,6 +14,7 @@ export type Incident = {
   root_cause: string;
   resolved_at?: string | null;
   assignee_id?: string | null;
+  lessons_learned?: string;
   owner_email?: string;
   owner_id?: string;
   created_at?: string;
@@ -28,6 +29,7 @@ export type NewIncident = Pick<
   | "status"
   | "root_cause"
   | "assignee_id"
+  | "lessons_learned"
 >;
 
 export const SEVERITY_OPTIONS: { value: Severity; label: string }[] = [
@@ -83,7 +85,7 @@ export function getOpenIncidentAgeDays(incident: Incident) {
 
 export function toIncidentFormPayload(
   form: NewIncident,
-  includeEnterprise = false,
+  options: { includeEnterprise?: boolean; includeOperating?: boolean } = {},
 ) {
   const payload: Record<string, unknown> = {
     title: form.title,
@@ -94,8 +96,12 @@ export function toIncidentFormPayload(
     root_cause: form.root_cause,
   };
 
-  if (includeEnterprise) {
+  if (options.includeEnterprise) {
     payload.assignee_id = form.assignee_id || null;
+  }
+
+  if (options.includeOperating) {
+    payload.lessons_learned = form.lessons_learned ?? "";
   }
 
   return payload;

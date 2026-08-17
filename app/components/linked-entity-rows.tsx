@@ -3,6 +3,8 @@ import {
   EffectivenessBadge,
   IncidentSeverityBadge,
   IncidentStatusBadge,
+  IssueSeverityBadge,
+  IssueStatusBadge,
   KeyBadge,
   SeverityBandBadge,
 } from "./status-badge";
@@ -16,8 +18,13 @@ import {
 import type {
   LinkedControl,
   LinkedIncident,
+  LinkedIssue,
   LinkedRisk,
 } from "@/lib/types/linked-entities";
+import {
+  formatIssueSeverity,
+  formatIssueStatus,
+} from "@/lib/types/issue";
 import { formatImpactOption, formatLikelihoodOption } from "@/lib/types/risk";
 
 /**
@@ -34,6 +41,7 @@ export const INCIDENT_COLUMNS = [
   "Severity",
   "Status",
 ];
+export const ISSUE_COLUMNS = ["Title", "Severity", "Status"];
 
 export function buildRiskRows(
   links: LinkedRisk[],
@@ -42,6 +50,7 @@ export function buildRiskRows(
   return links.map((link) => ({
     linkId: link.linkId,
     entityId: link.riskId,
+    href: `/risks/${link.riskId}/edit`,
     title: link.title,
     cells: [
       link.title,
@@ -60,6 +69,7 @@ export function buildControlRows(links: LinkedControl[]): LinkedRow[] {
   return links.map((link) => ({
     linkId: link.linkId,
     entityId: link.controlId,
+    href: `/controls/${link.controlId}/edit`,
     title: link.title,
     cells: [
       link.title,
@@ -77,6 +87,7 @@ export function buildIncidentRows(links: LinkedIncident[]): LinkedRow[] {
   return links.map((link) => ({
     linkId: link.linkId,
     entityId: link.incidentId,
+    href: `/incidents/${link.incidentId}/edit`,
     title: link.title,
     cells: [
       link.title,
@@ -90,6 +101,28 @@ export function buildIncidentRows(links: LinkedIncident[]): LinkedRow[] {
         key="status"
         status={link.status}
         label={formatIncidentStatus(link.status)}
+      />,
+    ],
+  }));
+}
+
+export function buildIssueRows(links: LinkedIssue[]): LinkedRow[] {
+  return links.map((link) => ({
+    linkId: link.linkId,
+    entityId: link.issueId,
+    href: `/issues/${link.issueId}/edit`,
+    title: link.title,
+    cells: [
+      link.title,
+      <IssueSeverityBadge
+        key="severity"
+        severity={link.severity}
+        label={formatIssueSeverity(link.severity)}
+      />,
+      <IssueStatusBadge
+        key="status"
+        status={link.status}
+        label={formatIssueStatus(link.status)}
       />,
     ],
   }));

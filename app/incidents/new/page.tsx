@@ -3,7 +3,8 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { EntityFormPage } from "@/app/components/entity-form-page";
-import { PageLoading } from "@/app/components/page-parts";
+import { PageLoading, SchemaNotice } from "@/app/components/page-parts";
+import { incidentGovernanceBlockers, incidentGovernancePrompts } from "@/lib/governance/gates";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import { insertOwnedRecord } from "@/lib/supabase/records";
 import { useSettings } from "@/lib/settings/context";
@@ -17,7 +18,7 @@ import { IncidentFormFields } from "../_components/incident-form-fields";
 
 export default function NewIncidentPage() {
   const router = useRouter();
-  const { enterpriseReady } = useSettings();
+  const { enterpriseReady, operatingReady } = useSettings();
   const [form, setForm] = useState<NewIncident>(EMPTY_INCIDENT_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,12 +31,21 @@ export default function NewIncidentPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const blockers = incidentGovernanceBlockers(form);
+    if (blockers.length > 0) {
+      setError(blockers.join(" "));
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
 
     try {
       await insertOwnedRecord("incidents", {
-        ...toIncidentFormPayload(form, enterpriseReady),
+        ...toIncidentFormPayload(form, {
+          includeEnterprise: enterpriseReady,
+          includeOperating: operatingReady,
+        }),
         resolved_at: nextResolvedAt(form.status, null),
       });
       router.push("/incidents");
@@ -66,6 +76,11 @@ export default function NewIncidentPage() {
       cancelHref="/incidents"
       onSubmit={handleSubmit}
     >
+      {incidentGovernancePrompts(form, operatingReady).map((prompt) => (
+        <div key={prompt} className="sm:col-span-2">
+          <SchemaNotice>{prompt}</SchemaNotice>
+        </div>
+      ))}
       <IncidentFormFields form={form} onChange={updateForm} />
     </EntityFormPage>
   );

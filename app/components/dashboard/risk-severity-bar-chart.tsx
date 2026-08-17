@@ -12,6 +12,7 @@ import {
   YAxis,
 } from "recharts";
 import {
+  barClickDatum,
   chartActiveBar,
   chartHoverCursor,
   chartTooltipStyle,
@@ -64,7 +65,7 @@ export function RiskSeverityBarChart({ data }: RiskSeverityBarChartProps) {
           cursor="pointer"
           activeBar={chartActiveBar}
           onClick={(data) => {
-            const band = (data as { band?: string }).band;
+            const band = barClickDatum<{ band?: string }>(data)?.band;
             if (band) {
               router.push(`/risks?severity=${encodeURIComponent(band)}`);
             }

@@ -24,7 +24,8 @@ export function RiskHeatMap({ risks }: RiskHeatMapProps) {
         {RISK_SCALE_VALUES.map((likelihood) => (
           <div
             key={`likelihood-${likelihood}`}
-            className="px-1 text-center text-[10px] font-medium leading-tight text-slate-600 sm:text-xs dark:text-slate-400"
+            className="truncate px-1 text-center text-[10px] font-medium leading-tight text-slate-600 sm:text-xs dark:text-slate-400"
+            title={formatLikelihood(likelihood)}
           >
             {formatLikelihood(likelihood)}
           </div>
@@ -32,7 +33,7 @@ export function RiskHeatMap({ risks }: RiskHeatMapProps) {
 
         {[...RISK_SCALE_VALUES].reverse().map((impact) => (
           <div key={`impact-row-${impact}`} className="contents">
-            <div className="flex items-center pr-2 text-[10px] font-medium leading-tight text-slate-600 sm:text-xs dark:text-slate-400">
+            <div className="flex max-w-16 items-center truncate pr-2 text-[10px] font-medium leading-tight text-slate-600 sm:max-w-none sm:text-xs dark:text-slate-400" title={formatImpact(impact)}>
               {formatImpact(impact)}
             </div>
             {RISK_SCALE_VALUES.map((likelihood) => {

@@ -12,6 +12,7 @@ import {
   YAxis,
 } from "recharts";
 import {
+  barClickDatum,
   chartActiveBar,
   chartHoverCursor,
   chartTooltipStyle,
@@ -74,7 +75,8 @@ export function TaxonomyBarChart({
           cursor="pointer"
           activeBar={chartActiveBar}
           onClick={(row) => {
-            const filterValue = (row as { filterValue?: string }).filterValue;
+            const filterValue = barClickDatum<{ filterValue?: string }>(row)
+              ?.filterValue;
             if (filterValue) {
               router.push(
                 `${hrefBase}?${queryParam}=${encodeURIComponent(filterValue)}`,

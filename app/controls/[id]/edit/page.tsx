@@ -3,6 +3,8 @@
 import { FormEvent, useCallback, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { LinkedEntitiesPanel } from "@/app/components/linked-entities-panel";
+import { EvidencePanel } from "@/app/components/evidence-panel";
+import { QualityCallout } from "@/app/components/quality-indicator";
 import {
   buildRiskRows,
   RISK_COLUMNS_WITH_OWNER,
@@ -23,6 +25,7 @@ import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import { useUnsavedChanges } from "@/lib/hooks/use-unsaved-changes";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { useSettings } from "@/lib/settings/context";
+import { controlQuality } from "@/lib/data-quality/record";
 import {
   toControlFormPayload,
   type Control,
@@ -349,6 +352,10 @@ export default function EditControlPage() {
     control: controlId,
     title: `Control gap: ${control.title}`,
   }).toString()}`;
+  const quality = controlQuality(form, {
+    mappedToRisk: linkedRisks.length > 0,
+    enterpriseReady,
+  });
 
   return (
     <div className="min-h-full bg-slate-50 px-6 py-10 dark:bg-slate-950">
@@ -361,6 +368,8 @@ export default function EditControlPage() {
         </header>
 
         <ErrorBanner message={error} />
+
+        <QualityCallout summary={quality} />
 
         <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2">
@@ -422,6 +431,8 @@ export default function EditControlPage() {
           options={userRisks}
           {...riskPanelProps}
         />
+
+        <EvidencePanel entityType="control" entityId={controlId} />
       </main>
     </div>
   );

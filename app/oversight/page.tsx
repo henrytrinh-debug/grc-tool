@@ -16,10 +16,15 @@ import {
   TestingCoverageDonut,
 } from "@/app/components/oversight/oversight-donuts";
 import { IssueAgingChart } from "@/app/components/oversight/aging-chart";
+import { RatingMovementList } from "@/app/components/oversight/movement-list";
 import { TaxonomyOverviewTable } from "@/app/components/oversight/taxonomy-table";
 import { ErrorBanner, PageHeader, PageLoading } from "@/app/components/page-parts";
 import { mutedTextClassName } from "@/app/components/ui";
 import { useSettings } from "@/lib/settings/context";
+import {
+  isOversightSectionVisible,
+  type OversightSectionId,
+} from "@/lib/settings/preferences";
 import {
   formatKeyTestingCadenceHint,
   formatReviewCadenceHint,
@@ -30,6 +35,7 @@ import {
   type IssueSummary,
   type SeverityBandCount,
 } from "@/lib/dashboard/analytics";
+import { appetiteBreachingRisks } from "@/lib/metrics/kpis";
 import {
   buildTaxonomyOverview,
   buildAvgDaysToCloseIssues,
@@ -62,21 +68,20 @@ import {
   type UncontrolledRiskBreakdown,
 } from "@/lib/oversight/metrics";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
-import { indexLinkedCategories, isAppetiteBreach } from "@/lib/taxonomy";
-import { throwIfAnyQueryError } from "@/lib/supabase/owned";
+import { buildRatingMovement, type RatingMovementSummary } from "@/lib/oversight/movement";
+import { fetchGrcSnapshot } from "@/lib/snapshot/grc-snapshot";
 import { getSupabaseClient } from "@/lib/supabase/client";
-import type { Control } from "@/lib/types/control";
-import type { ControlTestResult } from "@/lib/types/control-test-result";
+import { fetchOwnedTableOptional } from "@/lib/supabase/owned";
 import {
   fallbackResolvedAt,
   type Incident,
 } from "@/lib/types/incident";
-import type { Issue } from "@/lib/types/issue";
-import type { IssueAction } from "@/lib/types/issue-action";
-import { buildLastReviewedByRisk } from "@/lib/types/rcsa";
-import type { Risk } from "@/lib/types/risk";
-import { countByKey } from "@/lib/types/join-utils";
 import type { ChartCount } from "@/lib/dashboard/analytics";
+import {
+  obligationCoverage,
+  type ObligationRecord,
+} from "@/lib/types/obligation";
+import type { ObligationControlLink } from "@/lib/types/obligation-links";
 
 type OversightData = {
   controlKeyStats: ControlKeyStats;
@@ -100,6 +105,8 @@ type OversightData = {
   incidentSeverityCounts: ChartCount[];
   taxonomyOverview: TaxonomyOverviewRow[];
   appetiteBreaches: number;
+  ratingMovement: RatingMovementSummary;
+  obligationCoverage: { active: number; covered: number; uncovered: number } | null;
 };
 
 const emptyIssueSummary: IssueSummary = {
@@ -141,6 +148,14 @@ const emptyData: OversightData = {
   incidentSeverityCounts: [],
   taxonomyOverview: [],
   appetiteBreaches: 0,
+  ratingMovement: {
+    reviewed: 0,
+    increased: 0,
+    decreased: 0,
+    unchanged: 0,
+    moves: [],
+  },
+  obligationCoverage: null,
 };
 
 /**
@@ -188,7 +203,7 @@ async function stampMissingResolvedAt(
 }
 
 export default function OversightPage() {
-  const { settings, categories, schemaReady } = useSettings();
+  const { settings, categories, schemaReady, obligationsReady } = useSettings();
   const [data, setData] = useState<OversightData>(emptyData);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -198,83 +213,51 @@ export default function OversightPage() {
 
     try {
       const supabase = getSupabaseClient();
-
-      const results = await Promise.all([
-        supabase.from("risks").select("*").eq("owner_id", ownerId),
-        supabase.from("controls").select("*").eq("owner_id", ownerId),
-        supabase.from("control_test_results").select("*").eq("owner_id", ownerId),
-        supabase.from("incidents").select("*").eq("owner_id", ownerId),
-        supabase.from("issues").select("*").eq("owner_id", ownerId),
-        supabase.from("issue_actions").select("*").eq("owner_id", ownerId),
-        supabase.from("risk_controls").select("risk_id, control_id").eq("owner_id", ownerId),
-        supabase.from("issue_risks").select("issue_id, risk_id").eq("owner_id", ownerId),
-        supabase.from("incident_risks").select("incident_id, risk_id").eq("owner_id", ownerId),
-        supabase
-          .from("rcsa_reviews")
-          .select("risk_id, reviewed_at")
-          .eq("owner_id", ownerId),
-      ]);
-
-      throwIfAnyQueryError(results);
-
-      const [
-        risksResult,
-        controlsResult,
-        testResultsResult,
-        incidentsResult,
-        issuesResult,
-        actionsResult,
-        riskControlsResult,
-        issueRisksResult,
-        incidentRisksResult,
-        reviewsResult,
-      ] = results;
-
-      const risks = (risksResult.data ?? []) as Risk[];
-      const controls = (controlsResult.data ?? []) as Control[];
-      const testResults = (testResultsResult.data ?? []) as ControlTestResult[];
+      const snapshot = await fetchGrcSnapshot(
+        supabase,
+        ownerId,
+        "oversight",
+      );
+      const {
+        risks,
+        controls,
+        issues,
+        actions,
+        reviews,
+        tests: testResults,
+        riskControlLinks,
+      } = snapshot;
       const incidents = await stampMissingResolvedAt(
         supabase,
         ownerId,
-        (incidentsResult.data ?? []) as Incident[],
+        snapshot.incidents,
       );
-      const issues = (issuesResult.data ?? []) as Issue[];
-      const actions = (actionsResult.data ?? []) as IssueAction[];
-      const riskControlLinks = (riskControlsResult.data ?? []) as {
-        risk_id: string;
-        control_id: string;
-      }[];
-      const reviews = (reviewsResult.data ?? []) as {
-        risk_id: string;
-        reviewed_at: string;
-      }[];
-      const lastReviewedByRisk = buildLastReviewedByRisk(reviews);
-      const linkedControlCounts = countByKey(
-        riskControlLinks,
-        (link) => link.risk_id,
-      );
-      const riskById = Object.fromEntries(risks.map((risk) => [risk.id, risk]));
-      const issueCategoryIds = indexLinkedCategories(
-        ((issueRisksResult.data ?? []) as { issue_id: string; risk_id: string }[]).map(
-          (link) => ({
-            parentId: link.issue_id,
-            categoryId: riskById[link.risk_id]?.category_id,
-          }),
-        ),
-      );
-      const incidentCategoryIds = indexLinkedCategories(
-        (
-          (incidentRisksResult.data ?? []) as {
-            incident_id: string;
-            risk_id: string;
-          }[]
-        ).map((link) => ({
-          parentId: link.incident_id,
-          categoryId: riskById[link.risk_id]?.category_id,
-        })),
-      );
+      const {
+        lastReviewedByRisk,
+        linkedControlCountsByRisk,
+        issueCategoryIds,
+        incidentCategoryIds,
+      } = snapshot.indexes;
 
       const keyControls = controls.filter((control) => control.is_key);
+      const [obligationRows, obligationLinks] = obligationsReady
+        ? await Promise.all([
+            fetchOwnedTableOptional<ObligationRecord>(
+              supabase,
+              "obligations",
+              ownerId,
+            ),
+            fetchOwnedTableOptional<ObligationControlLink>(
+              supabase,
+              "obligation_controls",
+              ownerId,
+              { columns: "obligation_id, control_id" },
+            ),
+          ])
+        : [
+            [] as ObligationRecord[],
+            [] as ObligationControlLink[],
+          ];
 
       setData({
         controlKeyStats: buildControlKeyStats(controls),
@@ -300,15 +283,17 @@ export default function OversightPage() {
           categories,
           risks,
           lastReviewedByRisk,
-          linkedControlCounts,
+          linkedControlCountsByRisk,
           issueCategoryIds,
           incidentCategoryIds,
           issues,
           incidents,
         ),
-        appetiteBreaches: risks.filter((risk) =>
-          isAppetiteBreach(risk, categories),
-        ).length,
+        appetiteBreaches: appetiteBreachingRisks(risks, categories).length,
+        ratingMovement: buildRatingMovement(reviews, risks),
+        obligationCoverage: obligationsReady
+          ? obligationCoverage(obligationRows, obligationLinks)
+          : null,
       });
     } catch (err) {
       setError(
@@ -317,7 +302,7 @@ export default function OversightPage() {
     } finally {
       setLoading(false);
     }
-  }, [categories]);
+  }, [categories, obligationsReady]);
 
   const { authLoading } = useRequireAuth(fetchOversightData);
 
@@ -333,6 +318,8 @@ export default function OversightPage() {
   const uncontrolledHighOrCriticalCount = data.uncontrolledRisks
     .filter((row) => row.band === "High" || row.band === "Critical")
     .reduce((sum, row) => sum + row.count, 0);
+  const showSection = (id: OversightSectionId) =>
+    isOversightSectionVisible(settings.workspacePreferences, id);
 
   return (
     <div className="min-h-full bg-slate-50 px-6 py-10 dark:bg-slate-950">
@@ -352,6 +339,7 @@ export default function OversightPage() {
           <p className={mutedTextClassName}>Loading oversight data...</p>
         ) : (
           <>
+            {showSection("controls") ? (
             <section className="space-y-6">
               <div>
                 <h2 className="text-xl font-semibold text-slate-950 dark:text-slate-50">
@@ -442,7 +430,46 @@ export default function OversightPage() {
                 </ChartCard>
               </div>
             </section>
+            ) : null}
 
+            {data.obligationCoverage ? (
+            <section className="space-y-6">
+              <div>
+                <h2 className="text-xl font-semibold text-slate-950 dark:text-slate-50">
+                  Obligation coverage
+                </h2>
+                <p className={`mt-1 text-sm ${mutedTextClassName}`}>
+                  Active compliance requirements mapped to controls.
+                </p>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <StatCard
+                  label="Active obligations"
+                  value={data.obligationCoverage.active}
+                  href="/obligations"
+                  linkLabel="Open register"
+                />
+                <StatCard
+                  label="Mapped to a control"
+                  value={data.obligationCoverage.covered}
+                  href="/obligations"
+                  linkLabel="View obligations"
+                />
+                <StatCard
+                  label="Coverage gaps"
+                  value={data.obligationCoverage.uncovered}
+                  hint="Active obligations with no mapped control"
+                  href="/quality"
+                  linkLabel="Open data quality"
+                  tone={
+                    data.obligationCoverage.uncovered > 0 ? "alert" : "default"
+                  }
+                />
+              </div>
+            </section>
+            ) : null}
+
+            {showSection("risks") ? (
             <section className="space-y-6">
               <div>
                 <h2 className="text-xl font-semibold text-slate-950 dark:text-slate-50">
@@ -489,6 +516,16 @@ export default function OversightPage() {
                   linkLabel="View appetite breaches"
                   tone={data.appetiteBreaches > 0 ? "alert" : "default"}
                 />
+                <StatCard
+                  label="Scores increased"
+                  value={data.ratingMovement.increased}
+                  hint={`Latest RCSA vs prior rating · ${data.ratingMovement.reviewed} reviewed`}
+                />
+                <StatCard
+                  label="Scores decreased"
+                  value={data.ratingMovement.decreased}
+                  hint="Latest RCSA vs prior rating"
+                />
               </div>
 
               <div className="grid gap-6 lg:grid-cols-2">
@@ -508,6 +545,13 @@ export default function OversightPage() {
                     dueCount={data.reviewsDue}
                   />
                 </ChartCard>
+
+                <ChartCard
+                  title="Rating movement"
+                  description="Latest assessment vs the score the reviewer started from. Tightening (down) is usually the healthy direction."
+                >
+                  <RatingMovementList summary={data.ratingMovement} />
+                </ChartCard>
               </div>
 
               {schemaReady && (
@@ -519,7 +563,9 @@ export default function OversightPage() {
                 </ChartCard>
               )}
             </section>
+            ) : null}
 
+            {showSection("issues") ? (
             <section className="space-y-6">
               <div>
                 <h2 className="text-xl font-semibold text-slate-950 dark:text-slate-50">
@@ -589,7 +635,9 @@ export default function OversightPage() {
                 </ChartCard>
               </div>
             </section>
+            ) : null}
 
+            {showSection("incidents") ? (
             <section className="space-y-6">
               <div>
                 <h2 className="text-xl font-semibold text-slate-950 dark:text-slate-50">
@@ -656,6 +704,16 @@ export default function OversightPage() {
                 </ChartCard>
               </div>
             </section>
+            ) : null}
+
+            {!showSection("controls") &&
+            !showSection("risks") &&
+            !showSection("issues") &&
+            !showSection("incidents") ? (
+              <p className={mutedTextClassName}>
+                Oversight sections are hidden. Restore them from Admin → Workspace.
+              </p>
+            ) : null}
           </>
         )}
       </main>

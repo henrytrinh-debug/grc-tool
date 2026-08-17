@@ -6,6 +6,7 @@ import {
   IssueStatusBadge,
   OverdueBadge,
 } from "@/app/components/status-badge";
+import { ExpandableList } from "@/app/components/expandable-list";
 import { secondaryButtonClassName } from "@/app/components/ui";
 import {
   formatDueDateLabel,
@@ -52,9 +53,12 @@ export function RelatedIssuesCard({
           {emptyMessage}
         </p>
       ) : (
-        <ul className="divide-y divide-slate-200 dark:divide-slate-800">
-          {issues.map((issue) => (
-            <li
+        <div className="divide-y divide-slate-200 dark:divide-slate-800">
+          <ExpandableList
+            items={issues}
+            limit={5}
+            renderItem={(issue) => (
+            <div
               key={issue.linkId}
               className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between"
             >
@@ -76,9 +80,10 @@ export function RelatedIssuesCard({
                 <span>{formatDueDateLabel(issue)}</span>
                 {isIssueOverdue(issue) && <OverdueBadge />}
               </div>
-            </li>
-          ))}
-        </ul>
+            </div>
+            )}
+          />
+        </div>
       )}
     </section>
   );

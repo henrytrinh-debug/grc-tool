@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Suspense, useCallback, useMemo, useState } from "react";
 import { ClickableRow } from "@/app/components/clickable-row";
+import { QualityTitle } from "@/app/components/quality-indicator";
 import {
   ControlTypeBadge,
   EffectivenessBadge,
@@ -10,13 +11,18 @@ import {
   TestingStatusBadge,
 } from "@/app/components/status-badge";
 import { FilterSelect, ListToolbar } from "@/app/components/list-toolbar";
+import { RegisterPresets } from "@/app/components/register-presets";
 import {
   ErrorBanner,
   ListEmpty,
+  LoadingBlock,
   PageHeader,
   PageLoading,
+  RegisterTable,
+  registerTheadClassName,
 } from "@/app/components/page-parts";
 import { primaryButtonClassName, secondaryButtonClassName } from "@/app/components/ui";
+import { controlQuality } from "@/lib/data-quality/record";
 import { useListFilters } from "@/lib/hooks/use-list-filters";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import {
@@ -41,7 +47,9 @@ import {
   formatControlType,
   formatEffectiveness,
   formatLastTestedAt,
+  formatNextTestDue,
   getTestingStatus,
+  isTestingDue,
   type Control,
 } from "@/lib/types/control";
 import {
@@ -49,7 +57,12 @@ import {
   ISSUE_CONTROL_ISSUE_SELECT,
   type IssueControlIssueRow,
 } from "@/lib/types/issue-links";
-import { formatPersonName, personByEmail } from "@/lib/types/person";
+import {
+  departmentFilterOptions,
+  formatPersonDepartment,
+  formatPersonName,
+  personByEmail,
+} from "@/lib/types/person";
 import { countGroupedLinks } from "@/lib/types/join-utils";
 import {
   groupRiskControlRowsByControl,
@@ -140,9 +153,10 @@ function ControlsPageContent() {
           linkedRiskCounts,
           linkedCategoryIds,
           myPersonId,
+          people,
         }),
       ),
-    [controls, filters, linkedRiskCounts, linkedCategoryIds, myPersonId],
+    [controls, filters, linkedRiskCounts, linkedCategoryIds, myPersonId, people],
   );
 
   const filtersActive = hasActiveFilters({
@@ -154,6 +168,7 @@ function ControlsPageContent() {
     categoryId: filters.categoryId,
     controlType: filters.controlType,
     assignee: filters.assignee,
+    department: filters.department,
   });
 
   if (authLoading) {
@@ -161,8 +176,8 @@ function ControlsPageContent() {
   }
 
   return (
-    <div className="min-h-full bg-slate-50 px-6 py-10 dark:bg-slate-950">
-      <main className="mx-auto flex w-full max-w-7xl flex-col gap-8">
+    <div className="min-h-full min-w-0 bg-slate-50 px-6 py-10 dark:bg-slate-950">
+      <main className="mx-auto flex w-full min-w-0 max-w-7xl flex-col gap-8">
         <PageHeader
           title="Control Register"
           description="Manage and track your assigned controls."
@@ -179,7 +194,7 @@ function ControlsPageContent() {
 
         <ErrorBanner message={error} />
 
-        <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <section className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <ListToolbar
             search={filters.q}
             onSearchChange={(value) => updateFilters({ q: value })}
@@ -189,7 +204,9 @@ function ControlsPageContent() {
             hasFilters={filtersActive}
             onClear={clearFilters}
             actions={
-              filteredControls.length > 0 ? (
+              <>
+                <RegisterPresets module="controls" />
+                {filteredControls.length > 0 ? (
                 <button
                   type="button"
                   className={secondaryButtonClassName}
@@ -202,9 +219,11 @@ function ControlsPageContent() {
                         "Type",
                         "Category",
                         "Assignee",
+                        "Department",
                         "Effectiveness",
                         "Last Tested",
                         "Testing Status",
+                        "Next Test",
                         "Linked Risks",
                         "Open Issues",
                       ],
@@ -217,9 +236,11 @@ function ControlsPageContent() {
                           linkedCategoryIds[control.id] ?? [],
                         ),
                         formatPersonName(people, control.assignee_id),
+                        formatPersonDepartment(people, control.assignee_id),
                         formatEffectiveness(control.effectiveness),
                         formatLastTestedAt(control.last_tested_at),
                         getTestingStatus(control.last_tested_at, control.is_key),
+                        formatNextTestDue(control.last_tested_at, control.is_key),
                         linkedRiskCounts[control.id] ?? 0,
                         openIssueCounts[control.id] ?? 0,
                       ]),
@@ -228,7 +249,8 @@ function ControlsPageContent() {
                 >
                   Export CSV
                 </button>
-              ) : null
+                ) : null}
+              </>
             }
           >
             <FilterSelect
@@ -290,12 +312,20 @@ function ControlsPageContent() {
                   onChange={(value) => updateFilters({ assignee: value })}
                   options={assigneeFilterOptions(people)}
                 />
+                {departmentFilterOptions(people).length > 0 && (
+                  <FilterSelect
+                    label="Department"
+                    value={filters.department}
+                    onChange={(value) => updateFilters({ department: value })}
+                    options={departmentFilterOptions(people)}
+                  />
+                )}
               </>
             )}
           </ListToolbar>
 
           {loading ? (
-            <ListEmpty>Loading controls...</ListEmpty>
+            <LoadingBlock label="Loading controls..." />
           ) : controls.length === 0 ? (
             <ListEmpty>
               No controls yet.{" "}
@@ -310,9 +340,8 @@ function ControlsPageContent() {
           ) : filteredControls.length === 0 ? (
             <ListEmpty>No controls match the current filters.</ListEmpty>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-600 dark:bg-slate-950 dark:text-slate-400">
+            <RegisterTable>
+                <thead className={registerTheadClassName}>
                   <tr>
                     <th className="px-6 py-3 font-medium">Title</th>
                     <th className="px-6 py-3 font-medium">Key</th>
@@ -328,6 +357,7 @@ function ControlsPageContent() {
                     <th className="px-6 py-3 font-medium">Effectiveness</th>
                     <th className="px-6 py-3 font-medium">Last Tested</th>
                     <th className="px-6 py-3 font-medium">Testing Status</th>
+                    <th className="px-6 py-3 font-medium">Next Test</th>
                     <th className="px-6 py-3 font-medium">Linked Risks</th>
                     <th className="px-6 py-3 font-medium">Open Issues</th>
                   </tr>
@@ -339,6 +369,10 @@ function ControlsPageContent() {
                       control.is_key,
                     );
                     const riskCount = linkedRiskCounts[control.id] ?? 0;
+                    const testingDue = isTestingDue(
+                      control.last_tested_at,
+                      control.is_key,
+                    );
                     const needsAttention =
                       (control.is_key &&
                         control.effectiveness === "ineffective") ||
@@ -357,7 +391,14 @@ function ControlsPageContent() {
                       }
                     >
                       <td className="px-6 py-4 font-medium text-slate-950 dark:text-slate-50">
-                        {control.title}
+                        <QualityTitle
+                          summary={controlQuality(control, {
+                            mappedToRisk: riskCount > 0,
+                            enterpriseReady,
+                          })}
+                        >
+                          {control.title}
+                        </QualityTitle>
                       </td>
                       <td className="px-6 py-4">
                         <KeyBadge isKey={control.is_key} />
@@ -394,6 +435,18 @@ function ControlsPageContent() {
                       <td className="px-6 py-4">
                         <TestingStatusBadge status={testingStatus} />
                       </td>
+                      <td
+                        className={`px-6 py-4 ${
+                          testingDue
+                            ? "font-medium text-red-700 dark:text-red-400"
+                            : "text-slate-600 dark:text-slate-400"
+                        }`}
+                      >
+                        {formatNextTestDue(
+                          control.last_tested_at,
+                          control.is_key,
+                        )}
+                      </td>
                       <td className="px-6 py-4 text-slate-950 dark:text-slate-50">
                         <span
                           className={
@@ -420,8 +473,7 @@ function ControlsPageContent() {
                     );
                   })}
                 </tbody>
-              </table>
-            </div>
+            </RegisterTable>
           )}
         </section>
       </main>

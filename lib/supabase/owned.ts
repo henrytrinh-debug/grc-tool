@@ -1,3 +1,4 @@
+import { isMissingRelationError } from "@/lib/settings/store";
 import type { PostgrestError } from "@supabase/supabase-js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -19,6 +20,10 @@ export function throwIfAnyQueryError(results: { error: PostgrestError | null }[]
   if (failed?.error) {
     throw failed.error;
   }
+}
+
+export function isProbeMissing(error: { message?: string; code?: string } | null) {
+  return Boolean(error) && isMissingRelationError(error ?? {});
 }
 
 /** Owner-scoped table read used by dashboards and list pages. */
@@ -46,4 +51,26 @@ export async function fetchOwnedTable<T>(
   const result = await query;
   throwIfQueryError(result);
   return (result.data ?? []) as T[];
+}
+
+/** Same as fetchOwnedTable, but missing tables/columns yield []. */
+export async function fetchOwnedTableOptional<T>(
+  supabase: SupabaseClient,
+  table: string,
+  ownerId: string,
+  options?: Parameters<typeof fetchOwnedTable<T>>[3],
+) {
+  try {
+    return await fetchOwnedTable<T>(supabase, table, ownerId, options);
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      isMissingRelationError(error as { message?: string; code?: string })
+    ) {
+      return [] as T[];
+    }
+
+    throw error;
+  }
 }

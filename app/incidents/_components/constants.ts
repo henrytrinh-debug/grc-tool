@@ -8,4 +8,5 @@ export const EMPTY_INCIDENT_FORM: NewIncident = {
   status: "open",
   root_cause: "",
   assignee_id: "",
+  lessons_learned: "",
 };

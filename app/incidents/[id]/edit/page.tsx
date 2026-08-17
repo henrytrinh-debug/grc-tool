@@ -5,14 +5,20 @@ import { FormEvent, useCallback, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { LinkedEntitiesPanel } from "@/app/components/linked-entities-panel";
 import {
+  buildControlRows,
   buildRiskRows,
+  CONTROL_COLUMNS,
   RISK_COLUMNS_WITH_OWNER,
 } from "@/app/components/linked-entity-rows";
 import {
   BackLink,
   ErrorBanner,
   PageLoading,
+  SchemaNotice,
 } from "@/app/components/page-parts";
+import { EventTimeline } from "@/app/components/event-timeline";
+import { EvidencePanel } from "@/app/components/evidence-panel";
+import { QualityCallout } from "@/app/components/quality-indicator";
 import {
   dangerButtonClassName,
   primaryButtonClassName,
@@ -21,8 +27,16 @@ import {
 import { useEntityLinks } from "@/lib/hooks/use-entity-links";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import { useUnsavedChanges } from "@/lib/hooks/use-unsaved-changes";
+import { type IncidentEvent, incidentEventDrafts } from "@/lib/governance/events";
+import {
+  incidentGovernanceBlockers,
+  incidentGovernancePrompts,
+} from "@/lib/governance/gates";
+import { insertGovernanceEventsOrWarn } from "@/lib/governance/record";
 import { getSupabaseClient } from "@/lib/supabase/client";
+import { isProbeMissing } from "@/lib/supabase/owned";
 import { useSettings } from "@/lib/settings/context";
+import { incidentQuality } from "@/lib/data-quality/record";
 import {
   formatDateForInput,
   nextResolvedAt,
@@ -35,7 +49,13 @@ import {
   INCIDENT_RISK_RISK_SELECT,
   type IncidentRiskRow,
 } from "@/lib/types/incident-risk";
-import type { LinkedRisk } from "@/lib/types/linked-entities";
+import {
+  groupIncidentControlRowsByIncident,
+  INCIDENT_CONTROL_CONTROL_SELECT,
+  type IncidentControlRow,
+} from "@/lib/types/incident-control";
+import type { LinkedControl, LinkedRisk } from "@/lib/types/linked-entities";
+import type { Control } from "@/lib/types/control";
 import type { Risk } from "@/lib/types/risk";
 import { IncidentFormFields } from "../../_components/incident-form-fields";
 
@@ -47,11 +67,13 @@ export default function EditIncidentPage() {
   const [incident, setIncident] = useState<Incident | null>(null);
   const [form, setForm] = useState<NewIncident | null>(null);
   const [userRisks, setUserRisks] = useState<Risk[]>([]);
+  const [userControls, setUserControls] = useState<Control[]>([]);
+  const [events, setEvents] = useState<IncidentEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { enterpriseReady } = useSettings();
+  const { enterpriseReady, operatingReady, governanceReady } = useSettings();
 
   const {
     linked: linkedRisks,
@@ -65,6 +87,22 @@ export default function EditIncidentPage() {
     childColumn: "risk_id",
     parse: (rows) => groupIncidentRiskRowsByIncident(rows)[incidentId] ?? [],
     label: "risk",
+    onError: setError,
+  });
+
+  const {
+    linked: linkedControls,
+    refresh: refreshControlLinks,
+    panelProps: controlPanelProps,
+  } = useEntityLinks<IncidentControlRow, LinkedControl>({
+    table: "incident_controls",
+    select: INCIDENT_CONTROL_CONTROL_SELECT,
+    parentColumn: "incident_id",
+    parentId: incidentId,
+    childColumn: "control_id",
+    parse: (rows) =>
+      groupIncidentControlRowsByIncident(rows)[incidentId] ?? [],
+    label: "control",
     onError: setError,
   });
 
@@ -100,21 +138,52 @@ export default function EditIncidentPage() {
           status: loadedIncident.status,
           root_cause: loadedIncident.root_cause,
           assignee_id: loadedIncident.assignee_id ?? "",
+          lessons_learned: loadedIncident.lessons_learned ?? "",
         });
 
-        const risksResult = await supabase
-          .from("risks")
-          .select("*")
-          .eq("owner_id", ownerId)
-          .order("title", { ascending: true });
+        const [risksResult, controlsResult] = await Promise.all([
+          supabase
+            .from("risks")
+            .select("*")
+            .eq("owner_id", ownerId)
+            .order("title", { ascending: true }),
+          supabase
+            .from("controls")
+            .select("*")
+            .eq("owner_id", ownerId)
+            .order("title", { ascending: true }),
+        ]);
 
         if (risksResult.error) {
           throw risksResult.error;
         }
 
+        if (controlsResult.error) {
+          throw controlsResult.error;
+        }
+
         setUserRisks((risksResult.data ?? []) as Risk[]);
+        setUserControls((controlsResult.data ?? []) as Control[]);
 
         await refreshRiskLinks(ownerId);
+        if (operatingReady) {
+          await refreshControlLinks(ownerId);
+        }
+
+        if (governanceReady) {
+          const eventsResult = await supabase
+            .from("incident_events")
+            .select("*")
+            .eq("owner_id", ownerId)
+            .eq("incident_id", incidentId)
+            .order("created_at", { ascending: false });
+          if (eventsResult.error && !isProbeMissing(eventsResult.error)) {
+            throw eventsResult.error;
+          }
+          setEvents((eventsResult.data ?? []) as IncidentEvent[]);
+        } else {
+          setEvents([]);
+        }
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Failed to load incident",
@@ -123,7 +192,7 @@ export default function EditIncidentPage() {
         setLoading(false);
       }
     },
-    [incidentId, refreshRiskLinks, router],
+    [governanceReady, incidentId, operatingReady, refreshControlLinks, refreshRiskLinks, router],
   );
 
   const { user, authLoading } = useRequireAuth(loadPageData);
@@ -137,6 +206,7 @@ export default function EditIncidentPage() {
         form.severity !== incident.severity ||
         form.status !== incident.status ||
         form.root_cause !== incident.root_cause ||
+        (form.lessons_learned ?? "") !== (incident.lessons_learned ?? "") ||
         (form.assignee_id || "") !== (incident.assignee_id ?? "")),
   );
   const { confirmLeave } = useUnsavedChanges(dirty);
@@ -152,6 +222,12 @@ export default function EditIncidentPage() {
       return;
     }
 
+    const blockers = incidentGovernanceBlockers(form);
+    if (blockers.length > 0) {
+      setError(blockers.join(" "));
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
 
@@ -161,7 +237,10 @@ export default function EditIncidentPage() {
       const { error: updateError } = await supabase
         .from("incidents")
         .update({
-          ...toIncidentFormPayload(form, enterpriseReady),
+          ...toIncidentFormPayload(form, {
+            includeEnterprise: enterpriseReady,
+            includeOperating: operatingReady,
+          }),
           resolved_at: nextResolvedAt(form.status, incident.resolved_at),
         })
         .eq("id", incident.id)
@@ -169,6 +248,32 @@ export default function EditIncidentPage() {
 
       if (updateError) {
         throw updateError;
+      }
+
+      if (governanceReady) {
+        const warning = await insertGovernanceEventsOrWarn({
+          table: "incident_events",
+          parentColumn: "incident_id",
+          parentId: incident.id,
+          drafts: incidentEventDrafts({
+            previousStatus: incident.status,
+            nextStatus: form.status,
+            previousAssigneeId: incident.assignee_id,
+            nextAssigneeId: form.assignee_id,
+            previousSeverity: incident.severity,
+            nextSeverity: form.severity,
+          }),
+          ownerId: user.id,
+          ownerEmail: user.email,
+          actorId: user.id,
+          actorEmail: user.email,
+        });
+        if (warning) {
+          setError(warning);
+          setIncident({ ...incident, ...form });
+          setSubmitting(false);
+          return;
+        }
       }
 
       router.push("/incidents");
@@ -226,6 +331,7 @@ export default function EditIncidentPage() {
       ? `Root cause identified during incident review: ${incident.root_cause}`
       : "",
   }).toString()}`;
+  const quality = incidentQuality(form, { enterpriseReady });
 
   return (
     <div className="min-h-full bg-slate-50 px-6 py-10 dark:bg-slate-950">
@@ -246,6 +352,12 @@ export default function EditIncidentPage() {
         </header>
 
         <ErrorBanner message={error} />
+
+        <QualityCallout summary={quality} />
+
+        {incidentGovernancePrompts(form, operatingReady).map((prompt) => (
+          <SchemaNotice key={prompt}>{prompt}</SchemaNotice>
+        ))}
 
         <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2">
@@ -292,6 +404,30 @@ export default function EditIncidentPage() {
           options={userRisks}
           {...riskPanelProps}
         />
+
+        {operatingReady && (
+          <LinkedEntitiesPanel
+            title="Failed or related controls"
+            entityLabel="Control"
+            parentLabel="incident"
+            createHref="/controls"
+            columnHeaders={CONTROL_COLUMNS}
+            rows={buildControlRows(linkedControls)}
+            options={userControls}
+            {...controlPanelProps}
+          />
+        )}
+
+        {governanceReady ? (
+          <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              Change history
+            </h2>
+            <EventTimeline events={events} />
+          </section>
+        ) : null}
+
+        <EvidencePanel entityType="incident" entityId={incidentId} />
       </main>
     </div>
   );

@@ -31,3 +31,37 @@ export async function insertOwnedRecord(
     throw error;
   }
 }
+
+export async function insertOwnedRow<T extends Record<string, unknown>>(
+  table: string,
+  payload: Record<string, unknown>,
+) {
+  const supabase = getSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    throw new Error("You must be signed in to do that");
+  }
+
+  if (!user.email) {
+    throw new Error("User email not available");
+  }
+
+  const { data, error } = await supabase
+    .from(table)
+    .insert({
+      ...payload,
+      owner_id: user.id,
+      owner_email: user.email,
+    })
+    .select("*")
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  return data as T;
+}

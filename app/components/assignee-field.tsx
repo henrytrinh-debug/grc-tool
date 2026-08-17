@@ -17,7 +17,7 @@ export function AssigneeField({
   label = "Accountable owner",
 }: AssigneeFieldProps) {
   return (
-    <label className="flex flex-col gap-1">
+    <label className="flex min-w-0 flex-col gap-1">
       <span className={labelClassName}>{label}</span>
       <select
         value={value}

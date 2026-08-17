@@ -5,46 +5,11 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { useSettings } from "@/lib/settings/context";
-
-const navSections = [
-  {
-    label: "Overview",
-    items: [
-      { href: "/", label: "Home" },
-      { href: "/work", label: "My work" },
-      { href: "/oversight", label: "Oversight" },
-    ],
-  },
-  {
-    label: "Registers",
-    items: [
-      { href: "/risks", label: "Risks" },
-      { href: "/controls", label: "Controls" },
-      { href: "/incidents", label: "Incidents" },
-      { href: "/issues", label: "Issues" },
-    ],
-  },
-  {
-    label: "Assessment",
-    items: [{ href: "/rcsa/start", label: "Risk Assessment" }],
-  },
-  {
-    label: "Administration",
-    items: [{ href: "/admin", label: "Settings" }],
-  },
-] as const;
-
-function isActivePath(href: string, pathname: string) {
-  if (href === "/") {
-    return pathname === "/";
-  }
-
-  if (href.startsWith("/rcsa")) {
-    return pathname.startsWith("/rcsa");
-  }
-
-  return pathname.startsWith(href);
-}
+import {
+  isActiveNavigationPath,
+  NAVIGATION_SECTIONS,
+} from "@/lib/navigation";
+import { visibleNavigationSections } from "@/lib/settings/preferences";
 
 type AppSidebarProps = {
   mobileOpen?: boolean;
@@ -91,7 +56,7 @@ export function AppSidebar({ mobileOpen = false, onNavigate }: AppSidebarProps) 
   return (
     <aside
       id="app-sidebar"
-      className={`flex w-60 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 ${
+      className={`flex w-60 shrink-0 flex-col border-r border-slate-200 bg-white print:hidden dark:border-slate-800 dark:bg-slate-900 ${
         mobileOpen ? "fixed inset-y-0 left-0 z-40" : "hidden md:flex"
       }`}
     >
@@ -105,14 +70,15 @@ export function AppSidebar({ mobileOpen = false, onNavigate }: AppSidebarProps) 
       </div>
 
       <nav className="flex flex-1 flex-col gap-5 overflow-y-auto px-3 py-4">
-        {navSections.map((section) => (
+        {visibleNavigationSections(settings.workspacePreferences, NAVIGATION_SECTIONS).map(
+          (section) => (
           <div key={section.label}>
             <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
               {section.label}
             </p>
             <div className="flex flex-col gap-0.5">
               {section.items.map((item) => {
-                const active = isActivePath(item.href, pathname);
+                const active = isActiveNavigationPath(item.href, pathname);
 
                 return (
                   <Link

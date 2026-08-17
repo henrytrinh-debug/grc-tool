@@ -16,7 +16,14 @@ type RiskFormFieldsProps = {
 };
 
 export function RiskFormFields({ form, onChange }: RiskFormFieldsProps) {
-  const { categories, schemaReady, people, enterpriseReady } = useSettings();
+  const {
+    categories,
+    schemaReady,
+    people,
+    enterpriseReady,
+    operatingReady,
+    governanceReady,
+  } = useSettings();
 
   return (
     <>
@@ -118,6 +125,47 @@ export function RiskFormFields({ form, onChange }: RiskFormFieldsProps) {
           />
         </>
       )}
+
+          {operatingReady && (
+            <>
+              <label className="flex flex-col gap-1">
+                <span className={labelClassName}>Treatment target date</span>
+                <input
+                  type="date"
+                  value={form.target_date ?? ""}
+                  onChange={(event) => onChange({ target_date: event.target.value })}
+                  className={inputClassName}
+                />
+              </label>
+              <label className="flex flex-col gap-1 sm:col-span-2">
+                <span className={labelClassName}>Treatment rationale</span>
+                <textarea
+                  rows={3}
+                  value={form.treatment_rationale ?? ""}
+                  onChange={(event) =>
+                    onChange({ treatment_rationale: event.target.value })
+                  }
+                  className={inputClassName}
+                  placeholder="Why this treatment, residual plan, or acceptance conditions."
+                />
+              </label>
+            </>
+          )}
+
+          {governanceReady && (
+            <label className="flex flex-col gap-1 sm:col-span-2">
+              <span className={labelClassName}>Closure rationale</span>
+              <textarea
+                rows={3}
+                value={form.closure_rationale ?? ""}
+                onChange={(event) =>
+                  onChange({ closure_rationale: event.target.value })
+                }
+                className={inputClassName}
+                placeholder="Required to close unless this risk already has an RCSA review."
+              />
+            </label>
+          )}
     </>
   );
 }

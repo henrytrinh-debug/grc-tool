@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { EntityFormPage } from "@/app/components/entity-form-page";
 import { PageLoading } from "@/app/components/page-parts";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
+import { riskGovernanceBlockers } from "@/lib/governance/gates";
 import { insertOwnedRecord } from "@/lib/supabase/records";
 import { useSettings } from "@/lib/settings/context";
 import { toRiskFormPayload, type NewRisk } from "@/lib/types/risk";
@@ -13,7 +14,8 @@ import { RiskFormFields } from "../_components/risk-form-fields";
 
 export default function NewRiskPage() {
   const router = useRouter();
-  const { schemaReady, enterpriseReady } = useSettings();
+  const { schemaReady, enterpriseReady, operatingReady, governanceReady } =
+    useSettings();
   const [form, setForm] = useState<NewRisk>(EMPTY_RISK_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,6 +28,15 @@ export default function NewRiskPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const blockers = riskGovernanceBlockers(form, {
+      operatingReady,
+      hasReviewEvidence: false,
+    });
+    if (blockers.length > 0) {
+      setError(blockers.join(" "));
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
 
@@ -35,6 +46,8 @@ export default function NewRiskPage() {
         toRiskFormPayload(form, {
           includeTaxonomy: schemaReady,
           includeEnterprise: enterpriseReady,
+          includeOperating: operatingReady,
+          includeGovernance: governanceReady,
         }),
       );
       router.push("/risks");

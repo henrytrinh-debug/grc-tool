@@ -248,8 +248,8 @@ export default function RcsaStartPage() {
   }
 
   return (
-    <div className="min-h-full bg-slate-50 px-6 py-10 dark:bg-slate-950">
-      <main className="mx-auto flex w-full max-w-5xl flex-col gap-8">
+    <div className="min-h-full min-w-0 bg-slate-50 px-6 py-10 dark:bg-slate-950">
+      <main className="mx-auto flex w-full min-w-0 max-w-5xl flex-col gap-8">
         <PageHeader
           title="Risk Assessment"
           description={`Risks due for review (by severity cadence) are pre-selected. Closed risks are omitted. ${formatReviewCadenceHint(settings)}.`}
@@ -263,7 +263,7 @@ export default function RcsaStartPage() {
 
         <form
           onSubmit={(event) => void handleStartReview(event)}
-          className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900"
+          className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900"
         >
           <div className="space-y-4 border-b border-slate-200 px-6 py-4 dark:border-slate-800">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -285,28 +285,31 @@ export default function RcsaStartPage() {
               </button>
             </div>
 
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
-              <label className="flex min-w-0 flex-1 flex-col gap-1">
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                  Filter
-                </span>
-                <input
-                  type="search"
-                  value={filterText}
-                  onChange={(event) => setFilterText(event.target.value)}
-                  placeholder="Filter by title or owner email..."
-                  className={listInputClassName}
-                />
-              </label>
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                <label className="flex min-w-0 flex-1 flex-col gap-1">
+                  <span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Filter
+                  </span>
+                  <input
+                    type="search"
+                    value={filterText}
+                    onChange={(event) => setFilterText(event.target.value)}
+                    placeholder="Filter by title or owner email..."
+                    className={listInputClassName}
+                  />
+                </label>
 
-              {schemaReady && (
-                <FilterSelect
-                  label="Category"
-                  value={categoryId}
-                  onChange={setCategoryId}
-                  options={categoryFilterOptions(categories)}
-                />
-              )}
+                {schemaReady && (
+                  <FilterSelect
+                    label="Category"
+                    className="w-full min-w-0 sm:max-w-56"
+                    value={categoryId}
+                    onChange={setCategoryId}
+                    options={categoryFilterOptions(categories)}
+                  />
+                )}
+              </div>
 
               {risks.length > 0 && (
                 <div className="flex flex-wrap gap-2">

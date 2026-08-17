@@ -9,7 +9,10 @@ export function ErrorBanner({ message }: { message: string | null }) {
   }
 
   return (
-    <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+    <p
+      role="alert"
+      className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300"
+    >
       {message}
     </p>
   );
@@ -18,7 +21,9 @@ export function ErrorBanner({ message }: { message: string | null }) {
 export function PageLoading({ label = "Loading..." }: { label?: string }) {
   return (
     <div className="flex min-h-full items-center justify-center bg-slate-50 dark:bg-slate-950">
-      <p className={mutedTextClassName}>{label}</p>
+      <p role="status" className={mutedTextClassName}>
+        {label}
+      </p>
     </div>
   );
 }
@@ -46,6 +51,28 @@ export function ListEmpty({ children }: { children: ReactNode }) {
   );
 }
 
+export function LoadingBlock({ label = "Loading..." }: { label?: string }) {
+  return (
+    <p
+      role="status"
+      className="px-6 py-8 text-slate-600 dark:text-slate-400"
+    >
+      {label}
+    </p>
+  );
+}
+
+export function RegisterTable({ children }: { children: ReactNode }) {
+  return (
+    <div className="max-h-[min(70vh,48rem)] overflow-auto print:max-h-none">
+      <table className="min-w-full text-left text-sm">{children}</table>
+    </div>
+  );
+}
+
+export const registerTheadClassName =
+  "sticky top-0 z-10 bg-slate-50 text-slate-600 shadow-[inset_0_-1px_0_0_rgb(226_232_240)] dark:bg-slate-950 dark:text-slate-400 dark:shadow-[inset_0_-1px_0_0_rgb(30_41_59)]";
+
 export function PageHeader({
   title,
   description,
@@ -59,7 +86,7 @@ export function PageHeader({
 }) {
   return (
     <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-      <div>
+      <div className="min-w-0 flex-1">
         {breadcrumbs && breadcrumbs.length > 0 && (
           <div className="mb-3">
             <Breadcrumbs items={breadcrumbs} />
@@ -70,7 +97,11 @@ export function PageHeader({
         </h1>
         {description && <p className={`mt-2 ${mutedTextClassName}`}>{description}</p>}
       </div>
-      {actions && <div className="flex shrink-0 flex-wrap gap-3">{actions}</div>}
+      {actions && (
+        <div className="flex w-full min-w-0 shrink-0 flex-wrap items-end gap-3 sm:w-auto">
+          {actions}
+        </div>
+      )}
     </header>
   );
 }

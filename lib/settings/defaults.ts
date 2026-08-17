@@ -1,3 +1,7 @@
+import {
+  parseWorkspacePreferences,
+  type WorkspacePreferences,
+} from "@/lib/settings/preferences";
 import type { IssueSeverity } from "@/lib/types/issue";
 import type { RiskScaleValue } from "@/lib/types/risk";
 
@@ -23,6 +27,7 @@ export type AppSettings = {
   keyTestingCadenceDays: number;
   nonKeyTestingCadenceDays: number;
   issueDueDays: IssueDueDays;
+  workspacePreferences: WorkspacePreferences;
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -61,6 +66,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     medium: 90,
     low: 180,
   },
+  workspacePreferences: parseWorkspacePreferences({}),
 };
 
 export type RiskCategory = {
@@ -95,6 +101,7 @@ export type OrgSettingsRow = {
   issue_due_medium: number;
   issue_due_low: number;
   demo_ids?: DemoIds | null;
+  workspace_preferences?: unknown;
 };
 
 export type DemoIds = {
@@ -105,4 +112,6 @@ export type DemoIds = {
   issueIds: string[];
   sessionIds: string[];
   personIds?: string[];
+  obligationIds?: string[];
+  evidenceIds?: string[];
 };

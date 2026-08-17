@@ -49,3 +49,36 @@ export function personByEmail(people: OrgPerson[], email: string | null | undefi
     null
   );
 }
+
+export function personById(
+  people: OrgPerson[],
+  id: string | null | undefined,
+) {
+  if (!id) {
+    return null;
+  }
+
+  return people.find((person) => person.id === id) ?? null;
+}
+
+export function formatPersonDepartment(
+  people: OrgPerson[],
+  assigneeId: string | null | undefined,
+) {
+  return personById(people, assigneeId)?.department ?? "";
+}
+
+export function departmentFilterOptions(people: OrgPerson[]) {
+  const names = [
+    ...new Set(
+      people
+        .map((person) => person.department.trim())
+        .filter((department) => department.length > 0),
+    ),
+  ].sort((left, right) => left.localeCompare(right));
+
+  return names.map((department) => ({
+    value: department,
+    label: department,
+  }));
+}

@@ -1,5 +1,10 @@
 import { getSettings } from "@/lib/settings/store";
-import { daysSinceIso, formatIsoDate } from "@/lib/dates";
+import {
+  addDaysToIsoDate,
+  daysSinceIso,
+  formatIsoDate,
+  todayIsoDate,
+} from "@/lib/dates";
 
 export type Effectiveness = "effective" | "ineffective" | "not_tested";
 
@@ -118,4 +123,36 @@ export function getTestingStatus(
 
 export function formatLastTestedAt(lastTestedAt: string | null | undefined) {
   return formatIsoDate(lastTestedAt);
+}
+
+export function getNextTestDueDate(
+  lastTestedAt: string | null | undefined,
+  isKey = false,
+) {
+  if (!lastTestedAt) {
+    return todayIsoDate();
+  }
+
+  return addDaysToIsoDate(lastTestedAt.slice(0, 10), getTestingCadenceDays(isKey));
+}
+
+export function isTestingDue(
+  lastTestedAt: string | null | undefined,
+  isKey = false,
+) {
+  return getTestingStatus(lastTestedAt, isKey) !== "Tested";
+}
+
+export function formatNextTestDue(
+  lastTestedAt: string | null | undefined,
+  isKey = false,
+) {
+  const status = getTestingStatus(lastTestedAt, isKey);
+  if (status === "Never Tested") {
+    return "Due now";
+  }
+  if (status === "Overdue") {
+    return "Overdue";
+  }
+  return formatIsoDate(getNextTestDueDate(lastTestedAt, isKey));
 }

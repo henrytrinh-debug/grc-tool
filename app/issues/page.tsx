@@ -3,14 +3,25 @@
 import Link from "next/link";
 import { Suspense, useCallback, useMemo, useState } from "react";
 import { ClickableRow } from "@/app/components/clickable-row";
+import { QualityTitle } from "@/app/components/quality-indicator";
 import { FilterSelect, ListToolbar } from "@/app/components/list-toolbar";
-import { ErrorBanner, ListEmpty, PageHeader, PageLoading } from "@/app/components/page-parts";
+import { RegisterPresets } from "@/app/components/register-presets";
+import {
+  ErrorBanner,
+  ListEmpty,
+  LoadingBlock,
+  PageHeader,
+  PageLoading,
+  RegisterTable,
+  registerTheadClassName,
+} from "@/app/components/page-parts";
 import {
   IssueSeverityBadge,
   IssueStatusBadge,
   OverdueBadge,
 } from "@/app/components/status-badge";
 import { primaryButtonClassName, secondaryButtonClassName } from "@/app/components/ui";
+import { issueQuality } from "@/lib/data-quality/record";
 import { useListFilters } from "@/lib/hooks/use-list-filters";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import {
@@ -29,7 +40,12 @@ import {
   indexLinkedCategoriesFromRisks,
   uniqueCategoryLabels,
 } from "@/lib/taxonomy";
-import { formatPersonName, personByEmail } from "@/lib/types/person";
+import {
+  departmentFilterOptions,
+  formatPersonDepartment,
+  formatPersonName,
+  personByEmail,
+} from "@/lib/types/person";
 import {
   formatDueDateLabel,
   formatIssueSeverity,
@@ -153,9 +169,10 @@ function IssuesPageContent() {
         filterIssues(issues, filters, {
           linkedCategoryIds,
           myPersonId,
+          people,
         }),
       ),
-    [issues, filters, linkedCategoryIds, myPersonId],
+    [issues, filters, linkedCategoryIds, myPersonId, people],
   );
 
   const overdueCount = useMemo(
@@ -178,6 +195,7 @@ function IssuesPageContent() {
     overdue: filters.overdue,
     categoryId: filters.categoryId,
     assignee: filters.assignee,
+    department: filters.department,
   });
 
   if (authLoading) {
@@ -185,8 +203,8 @@ function IssuesPageContent() {
   }
 
   return (
-    <div className="min-h-full bg-slate-50 px-6 py-10 dark:bg-slate-950">
-      <main className="mx-auto flex w-full max-w-7xl flex-col gap-8">
+    <div className="min-h-full min-w-0 bg-slate-50 px-6 py-10 dark:bg-slate-950">
+      <main className="mx-auto flex w-full min-w-0 max-w-7xl flex-col gap-8">
         <PageHeader
           title="Issue Management"
           description="Track findings through remediation to closure."
@@ -217,7 +235,7 @@ function IssuesPageContent() {
           </button>
         )}
 
-        <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <section className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <ListToolbar
             search={filters.q}
             onSearchChange={(value) => updateFilters({ q: value })}
@@ -227,7 +245,9 @@ function IssuesPageContent() {
             hasFilters={filtersActive}
             onClear={clearFilters}
             actions={
-              filteredIssues.length > 0 ? (
+              <>
+                <RegisterPresets module="issues" />
+                {filteredIssues.length > 0 ? (
                 <button
                   type="button"
                   className={secondaryButtonClassName}
@@ -241,6 +261,7 @@ function IssuesPageContent() {
                         "Status",
                         "Category",
                         "Assignee",
+                        "Department",
                         "Target Date",
                         "Action Plan",
                         "Linked Risks",
@@ -260,6 +281,7 @@ function IssuesPageContent() {
                             linkedCategoryIds[issue.id] ?? [],
                           ),
                           formatPersonName(people, issue.assignee_id),
+                          formatPersonDepartment(people, issue.assignee_id),
                           formatDueDateLabel(issue),
                           progress.total === 0
                             ? "No actions"
@@ -273,7 +295,8 @@ function IssuesPageContent() {
                 >
                   Export CSV
                 </button>
-              ) : null
+                ) : null}
+              </>
             }
           >
             <FilterSelect
@@ -321,17 +344,27 @@ function IssuesPageContent() {
               />
             )}
             {enterpriseReady && (
-              <FilterSelect
-                label="Owner"
-                value={filters.assignee}
-                onChange={(value) => updateFilters({ assignee: value })}
-                options={assigneeFilterOptions(people)}
-              />
+              <>
+                <FilterSelect
+                  label="Owner"
+                  value={filters.assignee}
+                  onChange={(value) => updateFilters({ assignee: value })}
+                  options={assigneeFilterOptions(people)}
+                />
+                {departmentFilterOptions(people).length > 0 && (
+                  <FilterSelect
+                    label="Department"
+                    value={filters.department}
+                    onChange={(value) => updateFilters({ department: value })}
+                    options={departmentFilterOptions(people)}
+                  />
+                )}
+              </>
             )}
           </ListToolbar>
 
           {loading ? (
-            <ListEmpty>Loading issues...</ListEmpty>
+            <LoadingBlock label="Loading issues..." />
           ) : issues.length === 0 ? (
             <ListEmpty>
               No issues yet.{" "}
@@ -346,9 +379,8 @@ function IssuesPageContent() {
           ) : filteredIssues.length === 0 ? (
             <ListEmpty>No issues match the current filters.</ListEmpty>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-600 dark:bg-slate-950 dark:text-slate-400">
+            <RegisterTable>
+                <thead className={registerTheadClassName}>
                   <tr>
                     <th className="px-6 py-3 font-medium">Title</th>
                     {schemaReady && (
@@ -384,7 +416,17 @@ function IssuesPageContent() {
                         }
                       >
                         <td className="px-6 py-4 font-medium text-slate-950 dark:text-slate-50">
-                          {issue.title}
+                          <QualityTitle
+                            summary={issueQuality(issue, {
+                              linkedToRiskOrControl:
+                                (linkedRiskCounts[issue.id] ?? 0) +
+                                  (linkedControlCounts[issue.id] ?? 0) >
+                                0,
+                              enterpriseReady,
+                            })}
+                          >
+                            {issue.title}
+                          </QualityTitle>
                         </td>
                         {schemaReady && (
                           <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
@@ -438,8 +480,7 @@ function IssuesPageContent() {
                     );
                   })}
                 </tbody>
-              </table>
-            </div>
+            </RegisterTable>
           )}
         </section>
       </main>

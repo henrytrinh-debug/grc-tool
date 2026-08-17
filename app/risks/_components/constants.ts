@@ -9,4 +9,7 @@ export const EMPTY_RISK_FORM: NewRisk = {
   treatment: "mitigate",
   assignee_id: "",
   status: "open",
+  treatment_rationale: "",
+  closure_rationale: "",
+  target_date: "",
 };

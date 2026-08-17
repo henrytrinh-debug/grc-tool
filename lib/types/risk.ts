@@ -15,6 +15,9 @@ export type Risk = {
   treatment?: RiskTreatment;
   assignee_id?: string | null;
   status?: RiskStatus;
+  treatment_rationale?: string;
+  closure_rationale?: string;
+  target_date?: string | null;
   owner_email?: string;
   owner_id?: string;
   created_at?: string;
@@ -30,6 +33,9 @@ export type NewRisk = Pick<
   | "treatment"
   | "assignee_id"
   | "status"
+  | "treatment_rationale"
+  | "closure_rationale"
+  | "target_date"
 >;
 
 export const RISK_SCALE_VALUES = [1, 2, 3, 4, 5] as const;
@@ -96,7 +102,12 @@ export function formatImpactOption(value: number) {
 
 export function toRiskFormPayload(
   form: NewRisk,
-  options: { includeTaxonomy?: boolean; includeEnterprise?: boolean } = {},
+  options: {
+    includeTaxonomy?: boolean;
+    includeEnterprise?: boolean;
+    includeOperating?: boolean;
+    includeGovernance?: boolean;
+  } = {},
 ): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     title: form.title,
@@ -113,6 +124,15 @@ export function toRiskFormPayload(
   if (options.includeEnterprise) {
     payload.assignee_id = form.assignee_id || null;
     payload.status = form.status ?? "open";
+  }
+
+  if (options.includeOperating) {
+    payload.treatment_rationale = form.treatment_rationale ?? "";
+    payload.target_date = form.target_date || null;
+  }
+
+  if (options.includeGovernance) {
+    payload.closure_rationale = form.closure_rationale ?? "";
   }
 
   return payload;

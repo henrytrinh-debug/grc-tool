@@ -4,6 +4,10 @@ import {
   type OrgSettingsRow,
   type ScaleLabels,
 } from "@/lib/settings/defaults";
+import {
+  parseWorkspacePreferences,
+  workspacePreferencesToJson,
+} from "@/lib/settings/preferences";
 import type { RiskScaleValue } from "@/lib/types/risk";
 
 let currentSettings: AppSettings = DEFAULT_SETTINGS;
@@ -157,10 +161,14 @@ export function settingsFromRow(row: OrgSettingsRow): AppSettings {
       medium: positiveInt(row.issue_due_medium, defaults.issueDueDays.medium),
       low: positiveInt(row.issue_due_low, defaults.issueDueDays.low),
     },
+    workspacePreferences: parseWorkspacePreferences(row.workspace_preferences),
   };
 }
 
-export function settingsToRow(settings: AppSettings) {
+export function settingsToRow(
+  settings: AppSettings,
+  options?: { includePreferences?: boolean },
+) {
   return {
     organization_name: settings.organizationName.trim(),
     likelihood_labels: settings.likelihoodLabels,
@@ -179,6 +187,13 @@ export function settingsToRow(settings: AppSettings) {
     issue_due_medium: settings.issueDueDays.medium,
     issue_due_low: settings.issueDueDays.low,
     updated_at: new Date().toISOString(),
+    ...(options?.includePreferences
+      ? {
+          workspace_preferences: workspacePreferencesToJson(
+            settings.workspacePreferences,
+          ),
+        }
+      : {}),
   };
 }
 

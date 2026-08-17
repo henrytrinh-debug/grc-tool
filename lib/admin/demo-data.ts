@@ -8,6 +8,9 @@ type Owner = { id: string; email: string };
 
 type SeedOptions = {
   includeEnterprise?: boolean;
+  includeOperating?: boolean;
+  includeObligations?: boolean;
+  includeEvidence?: boolean;
 };
 
 function ownerFields(owner: Owner) {
@@ -31,6 +34,19 @@ async function insertRows(table: string, rows: Record<string, unknown>[]) {
   }
 }
 
+async function insertRowsOptional(table: string, rows: Record<string, unknown>[]) {
+  if (rows.length === 0) {
+    return;
+  }
+
+  const supabase = getSupabaseClient();
+  const { error } = await supabase.from(table).insert(rows);
+
+  if (error && !isMissingRelationError(error)) {
+    throw error;
+  }
+}
+
 /**
  * Inserts a coherent demonstration environment: people, taxonomy, scored
  * risks, mixed control testing, incidents, findings, and RCSA reviews.
@@ -40,6 +56,9 @@ export async function seedDemonstrationData(
   options: SeedOptions = {},
 ): Promise<DemoIds> {
   const includeEnterprise = Boolean(options.includeEnterprise);
+  const includeOperating = Boolean(options.includeOperating);
+  const includeObligations = Boolean(options.includeObligations);
+  const includeEvidence = Boolean(options.includeEvidence);
   const today = todayIsoDate();
   const ids: DemoIds = {
     categoryIds: [],
@@ -49,6 +68,8 @@ export async function seedDemonstrationData(
     issueIds: [],
     sessionIds: [],
     personIds: [],
+    obligationIds: [],
+    evidenceIds: [],
   };
 
   const personSpecs: Array<{
@@ -115,6 +136,20 @@ export async function seedDemonstrationData(
           department: "Technology",
           line_of_defence: "first",
         },
+        {
+          name: "Hannah Cole",
+          email: "hannah.cole@demo.grc",
+          title: "Climate Risk Lead",
+          department: "Risk",
+          line_of_defence: "second",
+        },
+        {
+          name: "Diego Alvarez",
+          email: "diego.alvarez@demo.grc",
+          title: "Records Manager",
+          department: "Operations",
+          line_of_defence: "first",
+        },
       ]
     : [];
 
@@ -170,6 +205,31 @@ export async function seedDemonstrationData(
       description: "Business model, change programmes, and market positioning.",
       appetite_band: "High",
     },
+    {
+      name: "Climate & ESG",
+      description: "Physical climate, transition, and sustainability disclosures.",
+      appetite_band: "Medium",
+    },
+    {
+      name: "Data & Records",
+      description: "Retention, quality, and lawful use of records and unstructured data.",
+      appetite_band: "Low",
+    },
+    {
+      name: "Technology Resilience",
+      description: "Availability of core platforms, batch windows, and recoverability.",
+      appetite_band: "Medium",
+    },
+    {
+      name: "Legal",
+      description: "Contractual rights, indemnities, and litigation exposure.",
+      appetite_band: "Low",
+    },
+    {
+      name: "Credit",
+      description: "Concentration, underwriting quality, and limit breaches.",
+      appetite_band: "Medium",
+    },
   ] as const;
 
   ids.categoryIds = categorySpecs.map(() => newId());
@@ -193,6 +253,11 @@ export async function seedDemonstrationData(
     thirdParty,
     peopleCat,
     strategic,
+    climate,
+    dataRecords,
+    techResilience,
+    legal,
+    credit,
   ] = ids.categoryIds;
 
   const riskSpecs: Array<{
@@ -200,9 +265,10 @@ export async function seedDemonstrationData(
     description: string;
     likelihood: number;
     impact: number;
-    category_id: string;
+    category_id: string | null;
     treatment: "mitigate" | "accept" | "transfer" | "avoid";
     status: "open" | "monitoring" | "closed";
+    unassigned?: boolean;
   }> = [
     {
       title: "Ransomware interrupting customer operations",
@@ -464,9 +530,124 @@ export async function seedDemonstrationData(
       treatment: "mitigate",
       status: "open",
     },
+    {
+      title: "Physical climate damage to primary data centres",
+      description:
+        "Flood and heat scenarios for the two production sites are not in the ICAAP pack.",
+      likelihood: 3,
+      impact: 4,
+      category_id: climate,
+      treatment: "mitigate",
+      status: "open",
+    },
+    {
+      title: "Greenwashing in sustainability product claims",
+      description:
+        "Marketing claims exceed the evidence held for financed-emissions reductions.",
+      likelihood: 3,
+      impact: 3,
+      category_id: climate,
+      treatment: "mitigate",
+      status: "open",
+    },
+    {
+      title: "Chat and collaboration records outside the retention schedule",
+      description:
+        "Teams and Slack hold customer conversations that the records job never touches.",
+      likelihood: 4,
+      impact: 3,
+      category_id: dataRecords,
+      treatment: "mitigate",
+      status: "open",
+    },
+    {
+      title: "Core banking batch window overrun",
+      description:
+        "Overnight settlement regularly overruns into the servicing window.",
+      likelihood: 3,
+      impact: 4,
+      category_id: techResilience,
+      treatment: "mitigate",
+      status: "open",
+    },
+    {
+      title: "Contractual indemnity gap on material vendors",
+      description:
+        "Several critical contracts cap liability below the plausible operational loss.",
+      likelihood: 3,
+      impact: 4,
+      category_id: legal,
+      treatment: "mitigate",
+      status: "open",
+    },
+    {
+      title: "Credit concentration in a single wholesale sector",
+      description:
+        "One industry now exceeds the documented single-name and sector limits.",
+      likelihood: 3,
+      impact: 4,
+      category_id: credit,
+      treatment: "mitigate",
+      status: "monitoring",
+    },
+    {
+      title: "Shadow IT workflow without an owner",
+      description:
+        "A spreadsheet-based onboarding path is used by two teams and is not on any register.",
+      likelihood: 3,
+      impact: 3,
+      category_id: null,
+      treatment: "mitigate",
+      status: "open",
+      unassigned: true,
+    },
+    {
+      title: "Low-value stationery and sundry theft",
+      description:
+        "Office supplies shrinkage is below materiality; no further control investment planned.",
+      likelihood: 2,
+      impact: 2,
+      category_id: operational,
+      treatment: "accept",
+      status: "monitoring",
+    },
   ];
 
   ids.riskIds = riskSpecs.map(() => newId());
+  const riskOperating: Record<
+    number,
+    { treatment_rationale: string; target_date: string | null }
+  > = {
+    0: {
+      treatment_rationale:
+        "Contain blast radius and restore from immutable backups; acceptance is not available.",
+      target_date: addDaysToIsoDate(today, 21),
+    },
+    6: {
+      treatment_rationale:
+        "Contractual transfer via SLA credits; fallback still untested so residual remains high.",
+      target_date: addDaysToIsoDate(today, 45),
+    },
+    8: {
+      treatment_rationale:
+        "Accepted until the archive purge programme lands; legal has signed the exception.",
+      target_date: addDaysToIsoDate(today, -14),
+    },
+    9: {
+      treatment_rationale: "Mitigate by running a live BC exercise this quarter.",
+      target_date: addDaysToIsoDate(today, -7),
+    },
+    14: {
+      treatment_rationale: "Closed as accepted after tagging and budget controls landed.",
+      target_date: null,
+    },
+    17: {
+      treatment_rationale:
+        "Avoid until DLP is in path; the pilot is paused pending a private endpoint.",
+      target_date: addDaysToIsoDate(today, 30),
+    },
+  };
+
   await insertRows(
     "risks",
     riskSpecs.map((spec, index) => ({
@@ -478,7 +659,16 @@ export async function seedDemonstrationData(
       category_id: spec.category_id,
       treatment: spec.treatment,
       ...(includeEnterprise
-        ? { status: spec.status, assignee_id: assignee(index) }
+        ? {
+            status: spec.status,
+            assignee_id: spec.unassigned ? null : assignee(index),
+          }
+        : {}),
+      ...(includeOperating
+        ? {
+            treatment_rationale: riskOperating[index]?.treatment_rationale ?? "",
+            target_date: riskOperating[index]?.target_date ?? null,
+          }
         : {}),
       ...ownerFields(owner),
     })),
@@ -668,6 +858,62 @@ export async function seedDemonstrationData(
       last_tested_at: addDaysToIsoDate(today, -380),
       control_type: "detective",
     },
+    {
+      title: "Climate scenario in the ICAAP pack",
+      description: "Physical and transition scenarios for material sites and portfolios.",
+      is_key: true,
+      effectiveness: "not_tested",
+      last_tested_at: null,
+      control_type: "detective",
+    },
+    {
+      title: "Sustainability claims evidence pack",
+      description: "Second-line review of public ESG claims against source data.",
+      is_key: false,
+      effectiveness: "not_tested",
+      last_tested_at: null,
+      control_type: "preventive",
+    },
+    {
+      title: "Collaboration-tool retention job",
+      description: "Export and purge of Slack/Teams aligned to the records schedule.",
+      is_key: false,
+      effectiveness: "ineffective",
+      last_tested_at: addDaysToIsoDate(today, -200),
+      control_type: "corrective",
+    },
+    {
+      title: "Overnight batch monitoring",
+      description: "Paging when core settlement overruns the servicing window.",
+      is_key: true,
+      effectiveness: "effective",
+      last_tested_at: addDaysToIsoDate(today, -12),
+      control_type: "detective",
+    },
+    {
+      title: "Material-vendor indemnity review",
+      description: "Legal review of liability caps on critical contracts.",
+      is_key: false,
+      effectiveness: "not_tested",
+      last_tested_at: null,
+      control_type: "preventive",
+    },
+    {
+      title: "Sector concentration limits",
+      description: "Automated breach alerts against documented wholesale sector caps.",
+      is_key: true,
+      effectiveness: "effective",
+      last_tested_at: addDaysToIsoDate(today, -35),
+      control_type: "detective",
+    },
+    {
+      title: "Standalone wiki password policy",
+      description: "Local password rules on an unmanaged wiki that is not mapped to a risk.",
+      is_key: false,
+      effectiveness: "not_tested",
+      last_tested_at: null,
+      control_type: "preventive",
+    },
   ];
 
   ids.controlIds = controlSpecs.map(() => newId());
@@ -717,6 +963,13 @@ export async function seedDemonstrationData(
     [23, 17],
     [24, 9],
     [25, 20],
+    [26, 22],
+    [27, 23],
+    [28, 24],
+    [29, 25],
+    [30, 26],
+    [31, 27],
+    [33, 4],
   ];
 
   await insertRows(
@@ -878,9 +1131,77 @@ export async function seedDemonstrationData(
       resolvedDaysAgo: 10,
       riskIndex: 22,
     },
+    {
+      title: "Coastal data-centre flood watch",
+      description:
+        "A flood warning closed the primary site access road for six hours; failover was not invoked.",
+      daysAgo: 4,
+      severity: "medium",
+      status: "investigating",
+      root_cause: "Scenario playbook did not include site-access loss.",
+      riskIndex: 26,
+    },
   ];
 
   ids.incidentIds = incidentSpecs.map(() => newId());
+  const incidentOperating: Record<
+    number,
+    { lessons_learned: string; controlIndexes: number[] }
+  > = {
+    0: {
+      lessons_learned: "",
+      controlIndexes: [0, 1, 2],
+    },
+    1: {
+      lessons_learned:
+        "File-hash uniqueness is now checked before release; weekend runs require dual approval.",
+      controlIndexes: [4],
+    },
+    2: {
+      lessons_learned: "",
+      controlIndexes: [3],
+    },
+    3: {
+      lessons_learned: "",
+      controlIndexes: [9],
+    },
+    4: {
+      lessons_learned: "",
+      controlIndexes: [17],
+    },
+    5: {
+      lessons_learned: "",
+      controlIndexes: [8],
+    },
+    6: {
+      lessons_learned:
+        "SSO now fails over to a second region; latency alerts page the identity team.",
+      controlIndexes: [12],
+    },
+    7: {
+      lessons_learned: "",
+      controlIndexes: [13],
+    },
+    9: {
+      lessons_learned:
+        "Vendor changes require customer notification and a tested workaround before go-live.",
+      controlIndexes: [5],
+    },
+    10: {
+      lessons_learned: "",
+      controlIndexes: [16],
+    },
+    11: {
+      lessons_learned:
+        "Contractor conversions cannot bypass the screening gate; HRIS now blocks day-one access.",
+      controlIndexes: [14],
+    },
+    12: {
+      lessons_learned: "",
+      controlIndexes: [22],
+    },
+  };
+
   await insertRows(
     "incidents",
     incidentSpecs.map((spec, index) => ({
@@ -898,6 +1219,9 @@ export async function seedDemonstrationData(
             ).toISOString()
           : null,
       ...(includeEnterprise ? { assignee_id: assignee(index + 2) } : {}),
+      ...(includeOperating
+        ? { lessons_learned: incidentOperating[index]?.lessons_learned ?? "" }
+        : {}),
       ...ownerFields(owner),
     })),
   );
@@ -910,6 +1234,19 @@ export async function seedDemonstrationData(
       owner_id: owner.id,
     })),
   );
+
+  if (includeOperating) {
+    await insertRows(
+      "incident_controls",
+      Object.entries(incidentOperating).flatMap(([index, spec]) =>
+        spec.controlIndexes.map((controlIndex) => ({
+          incident_id: ids.incidentIds[Number(index)],
+          control_id: ids.controlIds[controlIndex],
+          owner_id: owner.id,
+        })),
+      ),
+    );
+  }
 
   const issueSpecs: Array<{
     title: string;
@@ -1143,6 +1480,31 @@ export async function seedDemonstrationData(
       riskIndex: 25,
       controlIndex: 20,
     },
+    {
+      title: "Climate scenario missing from ICAAP",
+      description: "Physical climate scenarios for the two production sites are not modelled.",
+      source: "risk_assessment",
+      severity: "high",
+      status: "open",
+      identifiedDaysAgo: 9,
+      dueInDays: 25,
+      root_cause: "Climate workstream is still a slide pack.",
+      remediation_plan: "Commission scenarios and include them in the next ICAAP.",
+      riskIndex: 26,
+      controlIndex: 22,
+    },
+    {
+      title: "Walkthrough finding with no parent record",
+      description:
+        "A process walkthrough noted an undocumented exception path; it was never linked to a risk or control.",
+      source: "self_identified",
+      severity: "medium",
+      status: "open",
+      identifiedDaysAgo: 16,
+      dueInDays: 20,
+      root_cause: "",
+      remediation_plan: "",
+    },
   ];
 
   ids.issueIds = issueSpecs.map(() => newId());
@@ -1252,6 +1614,296 @@ export async function seedDemonstrationData(
     },
   ]);
 
+  if (includeObligations) {
+    const obligationSpecs: Array<{
+      title: string;
+      source: string;
+      citation: string;
+      requirement_text: string;
+      status: "open" | "monitoring" | "retired";
+      review_frequency_days: number;
+      effectiveDaysAgo: number;
+      reviewInDays: number;
+      controlIndexes: number[];
+      issueIndexes: number[];
+    }> = [
+      {
+        title: "Security of processing",
+        source: "UK GDPR",
+        citation: "Article 32",
+        requirement_text:
+          "Implement appropriate technical and organisational measures to ensure a level of security appropriate to the risk.",
+        status: "open",
+        review_frequency_days: 365,
+        effectiveDaysAgo: 800,
+        reviewInDays: 40,
+        controlIndexes: [2, 8],
+        issueIndexes: [],
+      },
+      {
+        title: "Outsourcing systems and controls",
+        source: "FCA Handbook",
+        citation: "SYSC 8",
+        requirement_text:
+          "A firm must take reasonable care to supervise the discharge of outsourced functions.",
+        status: "open",
+        review_frequency_days: 365,
+        effectiveDaysAgo: 600,
+        reviewInDays: 18,
+        controlIndexes: [5],
+        issueIndexes: [11],
+      },
+      {
+        title: "ICT-related incident reporting",
+        source: "DORA",
+        citation: "Art. 19",
+        requirement_text:
+          "Report major ICT-related incidents to the competent authority within the prescribed windows.",
+        status: "monitoring",
+        review_frequency_days: 180,
+        effectiveDaysAgo: 120,
+        reviewInDays: 55,
+        controlIndexes: [12],
+        issueIndexes: [],
+      },
+      {
+        title: "Climate-related financial disclosures",
+        source: "Companies Act / TCFD",
+        citation: "s414CB",
+        requirement_text:
+          "Describe the principal climate-related risks and how they are managed.",
+        status: "open",
+        review_frequency_days: 365,
+        effectiveDaysAgo: 200,
+        reviewInDays: 12,
+        controlIndexes: [22],
+        issueIndexes: [16],
+      },
+      {
+        title: "Consumer Duty outcomes monitoring",
+        source: "FCA",
+        citation: "PRIN 2A",
+        requirement_text:
+          "Monitor whether retail customers receive good outcomes, including complaints handling.",
+        status: "open",
+        review_frequency_days: 180,
+        effectiveDaysAgo: 300,
+        reviewInDays: -5,
+        controlIndexes: [11],
+        issueIndexes: [7],
+      },
+      {
+        title: "Storage limitation",
+        source: "UK GDPR",
+        citation: "Article 5(1)(e)",
+        requirement_text:
+          "Keep personal data for no longer than is necessary for the purposes.",
+        status: "open",
+        review_frequency_days: 365,
+        effectiveDaysAgo: 900,
+        reviewInDays: 70,
+        controlIndexes: [7, 24],
+        issueIndexes: [2],
+      },
+      {
+        title: "Operational resilience mapping",
+        source: "PRA / FCA",
+        citation: "SS1/21",
+        requirement_text:
+          "Identify important business services and set impact tolerances.",
+        status: "open",
+        review_frequency_days: 365,
+        effectiveDaysAgo: 90,
+        reviewInDays: -12,
+        controlIndexes: [],
+        issueIndexes: [],
+      },
+      {
+        title: "AI transparency for customer-facing models",
+        source: "Incoming duty",
+        citation: "Draft",
+        requirement_text:
+          "Explain material automated decisions that affect retail customers.",
+        status: "open",
+        review_frequency_days: 180,
+        effectiveDaysAgo: 30,
+        reviewInDays: -3,
+        controlIndexes: [],
+        issueIndexes: [],
+      },
+    ];
+
+    ids.obligationIds = obligationSpecs.map(() => newId());
+    await insertRowsOptional(
+      "obligations",
+      obligationSpecs.map((spec, index) => ({
+        id: ids.obligationIds![index],
+        title: spec.title,
+        source: spec.source,
+        citation: spec.citation,
+        requirement_text: spec.requirement_text,
+        status: spec.status,
+        review_frequency_days: spec.review_frequency_days,
+        effective_date: addDaysToIsoDate(today, -spec.effectiveDaysAgo),
+        review_date: addDaysToIsoDate(today, spec.reviewInDays),
+        ...(includeEnterprise ? { assignee_id: assignee(index + 4) } : {}),
+        ...ownerFields(owner),
+      })),
+    );
+
+    await insertRowsOptional(
+      "obligation_controls",
+      obligationSpecs.flatMap((spec, index) =>
+        spec.controlIndexes.map((controlIndex) => ({
+          obligation_id: ids.obligationIds![index],
+          control_id: ids.controlIds[controlIndex],
+          owner_id: owner.id,
+        })),
+      ),
+    );
+
+    await insertRowsOptional(
+      "obligation_issues",
+      obligationSpecs.flatMap((spec, index) =>
+        spec.issueIndexes.map((issueIndex) => ({
+          obligation_id: ids.obligationIds![index],
+          issue_id: ids.issueIds[issueIndex],
+          owner_id: owner.id,
+        })),
+      ),
+    );
+  }
+
+  if (includeEvidence) {
+    const evidenceSpecs: Array<{
+      title: string;
+      description: string;
+      source: string;
+      evidenceDaysAgo: number;
+      retentionInDays: number;
+      entity_type:
+        | "risk"
+        | "control"
+        | "incident"
+        | "issue"
+        | "obligation";
+      entityId: () => string;
+    }> = [
+      {
+        title: "Ransomware tabletop pack",
+        description: "Facilitator notes and attendance for the last tabletop.",
+        source: "BC / IR",
+        evidenceDaysAgo: 20,
+        retentionInDays: 365,
+        entity_type: "risk",
+        entityId: () => ids.riskIds[0],
+      },
+      {
+        title: "Privileged access recert sample",
+        description: "Q2 sample of 25 admin accounts with reviewer sign-off.",
+        source: "2LoD testing",
+        evidenceDaysAgo: 40,
+        retentionInDays: 180,
+        entity_type: "control",
+        entityId: () => ids.controlIds[0],
+      },
+      {
+        title: "Public bucket incident ticket",
+        description: "Service-desk ticket and timeline for the staging leak.",
+        source: "Service desk",
+        evidenceDaysAgo: 5,
+        retentionInDays: 730,
+        entity_type: "incident",
+        entityId: () => ids.incidentIds[2],
+      },
+      {
+        title: "Recertification finding memo",
+        description: "Internal audit memo on overdue privileged-access recert.",
+        source: "Internal audit",
+        evidenceDaysAgo: 50,
+        retentionInDays: 365,
+        entity_type: "issue",
+        entityId: () => ids.issueIds[0],
+      },
+      {
+        title: "Expired BC exercise evidence",
+        description: "Last technical failover pack; retention lapsed.",
+        source: "Operations",
+        evidenceDaysAgo: 400,
+        retentionInDays: -30,
+        entity_type: "control",
+        entityId: () => ids.controlIds[21],
+      },
+      {
+        title: "Expired vendor assurance letter",
+        description: "SSAE report for the payments processor past retention.",
+        source: "Vendor manager",
+        evidenceDaysAgo: 500,
+        retentionInDays: -14,
+        entity_type: "control",
+        entityId: () => ids.controlIds[5],
+      },
+      {
+        title: "Climate scenario workbook",
+        description: "Draft physical-risk workbook for the two production sites.",
+        source: "Climate risk",
+        evidenceDaysAgo: 9,
+        retentionInDays: 365,
+        entity_type: "risk",
+        entityId: () => ids.riskIds[26],
+      },
+      {
+        title: "Chat retention exception",
+        description: "Legal exception to retain a litigation hold channel.",
+        source: "Legal",
+        evidenceDaysAgo: 14,
+        retentionInDays: 90,
+        entity_type: "risk",
+        entityId: () => ids.riskIds[28],
+      },
+      {
+        title: "Indemnity review note",
+        description: "Legal note on liability caps for two critical vendors.",
+        source: "Legal",
+        evidenceDaysAgo: 21,
+        retentionInDays: 365,
+        entity_type: "risk",
+        entityId: () => ids.riskIds[30],
+      },
+    ];
+
+    if (includeObligations && ids.obligationIds?.[0]) {
+      evidenceSpecs.push({
+        title: "GDPR Article 32 mapping",
+        description: "Control mapping worksheet for security of processing.",
+        source: "DPO",
+        evidenceDaysAgo: 60,
+        retentionInDays: 365,
+        entity_type: "obligation",
+        entityId: () => ids.obligationIds![0],
+      });
+    }
+
+    ids.evidenceIds = evidenceSpecs.map(() => newId());
+    await insertRowsOptional(
+      "evidence",
+      evidenceSpecs.map((spec, index) => ({
+        id: ids.evidenceIds![index],
+        title: spec.title,
+        description: spec.description,
+        source: spec.source,
+        evidence_date: addDaysToIsoDate(today, -spec.evidenceDaysAgo),
+        retention_date: addDaysToIsoDate(today, spec.retentionInDays),
+        entity_type: spec.entity_type,
+        entity_id: spec.entityId(),
+        storage_path: null,
+        original_filename: "",
+        ...(includeEnterprise ? { assignee_id: assignee(index + 5) } : {}),
+        ...ownerFields(owner),
+      })),
+    );
+  }
+
   const sessionId = newId();
   ids.sessionIds.push(sessionId);
   await insertRows("rcsa_sessions", [
@@ -1259,24 +1911,24 @@ export async function seedDemonstrationData(
   ]);
 
   const reviewSpecs = [
-    { riskIndex: 3, daysAgo: 20, likelihood: 3, impact: 4 },
+    { riskIndex: 3, daysAgo: 20, likelihood: 3, impact: 4, previousLikelihood: 4, previousImpact: 4 },
     { riskIndex: 5, daysAgo: 40, likelihood: 2, impact: 4 },
     { riskIndex: 8, daysAgo: 200, likelihood: 2, impact: 3 },
     { riskIndex: 4, daysAgo: 400, likelihood: 4, impact: 3 },
-    { riskIndex: 0, daysAgo: 70, likelihood: 4, impact: 5 },
-    { riskIndex: 1, daysAgo: 95, likelihood: 3, impact: 5 },
-    { riskIndex: 6, daysAgo: 15, likelihood: 3, impact: 4 },
+    { riskIndex: 0, daysAgo: 70, likelihood: 4, impact: 5, previousLikelihood: 3, previousImpact: 4 },
+    { riskIndex: 1, daysAgo: 95, likelihood: 3, impact: 5, previousLikelihood: 4, previousImpact: 5 },
+    { riskIndex: 6, daysAgo: 15, likelihood: 3, impact: 4, previousLikelihood: 4, previousImpact: 4 },
     { riskIndex: 11, daysAgo: 120, likelihood: 3, impact: 4 },
     { riskIndex: 12, daysAgo: 10, likelihood: 2, impact: 4 },
     { riskIndex: 14, daysAgo: 30, likelihood: 4, impact: 2 },
     { riskIndex: 16, daysAgo: 250, likelihood: 2, impact: 4 },
     { riskIndex: 18, daysAgo: 55, likelihood: 3, impact: 4 },
-    { riskIndex: 20, daysAgo: 8, likelihood: 2, impact: 5 },
+    { riskIndex: 20, daysAgo: 8, likelihood: 2, impact: 5, previousLikelihood: 2, previousImpact: 4 },
     { riskIndex: 22, daysAgo: 180, likelihood: 3, impact: 3 },
     { riskIndex: 24, daysAgo: 5, likelihood: 2, impact: 5 },
     { riskIndex: 25, daysAgo: 90, likelihood: 3, impact: 3 },
     { riskIndex: 9, daysAgo: 370, likelihood: 4, impact: 4 },
-    { riskIndex: 17, daysAgo: 22, likelihood: 3, impact: 4 },
+    { riskIndex: 17, daysAgo: 22, likelihood: 3, impact: 4, previousLikelihood: 2, previousImpact: 4 },
   ];
 
   await insertRows(
@@ -1288,8 +1940,8 @@ export async function seedDemonstrationData(
       return {
         session_id: sessionId,
         risk_id: ids.riskIds[review.riskIndex],
-        previous_likelihood: review.likelihood,
-        previous_impact: review.impact,
+        previous_likelihood: review.previousLikelihood ?? review.likelihood,
+        previous_impact: review.previousImpact ?? review.impact,
         final_likelihood: review.likelihood,
         final_impact: review.impact,
         ai_recommended_likelihood: null,
@@ -1327,8 +1979,15 @@ export async function removeDemonstrationData(ownerId: string, ids: DemoIds) {
   await deleteByIds("issue_comments", "issue_id", ids.issueIds);
   await deleteByIds("issue_risks", "issue_id", ids.issueIds);
   await deleteByIds("issue_controls", "issue_id", ids.issueIds);
+  await deleteByIds("obligation_controls", "obligation_id", ids.obligationIds ?? []);
+  await deleteByIds("obligation_issues", "obligation_id", ids.obligationIds ?? []);
+  await deleteByIds("evidence", "id", ids.evidenceIds ?? []);
+  await deleteByIds("obligations", "id", ids.obligationIds ?? []);
+  await deleteByIds("risk_events", "risk_id", ids.riskIds);
+  await deleteByIds("incident_events", "incident_id", ids.incidentIds);
   await deleteByIds("issues", "id", ids.issueIds);
   await deleteByIds("incident_risks", "incident_id", ids.incidentIds);
+  await deleteByIds("incident_controls", "incident_id", ids.incidentIds);
   await deleteByIds("incidents", "id", ids.incidentIds);
   await deleteByIds("rcsa_reviews", "session_id", ids.sessionIds);
   await deleteByIds("rcsa_sessions", "id", ids.sessionIds);

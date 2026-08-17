@@ -55,3 +55,13 @@ export function addDaysToIsoDate(isoDate: string, days: number) {
   const offsetMs = date.getTimezoneOffset() * 60 * 1000;
   return new Date(date.getTime() - offsetMs).toISOString().slice(0, 10);
 }
+
+/** Whole days from today to `isoDate`. Negative when the date is in the past. */
+export function daysUntilIsoDate(isoDate: string) {
+  return Math.round(
+    daysBetweenMs(
+      parseIsoDate(isoDate.slice(0, 10)).getTime(),
+      parseIsoDate(todayIsoDate()).getTime(),
+    ),
+  );
+}

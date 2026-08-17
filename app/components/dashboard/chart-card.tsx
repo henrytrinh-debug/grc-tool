@@ -8,7 +8,7 @@ type ChartCardProps = {
 
 export function ChartCard({ title, description, children }: ChartCardProps) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm transition-shadow duration-200 hover:shadow-md dark:border-slate-800 dark:bg-slate-900 dark:hover:shadow-none">
+    <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <h2 className="text-lg font-medium text-slate-950 dark:text-slate-50">
         {title}
       </h2>

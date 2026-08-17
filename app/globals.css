@@ -59,3 +59,26 @@ body {
   color: var(--foreground);
   font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
 }
+
+/* Native selects size to their longest option unless this is set, which
+   made register toolbars overlap and clip Export CSV. */
+input,
+select,
+textarea {
+  field-sizing: fixed;
+}
+
+@media print {
+  body {
+    background: white !important;
+  }
+
+  #app-sidebar,
+  .print-hide {
+    display: none !important;
+  }
+
+  a[href]::after {
+    content: none !important;
+  }
+}

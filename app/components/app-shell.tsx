@@ -77,7 +77,7 @@ function MobileTopBar({
   const { settings } = useSettings();
 
   return (
-    <div className="flex items-center gap-3 border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur md:hidden dark:border-slate-800 dark:bg-slate-900/90">
+    <div className="flex items-center gap-3 border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur print:hidden md:hidden dark:border-slate-800 dark:bg-slate-900/90">
       <button
         type="button"
         onClick={onOpenNav}

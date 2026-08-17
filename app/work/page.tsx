@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   ErrorBanner,
   ListEmpty,
+  LoadingBlock,
   PageHeader,
   PageLoading,
 } from "@/app/components/page-parts";
@@ -150,8 +151,8 @@ export default function WorkPage() {
   }
 
   return (
-    <div className="min-h-full bg-slate-50 px-6 py-10 dark:bg-slate-950">
-      <main className="mx-auto flex w-full max-w-5xl flex-col gap-8">
+    <div className="min-h-full min-w-0 bg-slate-50 px-6 py-10 dark:bg-slate-950">
+      <main className="mx-auto flex w-full min-w-0 max-w-5xl flex-col gap-8">
         <PageHeader
           title="My work"
           description="Records assigned to the directory person matching your sign-in email."
@@ -180,47 +181,49 @@ export default function WorkPage() {
             </Link>
           </div>
         ) : loading ? (
-          <ListEmpty>Loading assigned work...</ListEmpty>
+          <LoadingBlock label="Loading assigned work..." />
         ) : items.length === 0 ? (
           <ListEmpty>
             Nothing assigned to {me.name}. Assign a risk, control, incident, or
             issue from its edit page.
           </ListEmpty>
         ) : (
-          <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
-            <table className="min-w-full text-left text-sm">
-              <thead className="bg-slate-50 text-slate-600 dark:bg-slate-950 dark:text-slate-400">
-                <tr>
-                  <th className="px-6 py-3 font-medium">Type</th>
-                  <th className="px-6 py-3 font-medium">Title</th>
-                  <th className="px-6 py-3 font-medium">Why it is here</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                {items.map((item) => (
-                  <ClickableRow
-                    key={item.id}
-                    href={item.href}
-                    label={`Open ${item.title}`}
-                    className={
-                      item.tone === "alert"
-                        ? "bg-amber-50/50 dark:bg-amber-950/20"
-                        : undefined
-                    }
-                  >
-                    <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
-                      {item.kind}
-                    </td>
-                    <td className="px-6 py-4 font-medium text-slate-950 dark:text-slate-50">
-                      {item.title}
-                    </td>
-                    <td className="px-6 py-4 capitalize text-slate-600 dark:text-slate-400">
-                      {item.detail}
-                    </td>
-                  </ClickableRow>
-                ))}
-              </tbody>
-            </table>
+          <section className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead className="bg-slate-50 text-slate-600 dark:bg-slate-950 dark:text-slate-400">
+                  <tr>
+                    <th className="px-6 py-3 font-medium">Type</th>
+                    <th className="px-6 py-3 font-medium">Title</th>
+                    <th className="px-6 py-3 font-medium">Why it is here</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                  {items.map((item) => (
+                    <ClickableRow
+                      key={item.id}
+                      href={item.href}
+                      label={`Open ${item.title}`}
+                      className={
+                        item.tone === "alert"
+                          ? "bg-amber-50/50 dark:bg-amber-950/20"
+                          : undefined
+                      }
+                    >
+                      <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
+                        {item.kind}
+                      </td>
+                      <td className="px-6 py-4 font-medium text-slate-950 dark:text-slate-50">
+                        {item.title}
+                      </td>
+                      <td className="px-6 py-4 capitalize text-slate-600 dark:text-slate-400">
+                        {item.detail}
+                      </td>
+                    </ClickableRow>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </section>
         )}
       </main>

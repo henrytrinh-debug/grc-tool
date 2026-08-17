@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import Link from "next/link";
 import type { User } from "@supabase/supabase-js";
 import {
   ErrorBanner,
@@ -25,11 +26,77 @@ import {
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import { DEFAULT_SETTINGS, type AppSettings } from "@/lib/settings/defaults";
 import { useSettings } from "@/lib/settings/context";
+import {
+  BOARD_SECTION_OPTIONS,
+  HOME_WIDGET_OPTIONS,
+  OVERSIGHT_SECTION_OPTIONS,
+  REGISTER_PRESET_MODULES,
+  WORKSPACE_MODULE_OPTIONS,
+  addRegisterPreset,
+  createRegisterPreset,
+  registerPresetHref,
+  removeRegisterPreset,
+  type RegisterPresetModule,
+  type WorkspacePreferences,
+} from "@/lib/settings/preferences";
 import { LINE_OF_DEFENCE_OPTIONS, type LineOfDefence } from "@/lib/types/person";
 import { RISK_SCALE_VALUES } from "@/lib/types/risk";
 
 const BANDS = ["Low", "Medium", "High", "Critical"] as const;
 const ISSUE_SEVERITIES = ["critical", "high", "medium", "low"] as const;
+
+function PreferenceChecklist<T extends string>({
+  options,
+  checked,
+  onToggle,
+  disabled,
+  lockedIds,
+}: {
+  options: { id: T; label: string }[];
+  checked: (id: T) => boolean;
+  onToggle: (id: T, next: boolean) => void;
+  disabled?: boolean;
+  lockedIds?: readonly string[];
+}) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-2">
+      {options.map((option) => {
+        const locked = lockedIds?.includes(option.id);
+        return (
+          <label
+            key={option.id}
+            className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300"
+          >
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={checked(option.id)}
+              disabled={disabled || locked}
+              onChange={(event) => onToggle(option.id, event.target.checked)}
+            />
+            <span>
+              {option.label}
+              {locked ? " (always shown)" : ""}
+            </span>
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
+function withPrefs(
+  current: AppSettings,
+  patch: Partial<WorkspacePreferences>,
+): AppSettings {
+  return {
+    ...current,
+    workspacePreferences: {
+      ...current.workspacePreferences,
+      ...patch,
+    },
+  };
+}
 
 export default function AdminPage() {
   const { user, authLoading } = useRequireAuth();
@@ -49,6 +116,12 @@ function AdminSettings({ user }: { user: User }) {
     people,
     schemaReady,
     enterpriseReady,
+    operatingReady,
+    preferencesReady,
+    governanceReady,
+    obligationsReady,
+    evidenceReady,
+    evidenceStorageReady,
     demoIds,
     saveSettings,
     addCategory,
@@ -71,6 +144,10 @@ function AdminSettings({ user }: { user: User }) {
   const [personTitle, setPersonTitle] = useState("");
   const [personDepartment, setPersonDepartment] = useState("");
   const [personLod, setPersonLod] = useState<LineOfDefence>("first");
+  const [presetName, setPresetName] = useState("");
+  const [presetModule, setPresetModule] =
+    useState<RegisterPresetModule>("risks");
+  const [presetQuery, setPresetQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -129,12 +206,17 @@ function AdminSettings({ user }: { user: User }) {
           id: user.id,
           email: user.email,
         },
-        { includeEnterprise: enterpriseReady },
+        {
+          includeEnterprise: enterpriseReady,
+          includeOperating: operatingReady,
+          includeObligations: obligationsReady,
+          includeEvidence: evidenceReady,
+        },
       );
       await setDemoIds(ids);
       await reload();
       setMessage(
-        "Demonstration data loaded. Open Home, My work, the risk register, and Oversight to walk the story.",
+        "Demonstration data loaded. Open Home, Horizon, Board pack, Data quality, Obligations, and Evidence to walk the story.",
       );
     } catch (err) {
       setError(
@@ -187,6 +269,11 @@ function AdminSettings({ user }: { user: User }) {
             { href: "/", label: "Home" },
             { label: "Admin" },
           ]}
+          actions={
+            <Link href="/admin/import" className={secondaryButtonClassName}>
+              Import CSV
+            </Link>
+          }
         />
 
         {!schemaReady && (
@@ -202,6 +289,61 @@ function AdminSettings({ user }: { user: User }) {
             Run <code className="font-mono">supabase/schema/004_enterprise.sql</code>{" "}
             after 003 to enable the people directory, assignees, risk status,
             control type, and category appetite.
+          </SchemaNotice>
+        )}
+
+        {enterpriseReady && !operatingReady && (
+          <SchemaNotice>
+            Run <code className="font-mono">supabase/schema/005_operating.sql</code>{" "}
+            after 004 to enable treatment target dates, incident lessons learned,
+            and incident↔control links.
+          </SchemaNotice>
+        )}
+
+        {schemaReady && !preferencesReady && (
+          <SchemaNotice>
+            Run <code className="font-mono">supabase/schema/006_workspace_preferences.sql</code>{" "}
+            after 003 to save navigation, Home, Oversight, Board pack, and
+            register-view preferences. Until then the current layout is used and
+            workspace changes are not written.
+          </SchemaNotice>
+        )}
+
+        {operatingReady && !governanceReady && (
+          <SchemaNotice>
+            Run <code className="font-mono">supabase/schema/007_governance.sql</code>{" "}
+            after 005 to record immutable risk and incident change history and
+            risk closure rationale.
+          </SchemaNotice>
+        )}
+
+        {!obligationsReady && (
+          <SchemaNotice>
+            Run <code className="font-mono">supabase/schema/008_obligations.sql</code>{" "}
+            to enable the obligations register and control coverage checks.
+          </SchemaNotice>
+        )}
+
+        {!evidenceReady && (
+          <SchemaNotice>
+            Run <code className="font-mono">supabase/schema/009_evidence.sql</code>{" "}
+            to enable evidence metadata. File uploads also need the private{" "}
+            <code className="font-mono">grc-evidence</code> Storage bucket.
+          </SchemaNotice>
+        )}
+
+        {evidenceReady && !evidenceStorageReady && (
+          <SchemaNotice>
+            Evidence metadata is available, but Storage is not. Create the
+            private <code className="font-mono">grc-evidence</code> bucket with
+            folder prefix <code className="font-mono">auth.uid()</code>. See{" "}
+            <a
+              className="underline"
+              href="https://supabase.com/docs/guides/storage/security/access-control"
+            >
+              Storage Access Control
+            </a>
+            .
           </SchemaNotice>
         )}
 
@@ -414,6 +556,259 @@ function AdminSettings({ user }: { user: User }) {
             </div>
           </SectionCard>
 
+          <SectionCard
+            title="Workspace"
+            description="Hide modules and widgets you do not use. Direct URLs still work — this is presentation, not access control. Home and Settings stay visible so you can always get back here."
+          >
+            <fieldset
+              disabled={!preferencesReady}
+              className="flex flex-col gap-6 disabled:opacity-70"
+            >
+              <div>
+                <p className={`mb-3 text-sm font-medium ${mutedTextClassName}`}>
+                  Navigation modules
+                </p>
+                <PreferenceChecklist
+                  options={WORKSPACE_MODULE_OPTIONS}
+                  lockedIds={WORKSPACE_MODULE_OPTIONS.filter((option) => option.locked).map(
+                    (option) => option.id,
+                  )}
+                  checked={(id) =>
+                    !draft.workspacePreferences.hiddenModules.includes(id)
+                  }
+                  onToggle={(id, next) =>
+                    setDraft((current) =>
+                      withPrefs(current, {
+                        hiddenModules: next
+                          ? current.workspacePreferences.hiddenModules.filter(
+                              (hidden) => hidden !== id,
+                            )
+                          : [
+                              ...current.workspacePreferences.hiddenModules,
+                              id,
+                            ],
+                      }),
+                    )
+                  }
+                />
+              </div>
+
+              <div>
+                <p className={`mb-3 text-sm font-medium ${mutedTextClassName}`}>
+                  Home widgets
+                </p>
+                <PreferenceChecklist
+                  options={HOME_WIDGET_OPTIONS}
+                  checked={(id) =>
+                    draft.workspacePreferences.homeWidgets.includes(id)
+                  }
+                  onToggle={(id, next) =>
+                    setDraft((current) =>
+                      withPrefs(current, {
+                        homeWidgets: next
+                          ? [...current.workspacePreferences.homeWidgets, id]
+                          : current.workspacePreferences.homeWidgets.filter(
+                              (widget) => widget !== id,
+                            ),
+                      }),
+                    )
+                  }
+                />
+              </div>
+
+              <div>
+                <p className={`mb-3 text-sm font-medium ${mutedTextClassName}`}>
+                  Oversight sections
+                </p>
+                <PreferenceChecklist
+                  options={OVERSIGHT_SECTION_OPTIONS}
+                  checked={(id) =>
+                    draft.workspacePreferences.oversightSections.includes(id)
+                  }
+                  onToggle={(id, next) =>
+                    setDraft((current) =>
+                      withPrefs(current, {
+                        oversightSections: next
+                          ? [
+                              ...current.workspacePreferences.oversightSections,
+                              id,
+                            ]
+                          : current.workspacePreferences.oversightSections.filter(
+                              (section) => section !== id,
+                            ),
+                      }),
+                    )
+                  }
+                />
+              </div>
+
+              <div>
+                <p className={`mb-3 text-sm font-medium ${mutedTextClassName}`}>
+                  Board pack sections
+                </p>
+                <PreferenceChecklist
+                  options={BOARD_SECTION_OPTIONS}
+                  checked={(id) =>
+                    draft.workspacePreferences.boardSections.includes(id)
+                  }
+                  onToggle={(id, next) =>
+                    setDraft((current) =>
+                      withPrefs(current, {
+                        boardSections: next
+                          ? [...current.workspacePreferences.boardSections, id]
+                          : current.workspacePreferences.boardSections.filter(
+                              (section) => section !== id,
+                            ),
+                      }),
+                    )
+                  }
+                />
+              </div>
+
+              <label className="flex max-w-lg flex-col gap-1">
+                <span className={labelClassName}>Default Home taxonomy lens</span>
+                <select
+                  value={draft.workspacePreferences.defaultHomeCategoryId}
+                  onChange={(event) =>
+                    setDraft((current) =>
+                      withPrefs(current, {
+                        defaultHomeCategoryId: event.target.value,
+                      }),
+                    )
+                  }
+                  className={inputClassName}
+                >
+                  <option value="">All categories</option>
+                  {categories.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div>
+                <p className={`mb-3 text-sm font-medium ${mutedTextClassName}`}>
+                  Saved register views
+                </p>
+                <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_10rem_1fr_auto]">
+                  <input
+                    value={presetName}
+                    onChange={(event) => setPresetName(event.target.value)}
+                    placeholder="View name"
+                    className={inputClassName}
+                  />
+                  <select
+                    value={presetModule}
+                    onChange={(event) =>
+                      setPresetModule(event.target.value as RegisterPresetModule)
+                    }
+                    className={inputClassName}
+                    aria-label="Register"
+                  >
+                    {REGISTER_PRESET_MODULES.map((register) => (
+                      <option key={register} value={register}>
+                        {register}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    value={presetQuery}
+                    onChange={(event) => setPresetQuery(event.target.value)}
+                    placeholder="severity=High,Critical"
+                    className={inputClassName}
+                  />
+                  <button
+                    type="button"
+                    className={secondaryButtonClassName}
+                    onClick={() => {
+                      const preset = createRegisterPreset({
+                        name: presetName,
+                        module: presetModule,
+                        query: presetQuery,
+                      });
+                      if (!preset) {
+                        setError(
+                          "A saved view needs a name and a query string such as severity=High,Critical.",
+                        );
+                        return;
+                      }
+                      setDraft((current) => {
+                        const nextPrefs = addRegisterPreset(
+                          current.workspacePreferences,
+                          preset,
+                        );
+                        if (!nextPrefs) {
+                          setError(
+                            "You already have the maximum number of saved views.",
+                          );
+                          return current;
+                        }
+                        setPresetName("");
+                        setPresetQuery("");
+                        setError(null);
+                        return withPrefs(current, {
+                          registerPresets: nextPrefs.registerPresets,
+                        });
+                      });
+                    }}
+                  >
+                    Add
+                  </button>
+                </div>
+                {draft.workspacePreferences.registerPresets.length === 0 ? (
+                  <p className={`text-sm ${mutedTextClassName}`}>
+                    No saved views yet. Filter a register and choose Save view,
+                    or add a query here.
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-slate-200 dark:divide-slate-800">
+                    {draft.workspacePreferences.registerPresets.map((preset) => (
+                      <li
+                        key={preset.id}
+                        className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div>
+                          <p className="text-sm font-medium text-slate-950 dark:text-slate-50">
+                            {preset.name}
+                          </p>
+                          <p className={`text-sm ${mutedTextClassName}`}>
+                            {preset.module} · {preset.query}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <Link
+                            href={registerPresetHref(preset)}
+                            className={secondaryButtonClassName}
+                          >
+                            Open
+                          </Link>
+                          <button
+                            type="button"
+                            className={dangerButtonClassName}
+                            onClick={() =>
+                              setDraft((current) =>
+                                withPrefs(
+                                  current,
+                                  removeRegisterPreset(
+                                    current.workspacePreferences,
+                                    preset.id,
+                                  ),
+                                ),
+                              )
+                            }
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </fieldset>
+          </SectionCard>
+
           <div className="flex flex-wrap gap-3">
             <button
               type="submit"
@@ -506,7 +901,7 @@ function AdminSettings({ user }: { user: User }) {
                             ),
                           );
                         }}
-                        className={inputClassName}
+                        className={`${inputClassName} max-w-44`}
                         aria-label={`${category.name} appetite`}
                       >
                         {BANDS.map((band) => (
@@ -610,7 +1005,7 @@ function AdminSettings({ user }: { user: User }) {
                       ),
                     );
                 }}
-                className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-6"
+                className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
               >
                 <input
                   value={personName}
@@ -653,7 +1048,7 @@ function AdminSettings({ user }: { user: User }) {
                 <button
                   type="submit"
                   disabled={!personName.trim() || !personEmail.trim()}
-                  className={secondaryButtonClassName}
+                  className={`${secondaryButtonClassName} self-end`}
                 >
                   Add
                 </button>
@@ -738,7 +1133,7 @@ function AdminSettings({ user }: { user: User }) {
 
         <SectionCard
           title="Demonstration data"
-          description="Load a sample environment — people, taxonomy with appetite, 70+ register records, mixed control tests, RCSA reviews, open incidents, and findings in flight — to walk the product."
+          description="Load a sample environment — people, taxonomy with appetite, 70+ register records, mixed control tests, RCSA reviews, open incidents, findings in flight, treatment dates, and incident–control links — to walk the product."
         >
           <div className="flex flex-wrap gap-3">
             <button

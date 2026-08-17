@@ -2,33 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { STATIC_COMMANDS } from "@/lib/navigation";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { useSettings } from "@/lib/settings/context";
-
-const COMMANDS = [
-  { label: "Home", href: "/", keywords: "dashboard attention" },
-  { label: "My work", href: "/work", keywords: "assigned me queue" },
-  { label: "Risk register", href: "/risks", keywords: "risks" },
-  { label: "Risks due for review", href: "/risks?reviewRecency=due", keywords: "stale overdue rcsa" },
-  { label: "Uncontrolled risks", href: "/risks?uncontrolled=true", keywords: "no controls" },
-  { label: "Above appetite", href: "/risks?appetiteBreach=true", keywords: "appetite breach" },
-  { label: "Assigned to me — risks", href: "/risks?assignee=me", keywords: "my risks" },
-  { label: "Control register", href: "/controls", keywords: "controls" },
-  { label: "Overdue controls", href: "/controls?testingStatus=Overdue", keywords: "testing" },
-  { label: "Unmapped controls", href: "/controls?unmapped=true", keywords: "orphan" },
-  { label: "Key controls", href: "/controls?isKey=true", keywords: "key" },
-  { label: "Incident register", href: "/incidents", keywords: "incidents" },
-  { label: "Open incidents", href: "/incidents?status=open,investigating", keywords: "open" },
-  { label: "Issue log", href: "/issues", keywords: "issues findings" },
-  { label: "Overdue issues", href: "/issues?overdue=true", keywords: "remediation" },
-  { label: "Start risk assessment", href: "/rcsa/start", keywords: "rcsa review" },
-  { label: "Oversight monitoring", href: "/oversight", keywords: "2lod second line" },
-  { label: "Admin settings", href: "/admin", keywords: "admin organisation taxonomy cadence demo people" },
-  { label: "Add risk", href: "/risks/new", keywords: "create" },
-  { label: "Add control", href: "/controls/new", keywords: "create" },
-  { label: "Add incident", href: "/incidents/new", keywords: "create" },
-  { label: "Raise issue", href: "/issues/new", keywords: "create finding" },
-] as const;
+import {
+  registerPresetHref,
+  visibleStaticCommands,
+} from "@/lib/settings/preferences";
 
 type PaletteItem = {
   label: string;
@@ -38,7 +18,7 @@ type PaletteItem = {
 
 export function CommandPalette() {
   const router = useRouter();
-  const { categories, schemaReady } = useSettings();
+  const { categories, schemaReady, settings } = useSettings();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
@@ -46,16 +26,29 @@ export function CommandPalette() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const staticCommands = useMemo<PaletteItem[]>(() => {
-    const categoryCommands = schemaReady
-      ? categories.map((category) => ({
-          label: `Risks — ${category.name}`,
-          href: `/risks?category=${encodeURIComponent(category.id)}`,
-          keywords: `taxonomy ${category.name}`,
-        }))
-      : [];
+    const hiddenRisks = settings.workspacePreferences.hiddenModules.includes("risks");
+    const categoryCommands =
+      schemaReady && !hiddenRisks
+        ? categories.map((category) => ({
+            label: `Risks — ${category.name}`,
+            href: `/risks?category=${encodeURIComponent(category.id)}`,
+            keywords: `taxonomy ${category.name}`,
+          }))
+        : [];
+    const presetCommands = settings.workspacePreferences.registerPresets.map(
+      (preset) => ({
+        label: `Saved view — ${preset.name}`,
+        href: registerPresetHref(preset),
+        keywords: `preset ${preset.module} ${preset.name}`,
+      }),
+    );
 
-    return [...COMMANDS, ...categoryCommands];
-  }, [categories, schemaReady]);
+    return [
+      ...visibleStaticCommands(settings.workspacePreferences, STATIC_COMMANDS),
+      ...categoryCommands,
+      ...presetCommands,
+    ];
+  }, [categories, schemaReady, settings.workspacePreferences]);
 
   const matches = useMemo(() => {
     const needle = query.trim().toLowerCase();

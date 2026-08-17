@@ -14,3 +14,13 @@ export const chartActiveBar = {
   stroke: "rgb(13 148 136)",
   strokeWidth: 2,
 };
+
+/** Recharts 3 Bar onClick receives a rectangle item; the datum is on `payload`. */
+export function barClickDatum<T extends object>(data: unknown): T | undefined {
+  if (!data || typeof data !== "object") {
+    return undefined;
+  }
+
+  const row = data as { payload?: T } & T;
+  return row.payload ?? row;
+}

@@ -15,7 +15,7 @@ type IncidentFormFieldsProps = {
 };
 
 export function IncidentFormFields({ form, onChange }: IncidentFormFieldsProps) {
-  const { people, enterpriseReady } = useSettings();
+  const { people, enterpriseReady, operatingReady } = useSettings();
 
   return (
     <>
@@ -112,6 +112,21 @@ export function IncidentFormFields({ form, onChange }: IncidentFormFieldsProps) 
           className={inputClassName}
         />
       </label>
+
+      {operatingReady && (
+        <label className="flex flex-col gap-1 sm:col-span-2">
+          <span className={labelClassName}>Lessons learned</span>
+          <textarea
+            rows={3}
+            value={form.lessons_learned ?? ""}
+            onChange={(event) =>
+              onChange({ lessons_learned: event.target.value })
+            }
+            className={inputClassName}
+            placeholder="What will change so this does not recur."
+          />
+        </label>
+      )}
 
       {enterpriseReady && (
         <div className="sm:col-span-2">

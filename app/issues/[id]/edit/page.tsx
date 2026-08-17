@@ -3,6 +3,8 @@
 import { FormEvent, useCallback, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { LinkedEntitiesPanel } from "@/app/components/linked-entities-panel";
+import { EvidencePanel } from "@/app/components/evidence-panel";
+import { QualityCallout } from "@/app/components/quality-indicator";
 import {
   buildControlRows,
   buildRiskRows,
@@ -33,6 +35,7 @@ import {
 } from "@/lib/issues/workflow";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { useSettings } from "@/lib/settings/context";
+import { issueQuality } from "@/lib/data-quality/record";
 import type { Control } from "@/lib/types/control";
 import {
   formatDueDateLabel,
@@ -521,6 +524,11 @@ export default function EditIssuePage() {
     return <PageLoading />;
   }
 
+  const quality = issueQuality(form, {
+    linkedToRiskOrControl: linkedRisks.length + linkedControls.length > 0,
+    enterpriseReady,
+  });
+
   return (
     <div className="min-h-full bg-slate-50 px-6 py-10 dark:bg-slate-950">
       <main className="mx-auto flex w-full max-w-5xl flex-col gap-8">
@@ -544,6 +552,8 @@ export default function EditIssuePage() {
         </header>
 
         <ErrorBanner message={error} />
+
+        <QualityCallout summary={quality} />
 
         <WorkflowPanel
           issue={issue}
@@ -635,6 +645,8 @@ export default function EditIssuePage() {
           saving={savingComment}
           onAddComment={handleAddComment}
         />
+
+        <EvidencePanel entityType="issue" entityId={issueId} />
       </main>
     </div>
   );

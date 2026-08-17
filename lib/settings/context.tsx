@@ -18,6 +18,7 @@ import {
   type RiskCategory,
 } from "@/lib/settings/defaults";
 import type { OrgPerson } from "@/lib/types/person";
+import { EVIDENCE_BUCKET } from "@/lib/types/evidence";
 import {
   hydrateSettings,
   isMissingRelationError,
@@ -25,6 +26,7 @@ import {
   settingsToRow,
   validateSettings,
 } from "@/lib/settings/store";
+import { isProbeMissing } from "@/lib/supabase/owned";
 
 type SettingsContextValue = {
   settings: AppSettings;
@@ -32,6 +34,12 @@ type SettingsContextValue = {
   people: OrgPerson[];
   schemaReady: boolean;
   enterpriseReady: boolean;
+  operatingReady: boolean;
+  preferencesReady: boolean;
+  governanceReady: boolean;
+  obligationsReady: boolean;
+  evidenceReady: boolean;
+  evidenceStorageReady: boolean;
   demoIds: DemoIds | null;
   loading: boolean;
   reload: () => Promise<void>;
@@ -61,6 +69,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [people, setPeople] = useState<OrgPerson[]>([]);
   const [schemaReady, setSchemaReady] = useState(false);
   const [enterpriseReady, setEnterpriseReady] = useState(false);
+  const [operatingReady, setOperatingReady] = useState(false);
+  const [preferencesReady, setPreferencesReady] = useState(false);
+  const [governanceReady, setGovernanceReady] = useState(false);
+  const [obligationsReady, setObligationsReady] = useState(false);
+  const [evidenceReady, setEvidenceReady] = useState(false);
+  const [evidenceStorageReady, setEvidenceStorageReady] = useState(false);
   const [demoIds, setDemoIdsState] = useState<DemoIds | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -77,12 +91,27 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setPeople([]);
       setSchemaReady(false);
       setEnterpriseReady(false);
+      setOperatingReady(false);
+      setPreferencesReady(false);
+      setGovernanceReady(false);
+      setObligationsReady(false);
+      setEvidenceReady(false);
+      setEvidenceStorageReady(false);
       setDemoIdsState(null);
       setLoading(false);
       return;
     }
 
-    const [settingsResult, categoriesResult, peopleResult] = await Promise.all([
+    const [
+      settingsResult,
+      categoriesResult,
+      peopleResult,
+      operatingResult,
+      preferencesResult,
+      governanceResult,
+      obligationsResult,
+      evidenceResult,
+    ] = await Promise.all([
       supabase
         .from("org_settings")
         .select("*")
@@ -99,6 +128,15 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         .select("*")
         .eq("owner_id", session.user.id)
         .order("name", { ascending: true }),
+      supabase.from("incident_controls").select("id").limit(1),
+      supabase
+        .from("org_settings")
+        .select("workspace_preferences")
+        .eq("owner_id", session.user.id)
+        .limit(1),
+      supabase.from("risk_events").select("id").limit(1),
+      supabase.from("obligations").select("id").limit(1),
+      supabase.from("evidence").select("id").limit(1),
     ]);
 
     if (
@@ -107,6 +145,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     ) {
       setSchemaReady(false);
       setEnterpriseReady(false);
+      setOperatingReady(false);
+      setPreferencesReady(false);
+      setGovernanceReady(false);
+      setObligationsReady(false);
+      setEvidenceReady(false);
+      setEvidenceStorageReady(false);
       hydrateSettings(DEFAULT_SETTINGS);
       setSettings(DEFAULT_SETTINGS);
       setCategories([]);
@@ -132,8 +176,53 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       throw peopleResult.error;
     }
 
+    const operatingMissing =
+      Boolean(operatingResult.error) &&
+      isMissingRelationError(operatingResult.error ?? {});
+
+    if (operatingResult.error && !operatingMissing) {
+      throw operatingResult.error;
+    }
+
+    const preferencesMissing =
+      Boolean(preferencesResult.error) &&
+      isMissingRelationError(preferencesResult.error ?? {});
+
+    if (preferencesResult.error && !preferencesMissing) {
+      throw preferencesResult.error;
+    }
+
+    const governanceMissing = isProbeMissing(governanceResult.error);
+    if (governanceResult.error && !governanceMissing) {
+      throw governanceResult.error;
+    }
+
+    const obligationsMissing = isProbeMissing(obligationsResult.error);
+    if (obligationsResult.error && !obligationsMissing) {
+      throw obligationsResult.error;
+    }
+
+    const evidenceMissing = isProbeMissing(evidenceResult.error);
+    if (evidenceResult.error && !evidenceMissing) {
+      throw evidenceResult.error;
+    }
+
     setSchemaReady(true);
     setEnterpriseReady(!peopleMissing);
+    setOperatingReady(!operatingMissing);
+    setPreferencesReady(!preferencesMissing);
+    setGovernanceReady(!governanceMissing);
+    setObligationsReady(!obligationsMissing);
+    setEvidenceReady(!evidenceMissing);
+
+    let storageReady = false;
+    if (!evidenceMissing) {
+      const { error: storageError } = await supabase.storage
+        .from(EVIDENCE_BUCKET)
+        .list(session.user.id, { limit: 1 });
+      storageReady = !storageError;
+    }
+    setEvidenceStorageReady(storageReady);
     const nextSettings = settingsResult.data
       ? settingsFromRow(settingsResult.data as OrgSettingsRow)
       : DEFAULT_SETTINGS;
@@ -154,6 +243,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       void reload().catch(() => {
         setSchemaReady(false);
         setEnterpriseReady(false);
+        setOperatingReady(false);
+        setPreferencesReady(false);
+        setGovernanceReady(false);
+        setObligationsReady(false);
+        setEvidenceReady(false);
+        setEvidenceStorageReady(false);
         setLoading(false);
       });
     }, 0);
@@ -169,6 +264,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       void reload().catch(() => {
         setSchemaReady(false);
         setEnterpriseReady(false);
+        setOperatingReady(false);
+        setPreferencesReady(false);
+        setGovernanceReady(false);
+        setObligationsReady(false);
+        setEvidenceReady(false);
+        setEvidenceStorageReady(false);
         setLoading(false);
       });
     });
@@ -203,7 +304,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       const { error } = await supabase.from("org_settings").upsert({
         owner_id: user.id,
         owner_email: user.email,
-        ...settingsToRow(normalised),
+        ...settingsToRow(normalised, { includePreferences: preferencesReady }),
         demo_ids: demoIds,
       });
 
@@ -214,7 +315,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       hydrateSettings(normalised);
       setSettings(normalised);
     },
-    [demoIds],
+    [demoIds, preferencesReady],
   );
 
   const addCategory = useCallback(async (name: string, description: string) => {
@@ -410,7 +511,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       const { error } = await supabase.from("org_settings").upsert({
         owner_id: user.id,
         owner_email: user.email,
-        ...settingsToRow(settings),
+        ...settingsToRow(settings, { includePreferences: preferencesReady }),
         demo_ids: ids,
       });
 
@@ -420,7 +521,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
       setDemoIdsState(ids);
     },
-    [settings],
+    [preferencesReady, settings],
   );
 
   const value = useMemo(
@@ -430,6 +531,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       people,
       schemaReady,
       enterpriseReady,
+      operatingReady,
+      preferencesReady,
+      governanceReady,
+      obligationsReady,
+      evidenceReady,
+      evidenceStorageReady,
       demoIds,
       loading,
       reload,
@@ -450,6 +557,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       deletePerson,
       demoIds,
       enterpriseReady,
+      operatingReady,
+      preferencesReady,
+      governanceReady,
+      obligationsReady,
+      evidenceReady,
+      evidenceStorageReady,
       loading,
       people,
       reload,

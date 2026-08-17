@@ -24,6 +24,7 @@ import {
   type IssueStatus,
 } from "@/lib/types/issue";
 import { getReviewRecencyBucket, isReviewDue } from "@/lib/types/rcsa";
+import type { OrgPerson } from "@/lib/types/person";
 import type { Risk, RiskStatus, RiskTreatment } from "@/lib/types/risk";
 
 const RISK_TREATMENTS: RiskTreatment[] = [
@@ -38,7 +39,7 @@ const CONTROL_TYPES: ControlType[] = ["preventive", "detective", "corrective"];
 
 export type RiskListFilters = {
   q: string;
-  severity: SeverityBand | "";
+  severity: SeverityBand | "High,Critical" | "";
   likelihood: number | null;
   impact: number | null;
   reviewRecency: "" | "never" | "over365" | "due";
@@ -48,6 +49,7 @@ export type RiskListFilters = {
   status: RiskStatus | "";
   assignee: string;
   appetiteBreach: boolean;
+  department: string;
 };
 
 export type ControlListFilters = {
@@ -59,14 +61,16 @@ export type ControlListFilters = {
   categoryId: string;
   controlType: ControlType | "";
   assignee: string;
+  department: string;
 };
 
 export type IncidentListFilters = {
   q: string;
-  severity: Severity | "";
+  severity: Severity | "high,critical" | "";
   status: IncidentStatus[];
   categoryId: string;
   assignee: string;
+  department: string;
 };
 
 export type IssueListFilters = {
@@ -77,6 +81,7 @@ export type IssueListFilters = {
   overdue: boolean;
   categoryId: string;
   assignee: string;
+  department: string;
 };
 
 const ISSUE_SEVERITIES: IssueSeverity[] = ["low", "medium", "high", "critical"];
@@ -119,7 +124,8 @@ export function parseRiskFilters(params: URLSearchParams): RiskListFilters {
       severityRaw === "Low" ||
       severityRaw === "Medium" ||
       severityRaw === "High" ||
-      severityRaw === "Critical"
+      severityRaw === "Critical" ||
+      severityRaw === "High,Critical"
         ? severityRaw
         : "",
     likelihood:
@@ -139,6 +145,7 @@ export function parseRiskFilters(params: URLSearchParams): RiskListFilters {
       : "",
     assignee: getParam(params, "assignee"),
     appetiteBreach: getParam(params, "appetiteBreach") === "true",
+    department: getParam(params, "department"),
   };
 }
 
@@ -171,6 +178,7 @@ export function parseControlFilters(
       ? (controlTypeRaw as ControlType)
       : "",
     assignee: getParam(params, "assignee"),
+    department: getParam(params, "department"),
   };
 }
 
@@ -197,12 +205,14 @@ export function parseIncidentFilters(
       severityRaw === "low" ||
       severityRaw === "medium" ||
       severityRaw === "high" ||
-      severityRaw === "critical"
+      severityRaw === "critical" ||
+      severityRaw === "high,critical"
         ? severityRaw
         : "",
     status: statuses,
     categoryId: getParam(params, "category"),
     assignee: getParam(params, "assignee"),
+    department: getParam(params, "department"),
   };
 }
 
@@ -228,6 +238,7 @@ export function parseIssueFilters(params: URLSearchParams): IssueListFilters {
     overdue: getParam(params, "overdue") === "true",
     categoryId: getParam(params, "category"),
     assignee: getParam(params, "assignee"),
+    department: getParam(params, "department"),
   };
 }
 
@@ -251,12 +262,34 @@ function matchesAssignee(
   return assigneeId === filter;
 }
 
+function matchesListedToken(value: string, filter: string) {
+  if (!filter) {
+    return true;
+  }
+
+  return filter.split(",").includes(value);
+}
+
+function matchesDepartment(
+  assigneeId: string | null | undefined,
+  department: string,
+  people: OrgPerson[] = [],
+) {
+  if (!department) {
+    return true;
+  }
+
+  const person = people.find((entry) => entry.id === assigneeId);
+  return Boolean(person && person.department === department);
+}
+
 export function filterIssues(
   issues: Issue[],
   filters: IssueListFilters,
   context: {
     linkedCategoryIds?: Record<string, string[]>;
     myPersonId?: string | null;
+    people?: OrgPerson[];
   } = {},
 ) {
   const query = filters.q.toLowerCase();
@@ -300,6 +333,12 @@ export function filterIssues(
       return false;
     }
 
+    if (
+      !matchesDepartment(issue.assignee_id, filters.department, context.people)
+    ) {
+      return false;
+    }
+
     return true;
   });
 }
@@ -328,6 +367,7 @@ export function filterRisks(
     linkedControlCounts?: Record<string, number>;
     categories?: RiskCategory[];
     myPersonId?: string | null;
+    people?: OrgPerson[];
   } = {},
 ) {
   const query = filters.q.toLowerCase();
@@ -347,7 +387,7 @@ export function filterRisks(
       const band = getSeverityBand(
         getRiskScore(risk.likelihood, risk.impact),
       );
-      if (band !== filters.severity) {
+      if (!matchesListedToken(band, filters.severity)) {
         return false;
       }
     }
@@ -404,6 +444,12 @@ export function filterRisks(
       return false;
     }
 
+    if (
+      !matchesDepartment(risk.assignee_id, filters.department, context.people)
+    ) {
+      return false;
+    }
+
     return true;
   });
 }
@@ -415,6 +461,7 @@ export function filterControls(
     linkedRiskCounts?: Record<string, number>;
     linkedCategoryIds?: Record<string, string[]>;
     myPersonId?: string | null;
+    people?: OrgPerson[];
   } = {},
 ) {
   const query = filters.q.toLowerCase();
@@ -478,6 +525,16 @@ export function filterControls(
       return false;
     }
 
+    if (
+      !matchesDepartment(
+        control.assignee_id,
+        filters.department,
+        context.people,
+      )
+    ) {
+      return false;
+    }
+
     return true;
   });
 }
@@ -488,6 +545,7 @@ export function filterIncidents(
   context: {
     linkedCategoryIds?: Record<string, string[]>;
     myPersonId?: string | null;
+    people?: OrgPerson[];
   } = {},
 ) {
   const query = filters.q.toLowerCase();
@@ -502,7 +560,7 @@ export function filterIncidents(
       }
     }
 
-    if (filters.severity && incident.severity !== filters.severity) {
+    if (!matchesListedToken(incident.severity, filters.severity)) {
       return false;
     }
 
@@ -524,6 +582,16 @@ export function filterIncidents(
         incident.assignee_id,
         filters.assignee,
         context.myPersonId,
+      )
+    ) {
+      return false;
+    }
+
+    if (
+      !matchesDepartment(
+        incident.assignee_id,
+        filters.department,
+        context.people,
       )
     ) {
       return false;
