@@ -13,6 +13,7 @@ import {
   secondaryButtonClassName,
 } from "@/app/components/ui";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
+import { safeReturnTo } from "@/lib/navigation";
 import { useSettings } from "@/lib/settings/context";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import {
@@ -58,6 +59,7 @@ function NewIssuePageContent() {
         : null,
       riskId: searchParams.get("risk"),
       controlId: searchParams.get("control"),
+      returnTo: searchParams.get("returnTo"),
     };
   }, [searchParams]);
 
@@ -151,17 +153,18 @@ function NewIssuePageContent() {
         commentResult.error ?? riskResult.error ?? controlResult.error;
 
       if (followUpError) {
-        router.push(`/issues/${issueId}/edit`);
+        router.push(safeReturnTo(prefill.returnTo) ?? `/issues/${issueId}/edit`);
         return;
       }
 
-      // Land on the edit page so the action plan can be built straight away.
-      router.push(`/issues/${issueId}/edit`);
+      router.push(safeReturnTo(prefill.returnTo) ?? `/issues/${issueId}/edit`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create issue");
       setSubmitting(false);
     }
   }
+
+  const returnTo = safeReturnTo(prefill.returnTo);
 
   if (authLoading) {
     return <PageLoading />;
@@ -201,7 +204,7 @@ function NewIssuePageContent() {
               >
                 {submitting ? "Raising..." : "Raise Issue"}
               </button>
-              <Link href="/issues" className={secondaryButtonClassName}>
+              <Link href={returnTo ?? "/issues"} className={secondaryButtonClassName}>
                 Cancel
               </Link>
             </div>

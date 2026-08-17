@@ -1,8 +1,5 @@
-import {
-  getRiskScore,
-  getSeverityBand,
-  type SeverityBand,
-} from "@/lib/dashboard/analytics";
+import { operatingBand } from "@/lib/risk/ratings";
+import type { SeverityBand } from "@/lib/dashboard/analytics";
 import type { RiskCategory } from "@/lib/settings/defaults";
 import type { Risk } from "@/lib/types/risk";
 
@@ -39,16 +36,19 @@ export function categoryAppetite(
 }
 
 export function isAppetiteBreach(
-  risk: Pick<Risk, "likelihood" | "impact" | "category_id" | "status">,
+  risk: Pick<
+    Risk,
+    "likelihood" | "impact" | "residual_likelihood" | "residual_impact" | "category_id" | "status"
+  >,
   categories: RiskCategory[],
 ) {
   if (risk.status === "closed") {
     return false;
   }
 
-  const inherent = getSeverityBand(getRiskScore(risk.likelihood, risk.impact));
+  const operating = operatingBand(risk);
   const appetite = categoryAppetite(categories, risk.category_id);
-  return SEVERITY_BAND_RANK[inherent] > SEVERITY_BAND_RANK[appetite];
+  return SEVERITY_BAND_RANK[operating] > SEVERITY_BAND_RANK[appetite];
 }
 
 export function isActiveRisk(risk: Pick<Risk, "status">) {

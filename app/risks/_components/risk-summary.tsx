@@ -12,6 +12,7 @@ import {
   buildTreatmentCounts,
 } from "@/lib/dashboard/analytics";
 import { highCriticalRisks } from "@/lib/metrics/kpis";
+import { storedResidual } from "@/lib/risk/ratings";
 import type { RiskCategory } from "@/lib/settings/defaults";
 import { isActiveRisk } from "@/lib/taxonomy";
 import { isReviewDue } from "@/lib/types/rcsa";
@@ -24,6 +25,7 @@ export function RiskSummary({
   linkedControlCounts,
   reviews,
   schemaReady,
+  residualReady,
 }: {
   risks: Risk[];
   categories: RiskCategory[];
@@ -31,6 +33,7 @@ export function RiskSummary({
   linkedControlCounts: Record<string, number>;
   reviews: Array<{ reviewed_at: string }>;
   schemaReady: boolean;
+  residualReady: boolean;
 }) {
   const active = risks.filter(isActiveRisk);
   const highCritical = highCriticalRisks(active);
@@ -44,6 +47,9 @@ export function RiskSummary({
   const uncontrolled = active.filter(
     (risk) => (linkedControlCounts[risk.id] ?? 0) === 0,
   ).length;
+  const unassessedResidual = residualReady
+    ? active.filter((risk) => !storedResidual(risk)).length
+    : 0;
   const reviewTrend = stackByMonth(
     reviews.map((review) => ({ date: review.reviewed_at, series: "reviews" })),
     ["reviews"],
@@ -79,20 +85,29 @@ export function RiskSummary({
           linkLabel="View due reviews"
           tone={due > 0 ? "alert" : "default"}
         />
+        {residualReady ? (
+          <StatCard
+            label="Residual not assessed"
+            value={unassessedResidual}
+            href="/risks?view=register&residualUnassessed=true"
+            linkLabel="View unassessed"
+            tone={unassessedResidual > 0 ? "alert" : "default"}
+          />
+        ) : null}
       </section>
 
       <SummaryGrid>
         <ChartCard
           title="Risk heat map"
-          description="Click a cell to open the register filtered by likelihood and impact. Closed risks are excluded."
+          description="Toggle inherent vs residual. Click a cell to open the register. Closed risks are excluded."
         >
           <div className="mt-2">
-            <RiskHeatMap risks={active} />
+            <RiskHeatMap risks={active} residualReady={residualReady} />
           </div>
         </ChartCard>
         <ChartCard
           title="Risks by score"
-          description="Click a bar to filter the register by band."
+          description="Operating score bands (residual if assessed, otherwise inherent). Matches High/Critical and the register Score filter."
         >
           <RiskSeverityBarChart data={buildSeverityBandCounts(active)} />
         </ChartCard>

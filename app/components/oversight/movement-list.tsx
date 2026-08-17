@@ -15,7 +15,11 @@ export function RatingMovementList({
         id: move.riskId,
         href: `/risks/${move.riskId}/edit`,
         title: move.title,
-        detail: `${move.previousBand} (${move.previousScore}) → ${move.finalBand} (${move.finalScore}) · ${move.delta > 0 ? "+" : ""}${move.delta} · ${formatIsoDate(move.reviewedAt)}`,
+        detail: `${move.previousBand} (${move.previousScore}) → ${move.finalBand} (${move.finalScore}) · inherent ${move.delta > 0 ? "+" : ""}${move.delta}${
+          move.residualDelta === null
+            ? ""
+            : ` · residual ${move.residualDelta > 0 ? "+" : ""}${move.residualDelta}`
+        } · ${formatIsoDate(move.reviewedAt)}`,
       }))}
       empty="No rating changes on the latest RCSA for each risk. Confirming the same score, or risks never reviewed, do not appear here."
     />

@@ -7,8 +7,10 @@ import { LinkedEntitiesPanel } from "@/app/components/linked-entities-panel";
 import {
   buildControlRows,
   buildIncidentRows,
+  buildIssueRows,
   CONTROL_COLUMNS,
   INCIDENT_COLUMNS,
+  ISSUE_COLUMNS,
 } from "@/app/components/linked-entity-rows";
 import {
   BackLink,
@@ -18,7 +20,6 @@ import {
 import { EventTimeline } from "@/app/components/event-timeline";
 import { EvidencePanel } from "@/app/components/evidence-panel";
 import { QualityCallout } from "@/app/components/quality-indicator";
-import { RelatedIssuesCard } from "@/app/components/related-issues-card";
 import {
   dangerButtonClassName,
   primaryButtonClassName,
@@ -38,6 +39,7 @@ import { getSupabaseClient } from "@/lib/supabase/client";
 import { isProbeMissing } from "@/lib/supabase/owned";
 import type { Control } from "@/lib/types/control";
 import type { Incident } from "@/lib/types/incident";
+import type { Issue } from "@/lib/types/issue";
 import {
   groupIncidentRiskRowsByRisk,
   INCIDENT_RISK_INCIDENT_SELECT,
@@ -53,6 +55,7 @@ import type {
   LinkedIncident,
   LinkedIssue,
 } from "@/lib/types/linked-entities";
+import { residualBlockers, storedResidual } from "@/lib/risk/ratings";
 import { useSettings } from "@/lib/settings/context";
 import { toRiskFormPayload, type NewRisk, type Risk } from "@/lib/types/risk";
 import {
@@ -71,14 +74,14 @@ export default function EditRiskPage() {
   const [form, setForm] = useState<NewRisk | null>(null);
   const [userControls, setUserControls] = useState<Control[]>([]);
   const [userIncidents, setUserIncidents] = useState<Incident[]>([]);
-  const [relatedIssues, setRelatedIssues] = useState<LinkedIssue[]>([]);
+  const [userIssues, setUserIssues] = useState<Issue[]>([]);
   const [events, setEvents] = useState<RiskEvent[]>([]);
   const [hasReviewEvidence, setHasReviewEvidence] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { schemaReady, enterpriseReady, operatingReady, governanceReady } =
+  const { schemaReady, enterpriseReady, operatingReady, governanceReady, residualReady } =
     useSettings();
 
   const {
@@ -113,24 +116,20 @@ export default function EditRiskPage() {
     },
   );
 
-  const fetchRelatedIssues = useCallback(
-    async (ownerId: string) => {
-      const supabase = getSupabaseClient();
-      const { data, error: fetchError } = await supabase
-        .from("issue_risks")
-        .select(ISSUE_RISK_ISSUE_SELECT)
-        .eq("owner_id", ownerId)
-        .eq("risk_id", riskId);
-
-      if (fetchError) {
-        throw fetchError;
-      }
-
-      const grouped = groupIssuesByRisk((data ?? []) as IssueRiskIssueRow[]);
-      setRelatedIssues(grouped[riskId] ?? []);
-    },
-    [riskId],
-  );
+  const {
+    linked: linkedIssues,
+    refresh: refreshIssueLinks,
+    panelProps: issuePanelProps,
+  } = useEntityLinks<IssueRiskIssueRow, LinkedIssue>({
+    table: "issue_risks",
+    select: ISSUE_RISK_ISSUE_SELECT,
+    parentColumn: "risk_id",
+    parentId: riskId,
+    childColumn: "issue_id",
+    parse: (rows) => groupIssuesByRisk(rows)[riskId] ?? [],
+    label: "issue",
+    onError: setError,
+  });
 
   const loadPageData = useCallback(
     async (ownerId: string) => {
@@ -161,6 +160,8 @@ export default function EditRiskPage() {
           description: loadedRisk.description,
           likelihood: loadedRisk.likelihood,
           impact: loadedRisk.impact,
+          residual_likelihood: loadedRisk.residual_likelihood ?? null,
+          residual_impact: loadedRisk.residual_impact ?? null,
           category_id: loadedRisk.category_id ?? "",
           treatment: loadedRisk.treatment ?? "mitigate",
           assignee_id: loadedRisk.assignee_id ?? "",
@@ -170,7 +171,7 @@ export default function EditRiskPage() {
           closure_rationale: loadedRisk.closure_rationale ?? "",
         });
 
-        const [controlsResult, incidentsResult] = await Promise.all([
+        const [controlsResult, incidentsResult, issuesResult] = await Promise.all([
           supabase
             .from("controls")
             .select("*")
@@ -179,6 +180,11 @@ export default function EditRiskPage() {
           supabase
             .from("incidents")
             .select("*")
+            .eq("owner_id", ownerId)
+            .order("title", { ascending: true }),
+          supabase
+            .from("issues")
+            .select("id, title")
             .eq("owner_id", ownerId)
             .order("title", { ascending: true }),
         ]);
@@ -191,13 +197,18 @@ export default function EditRiskPage() {
           throw incidentsResult.error;
         }
 
+        if (issuesResult.error) {
+          throw issuesResult.error;
+        }
+
         setUserControls((controlsResult.data ?? []) as Control[]);
         setUserIncidents((incidentsResult.data ?? []) as Incident[]);
+        setUserIssues((issuesResult.data ?? []) as Issue[]);
 
         await Promise.all([
           refreshControlLinks(ownerId),
           refreshIncidentLinks(ownerId),
-          fetchRelatedIssues(ownerId),
+          refreshIssueLinks(ownerId),
         ]);
 
         const [reviewsResult, eventsResult] = await Promise.all([
@@ -233,10 +244,10 @@ export default function EditRiskPage() {
       }
     },
     [
-      fetchRelatedIssues,
-      governanceReady,
       refreshControlLinks,
       refreshIncidentLinks,
+      refreshIssueLinks,
+      governanceReady,
       riskId,
       router,
     ],
@@ -251,6 +262,8 @@ export default function EditRiskPage() {
         form.description !== risk.description ||
         form.likelihood !== risk.likelihood ||
         form.impact !== risk.impact ||
+        (form.residual_likelihood ?? null) !== (risk.residual_likelihood ?? null) ||
+        (form.residual_impact ?? null) !== (risk.residual_impact ?? null) ||
         (form.category_id || "") !== (risk.category_id ?? "") ||
         (form.treatment ?? "mitigate") !== (risk.treatment ?? "mitigate") ||
         (form.assignee_id || "") !== (risk.assignee_id ?? "") ||
@@ -273,10 +286,20 @@ export default function EditRiskPage() {
       return;
     }
 
-    const blockers = riskGovernanceBlockers(form, {
-      operatingReady,
-      hasReviewEvidence,
-    });
+    const residualErrors = residualReady
+      ? residualBlockers(
+          { likelihood: form.likelihood, impact: form.impact },
+          storedResidual(form),
+          { controlCount: linkedControls.length },
+        )
+      : [];
+    const blockers = [
+      ...riskGovernanceBlockers(form, {
+        operatingReady,
+        hasReviewEvidence,
+      }),
+      ...residualErrors,
+    ];
     if (blockers.length > 0) {
       setError(blockers.join(" "));
       return;
@@ -295,6 +318,7 @@ export default function EditRiskPage() {
             includeEnterprise: enterpriseReady,
             includeOperating: operatingReady,
             includeGovernance: governanceReady,
+            includeResidual: residualReady,
           }),
         )
         .eq("id", risk.id)
@@ -320,6 +344,10 @@ export default function EditRiskPage() {
             nextLikelihood: form.likelihood,
             previousImpact: risk.impact,
             nextImpact: form.impact,
+            previousResidualLikelihood: risk.residual_likelihood,
+            nextResidualLikelihood: form.residual_likelihood,
+            previousResidualImpact: risk.residual_impact,
+            nextResidualImpact: form.residual_impact,
           }),
           ownerId: user.id,
           ownerEmail: user.email,
@@ -380,10 +408,12 @@ export default function EditRiskPage() {
     return <PageLoading />;
   }
 
+  const returnTo = `/risks/${riskId}/edit`;
   const raiseIssueHref = `/issues/new?${new URLSearchParams({
     source: "risk_assessment",
     risk: riskId,
     title: `Issue identified for risk: ${risk.title}`,
+    returnTo,
   }).toString()}`;
 
   const quality = riskQuality(form, {
@@ -391,6 +421,7 @@ export default function EditRiskPage() {
     hasReview: hasReviewEvidence,
     operatingReady,
     enterpriseReady,
+    residualReady,
   });
 
   return (
@@ -417,7 +448,11 @@ export default function EditRiskPage() {
 
         <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2">
-            <RiskFormFields form={form} onChange={updateForm} />
+            <RiskFormFields
+              form={form}
+              onChange={updateForm}
+              controlCount={linkedControls.length}
+            />
 
             <div className="flex flex-wrap gap-3 sm:col-span-2">
               <button
@@ -450,17 +485,22 @@ export default function EditRiskPage() {
           </form>
         </section>
 
-        <RelatedIssuesCard
-          issues={relatedIssues}
-          raiseIssueHref={raiseIssueHref}
-          emptyMessage="No issues have been raised against this risk."
+        <LinkedEntitiesPanel
+          title="Linked Issues"
+          entityLabel="Issue"
+          parentLabel="risk"
+          createHref={raiseIssueHref}
+          columnHeaders={ISSUE_COLUMNS}
+          rows={buildIssueRows(linkedIssues)}
+          options={userIssues}
+          {...issuePanelProps}
         />
 
         <LinkedEntitiesPanel
           title="Linked Controls"
           entityLabel="Control"
           parentLabel="risk"
-          createHref="/controls"
+          createHref={`/controls/new?risk=${riskId}&returnTo=${encodeURIComponent(returnTo)}`}
           columnHeaders={CONTROL_COLUMNS}
           rows={buildControlRows(linkedControls)}
           options={userControls}
@@ -471,7 +511,7 @@ export default function EditRiskPage() {
           title="Linked Incidents"
           entityLabel="Incident"
           parentLabel="risk"
-          createHref="/incidents"
+          createHref={`/incidents/new?risk=${riskId}&returnTo=${encodeURIComponent(returnTo)}`}
           columnHeaders={INCIDENT_COLUMNS}
           rows={buildIncidentRows(linkedIncidents)}
           options={userIncidents}

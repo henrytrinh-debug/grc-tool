@@ -22,6 +22,10 @@ export type RcsaReview = {
   previous_impact: number;
   final_likelihood: number;
   final_impact: number;
+  previous_residual_likelihood?: number | null;
+  previous_residual_impact?: number | null;
+  final_residual_likelihood?: number | null;
+  final_residual_impact?: number | null;
   ai_recommended_likelihood?: number | null;
   ai_recommended_impact?: number | null;
   ai_rationale?: string | null;
@@ -37,6 +41,10 @@ export type NewRcsaReview = {
   previous_impact: number;
   final_likelihood: number;
   final_impact: number;
+  previous_residual_likelihood?: number | null;
+  previous_residual_impact?: number | null;
+  final_residual_likelihood?: number | null;
+  final_residual_impact?: number | null;
 };
 
 export type RiskWithLastReviewed = {
@@ -44,6 +52,8 @@ export type RiskWithLastReviewed = {
   title: string;
   likelihood: number;
   impact: number;
+  residual_likelihood?: number | null;
+  residual_impact?: number | null;
   owner_email?: string;
   category_id?: string | null;
   lastReviewedAt: string | null;
@@ -154,6 +164,7 @@ export function formatNextReviewDue(
 export function toRcsaReviewInsertPayload(
   review: NewRcsaReview,
   owner: { id: string; email: string },
+  options: { includeResidual?: boolean } = {},
 ) {
   return {
     session_id: review.session_id,
@@ -162,6 +173,14 @@ export function toRcsaReviewInsertPayload(
     previous_impact: review.previous_impact,
     final_likelihood: review.final_likelihood,
     final_impact: review.final_impact,
+    ...(options.includeResidual
+      ? {
+          previous_residual_likelihood: review.previous_residual_likelihood ?? null,
+          previous_residual_impact: review.previous_residual_impact ?? null,
+          final_residual_likelihood: review.final_residual_likelihood ?? null,
+          final_residual_impact: review.final_residual_impact ?? null,
+        }
+      : {}),
     ai_recommended_likelihood: null,
     ai_recommended_impact: null,
     ai_rationale: null,

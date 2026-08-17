@@ -38,8 +38,10 @@ Core risk register entries.
 | id | uuid | PK |
 | title | text | required |
 | description | text | |
-| likelihood | int2 | 1–5, constrained. **Stored as an integer**; UI uses Admin-configured ISO 31000-style labels via a 5×5 score matrix, not dropdowns. Defaults: Rare → Almost certain. |
-| impact | int2 | 1–5, constrained. Defaults: Negligible → Severe. Same matrix picker. |
+| likelihood | int2 | 1–5, constrained. **Stored as an integer**; UI uses Admin-configured ISO 31000-style labels via a 5×5 score matrix, not dropdowns. Defaults: Rare → Almost certain. This is **inherent**. |
+| impact | int2 | 1–5, constrained. Defaults: Negligible → Severe. Same matrix picker. This is **inherent**. |
+| residual_likelihood | int2 | nullable. Net likelihood after controls. Added in `010_residual.sql`. |
+| residual_impact | int2 | nullable. Net impact after controls. Must be set together with residual_likelihood. Cannot exceed inherent. |
 | category_id | uuid | nullable FK → `risk_categories`, on delete set null. Added in `003_admin_settings.sql`. |
 | treatment | text | `'mitigate' \| 'accept' \| 'transfer' \| 'avoid'`, default `mitigate`. Added in `003`. |
 | status | text | `'open' \| 'monitoring' \| 'closed'`, default `open`. Added in `004_enterprise.sql`. Closed risks are excluded from heat maps, taxonomy counts, attention, and RCSA start. |
@@ -51,9 +53,7 @@ Core risk register entries.
 | owner_email | text | denormalized copy of owner's email, for display (auth.users isn't publicly queryable) |
 | created_at | timestamptz | |
 
-Inherent vs residual is **not stored**: the register holds inherent likelihood × impact;
-RCSA shows an *indicative* residual (likelihood reduced by 1 when all relevant controls
-are effective) as a reviewer aid only.
+Inherent vs residual **is stored** after `010_residual.sql`: `likelihood` / `impact` remain inherent (gross); `residual_likelihood` / `residual_impact` are the net rating after current controls. Both residual columns are null until assessed. Residual cannot exceed inherent on either axis, and cannot sit below inherent with no linked controls. Appetite, High/Critical KPIs, and the register Score filter use residual when assessed, otherwise inherent. RCSA confirms inherent first, then residual. Until `010` is applied, `residualReady` is false and writes omit the columns.
 
 ### `controls`
 Independent module — controls can exist without being linked to any risk.
@@ -87,7 +87,7 @@ One row per owner (`owner_id` PK). Holds organisation name, likelihood/impact la
 Saved register filter presets (name + module + query string) live in the same JSONB blob and appear in the command palette and on register toolbars.
 
 ### `risk_categories`
-Owner-scoped taxonomy used on the risk register (`name` unique per owner). Risks point at a category via `category_id`. `appetite_band` (`Low` \| `Medium` \| `High` \| `Critical`, default `High`) is added in `004` — a risk is an appetite breach when its inherent band is strictly above the category appetite (closed risks are ignored).
+Owner-scoped taxonomy used on the risk register (`name` unique per owner). Risks point at a category via `category_id`. `appetite_band` (`Low` \| `Medium` \| `High` \| `Critical`, default `High`) is added in `004` — a risk is an appetite breach when its **operating** band (residual if assessed, otherwise inherent) is strictly above the category appetite (closed risks are ignored).
 
 Controls, incidents, and issues **inherit** taxonomy from linked risks. List filters use “any linked risk in category X”, with `uncategorised` meaning no linked risk has a `category_id`. Nested PostgREST `risks(..., category_id)` is only requested when `003` is applied.
 
@@ -105,6 +105,8 @@ The app sets `governanceReady` when `risk_events` exists (`007_governance.sql`).
 The app sets `obligationsReady` when `obligations` exists (`008_obligations.sql`). Until then the register is empty and Horizon/Oversight/quality skip obligation rows.
 
 The app sets `evidenceReady` when `evidence` exists (`009_evidence.sql`), and `evidenceStorageReady` when listing the private `grc-evidence` bucket under `auth.uid()` succeeds. Metadata can be saved without Storage; the UI does not pretend uploads work if the bucket or policies are missing.
+
+The app sets `residualReady` when `risks.residual_likelihood` exists (`010_residual.sql`). Until then residual is omitted from writes and Risk Assessment saves inherent only.
 
 The runtime snapshot is hydrated by `SettingsProvider` (`lib/settings/context.tsx`) into `lib/settings/store.ts` so pure helpers (`getSeverityBand`, `getReviewCadenceDays`, `formatLikelihood`, `getDefaultDueDate`) pick up live values without threading React context everywhere.
 
@@ -173,8 +175,9 @@ so a rating change has provenance rather than silently overwriting the risk.
 | session_id | uuid | FK → rcsa_sessions |
 | risk_id | uuid | FK → risks |
 | reviewed_at | timestamptz | drives "Last Reviewed" everywhere |
-| previous_likelihood / previous_impact | int2 | the rating as it stood before review |
-| final_likelihood / final_impact | int2 | what the reviewer confirmed or changed it to |
+| previous_likelihood / previous_impact | int2 | the inherent rating as it stood before review |
+| final_likelihood / final_impact | int2 | what the reviewer confirmed or changed inherent to |
+| previous_residual_* / final_residual_* | int2 | nullable — residual before/after. Added in `010`. Omitted from writes until `residualReady`. |
 | ai_recommended_likelihood / ai_recommended_impact | int2 | nullable — reserved for Objective 7, always null today |
 | ai_rationale | text | nullable — same |
 | owner_id / owner_email | uuid / text | |
@@ -286,7 +289,7 @@ policy anywhere, it's leftover from before auth and should be replaced with an o
 
 Early tables were created by hand in the Supabase SQL editor with no record in the repo.
 From the Issues module onward, schema lives in versioned files under `supabase/schema/`
-(e.g. `001_issues.sql`, `002_incident_resolved_at.sql`, `003_admin_settings.sql`, `004_enterprise.sql`, `005_operating.sql`, `006_workspace_preferences.sql`, `007_governance.sql`, `008_obligations.sql`, `009_evidence.sql`) which are **run manually in the
+(e.g. `001_issues.sql` … `010_residual.sql`) which are **run manually in the
 Supabase SQL editor** — there is no migration runner wired up. The files are written to
 be re-runnable (`create table if not exists`, `add column if not exists`, `drop policy
 if exists` before create).
@@ -321,7 +324,7 @@ If the app 404s or errors on a whole module, check whether its SQL has been appl
   (inherited onto controls/incidents/issues via linked risks), headline stats (open risks,
   overdue controls, open incidents, open issues, plus assigned-to-me and above-appetite
   when `004` is applied), a **Needs attention** queue, **recent activity**, and a
-  12-month **operating trend** (incidents, issues identified, control tests). Asset-specific
+  12-month **incident flow** (occurred vs resolved) and **issue flow** (identified vs closed). Headline stats are the current stock. Control testing over time lives on Oversight. Asset-specific
   charts (heat map, taxonomy, treatment mix, donuts) live on each register’s **Summary** tab.
 - **Registers** — each of `/risks`, `/controls`, `/incidents`, `/issues`, `/obligations`,
   `/evidence` has three tabs: **Summary** (asset overview + time series), **Register** (table),
@@ -396,7 +399,8 @@ then extracted. **Reach for these before writing a new page from scratch:**
 | Clickable list rows (keyboard + click) | `ClickableRow` |
 | List toolbar (search + CSV + count) | `ListToolbar` in `app/components/list-toolbar.tsx`. Register **filters and sort live in column headers** (`ColumnHeader` popovers), not a dropdown grid above the table. `FilterSelect` remains for one-off lenses such as Home’s taxonomy filter. |
 | Register tabs (Summary / Register / Settings) | `RegisterTabs` + `parseRegisterView` in `lib/register/view.ts`; shell in `app/components/register-page-shell.tsx` |
-| Time-series charts | `stackByMonth` / `buildOperatingTrend` in `lib/charts/time-series.ts`; `StackedTimeChart` / `LineTimeChart` in `app/components/dashboard/time-charts.tsx` |
+| Time-series charts | `stackByMonth` / `buildIssueFlowTrend` / `buildIncidentFlowTrend` / `buildControlTestTrend` in `lib/charts/time-series.ts`; `StackedTimeChart` / `LineTimeChart` in `app/components/dashboard/time-charts.tsx` |
+| Inherent vs residual | `lib/risk/ratings.ts` — `operatingRating`, `residualBlockers`, `residualWarnings` |
 | Register methodology | `MethodologySettings` / `RegisterSettingsPanel` — scoring, review cadence, testing cadence, issue due days |
 | Sticky register tables | `RegisterTable` / `registerTheadClassName` in `app/components/page-parts.tsx` |
 | CSV download of a filtered list | `downloadCsv` in `lib/export/csv.ts` |
@@ -498,7 +502,7 @@ a new env var locally.
 | — | Multi-user tenancy / membership RLS | 📝 Design only — `docs/MULTI_USER_MIGRATION_PLAN.md`. Tenant is still `owner_id = auth user`. |
 | — | Governance gates + immutable risk/incident events (`007`) | ✅ Done |
 | — | Obligations register (`008`) | ✅ Done |
-| — | Evidence metadata + optional Storage (`009`) | ✅ Done |
+| — | Inherent and residual ratings (`010`) | ✅ Done |
 | — | CSV import with preview/validation (`/admin/import`) | ✅ Done |
 | 7 | AI-assisted rating recommendations during RCSA | 🔜 Not started |
 
@@ -513,17 +517,19 @@ wizard. Skip confirms if the rating was changed without saving.
 
 The review page is built for a **challenger**, not a form-filler:
 
-1. **Reviewer brief** (`lib/rcsa/review-insight.ts` → `buildEvidenceBrief`) — a
+1. **Confirm inherent** — 5×5 picker for gross exposure. Residual cells above this stay disabled.
+2. **Reviewer brief** (`lib/rcsa/review-insight.ts` → `buildEvidenceBrief`) — a
    headline plus bullets synthesising linked controls, incidents, and issues
    (overdue findings, ineffective key controls, uncontrolled exposure). Tone is
    ok / watch / alert.
-2. **Evidence cards** — linked controls, incidents, **and issues**, each with a
-   roll-up and an expandable table. Row titles link through to the record.
-3. **Indicative residual** — derived from linked control effectiveness
+3. **Evidence cards** — link or unlink controls, incidents, and issues from the
+   review itself. New records can be created with `?risk=` and return to the sitting.
+4. **Indicative residual** — derived from linked control effectiveness
    (likelihood reduced by 1 only when every relevant control is effective;
-   impact unchanged). **Not stored.** The confirmed rating is still inherent
-   likelihood × impact on `risks`.
-4. **5×5 score picker** to confirm or change the inherent rating.
+   impact unchanged). Used as a starting point for unassessed residual. After `010_residual.sql`, the
+   reviewer **confirms residual** on the same 5×5 scale; it is stored on `risks`
+   and on the review row. Residual cannot exceed inherent, and cannot be reduced
+   with no linked controls.
 
 `/rcsa/review` also accepts a single `risk` id, so "Review This Risk" from the
 risks list or a risk's edit page skips the selection step.
@@ -533,19 +539,18 @@ session progress isn't tracked; a session is just a grouping for the reviews it 
 
 **Settled along the way:**
 - Workflow shape: one-risk-at-a-time wizard (not a queue or inline dashboard editing).
-- Linked controls, incidents, and issues are shown as read-only evidence during review.
+- Linked controls, incidents, and issues can be linked or unlinked during review; new records return to the sitting via `?risk=` and `returnTo`.
 - **Skip** is allowed without writing a review — a multi-risk sitting can move on.
 - A reviewer who spots a gap raises an **issue** from the review instead of the flow
   growing its own remediation concept.
 - The confirmed rating is written to `risks` **before** the `rcsa_reviews` insert, so a
   failed audit-row write cannot leave a review that disagrees with the register.
-- Residual is a reviewer aid, not a second pair of columns on `risks` — storing
-  residual would be a later schema change if 2LoD wants a register of residual scores.
+- Residual is confirmed in RCSA and stored on `risks` after `010`. Indicative residual remains a control-effectiveness aid, not an automatic write.
 - The deferred "risk status" field is now on `risks` (`open` / `monitoring` / `closed`)
   after `004`. "Last reviewed" remains derived from `rcsa_reviews`.
 
 **Deliberately not built yet** (common GRC features that don't earn a table until
-they're needed): KRIs, stored residual scores, true org memberships / RBAC (the
+they're needed): KRIs, true org memberships / RBAC (the
 account is still the tenant; `org_people` is a directory, not extra logins; workspace
 module visibility is presentation only; the cutover is documented in
 `docs/MULTI_USER_MIGRATION_PLAN.md` and must not be implemented as a drive-by RLS
@@ -578,8 +583,7 @@ Organized into three workspace-togglable sections:
 
 - **Health** — key-control testing overdue, uncontrolled High/Critical, reviews due,
   above appetite, overdue issue %, open incident age, unmapped controls, test pass rate
-  (from `control_test_results` history), obligation coverage gaps, a 12-month stacked
-  operating-volume chart, and uncontrolled exposure by band.
+  (from `control_test_results` history), obligation coverage gaps, a 12-month **control testing** chart, and uncontrolled exposure by band.
 - **Flow and aging** — open-issue aging; 30/90-day issue and incident flow bars; monthly
   opened-vs-closed line charts.
 - **Rating movement** — latest RCSA vs incoming score, plus review recency.

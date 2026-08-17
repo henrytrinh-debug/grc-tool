@@ -155,10 +155,8 @@ export function buildEvidenceBrief({
 }
 
 /**
- * Indicative residual after controls. Not stored — 1LoD still confirms the
- * inherent rating; this only shows whether linked control evidence would
- * typically justify a lower likelihood. Impact is left unchanged (controls
- * more often reduce frequency than consequence).
+ * Indicative residual after controls. After 010 this is a starting point for
+ * the stored residual the reviewer confirms; it is not written automatically.
  */
 export function buildIndicativeResidual(
   likelihood: number,

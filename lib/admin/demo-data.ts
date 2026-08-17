@@ -11,6 +11,7 @@ type SeedOptions = {
   includeOperating?: boolean;
   includeObligations?: boolean;
   includeEvidence?: boolean;
+  includeResidual?: boolean;
 };
 
 function ownerFields(owner: Owner) {
@@ -59,6 +60,7 @@ export async function seedDemonstrationData(
   const includeOperating = Boolean(options.includeOperating);
   const includeObligations = Boolean(options.includeObligations);
   const includeEvidence = Boolean(options.includeEvidence);
+  const includeResidual = Boolean(options.includeResidual);
   const today = todayIsoDate();
   const ids: DemoIds = {
     categoryIds: [],
@@ -613,6 +615,89 @@ export async function seedDemonstrationData(
     },
   ];
 
+  riskSpecs.push(
+    {
+      title: "Customer authentication fatigue from repeated step-up prompts",
+      description:
+        "Retail customers abandon journeys after repeated MFA challenges on low-risk payments.",
+      likelihood: 4,
+      impact: 3,
+      category_id: cyber,
+      treatment: "mitigate",
+      status: "open",
+    },
+    {
+      title: "Supplier invoice fraud via changed bank details",
+      description:
+        "Callback verification is skipped for known vendors when AP is under month-end pressure.",
+      likelihood: 3,
+      impact: 4,
+      category_id: financial,
+      treatment: "mitigate",
+      status: "open",
+    },
+    {
+      title: "Branch cash-in-transit delay after a contractor strike",
+      description:
+        "CIT fallback is contractual only; no tested alternate carrier.",
+      likelihood: 2,
+      impact: 3,
+      category_id: operational,
+      treatment: "transfer",
+      status: "monitoring",
+    },
+    {
+      title: "Regulatory perimeter change for crypto-asset promotions",
+      description:
+        "Marketing of a new savings wrapper may fall in scope of the financial promotions regime.",
+      likelihood: 3,
+      impact: 4,
+      category_id: compliance,
+      treatment: "mitigate",
+      status: "open",
+    },
+    {
+      title: "Key-person absence in sanctions operations",
+      description:
+        "Two analysts cover all list exceptions; leave plans are not dual-controlled.",
+      likelihood: 3,
+      impact: 4,
+      category_id: peopleCat,
+      treatment: "mitigate",
+      status: "open",
+    },
+    {
+      title: "Open-source licence contamination in a customer SDK",
+      description:
+        "A copyleft component shipped in the mobile SDK without Legal review.",
+      likelihood: 2,
+      impact: 3,
+      category_id: legal,
+      treatment: "mitigate",
+      status: "open",
+    },
+    {
+      title: "Wholesale credit limit override without dual approval",
+      description:
+        "Relationship managers can lift limits overnight with a single authoriser.",
+      likelihood: 3,
+      impact: 5,
+      category_id: credit,
+      treatment: "mitigate",
+      status: "open",
+    },
+    {
+      title: "Tape backup restoration untested after vault vendor change",
+      description:
+        "The new vault SLA excludes weekend restores; last live restore was 14 months ago.",
+      likelihood: 3,
+      impact: 5,
+      category_id: techResilience,
+      treatment: "mitigate",
+      status: "open",
+    },
+  );
+
   ids.riskIds = riskSpecs.map(() => newId());
   const riskOperating: Record<
     number,
@@ -656,6 +741,12 @@ export async function seedDemonstrationData(
       description: spec.description,
       likelihood: spec.likelihood,
       impact: spec.impact,
+      ...(includeResidual && ![4, 14, 32, 33, 40].includes(index)
+        ? {
+            residual_likelihood: Math.max(1, spec.likelihood - (index % 3 === 0 ? 1 : 0)),
+            residual_impact: spec.impact,
+          }
+        : {}),
       category_id: spec.category_id,
       treatment: spec.treatment,
       ...(includeEnterprise
@@ -916,6 +1007,49 @@ export async function seedDemonstrationData(
     },
   ];
 
+  controlSpecs.push(
+    {
+      title: "Callback verification for vendor bank-detail changes",
+      description: "AP must call a registered number before changing settlement details.",
+      is_key: true,
+      effectiveness: "ineffective",
+      last_tested_at: addDaysToIsoDate(today, -20),
+      control_type: "preventive",
+    },
+    {
+      title: "Dual approval for wholesale limit overrides",
+      description: "Second authoriser required above the documented threshold.",
+      is_key: true,
+      effectiveness: "not_tested",
+      last_tested_at: null,
+      control_type: "preventive",
+    },
+    {
+      title: "Weekend vault restore drill",
+      description: "Quarterly restore from the new vault vendor including weekend windows.",
+      is_key: true,
+      effectiveness: "effective",
+      last_tested_at: addDaysToIsoDate(today, -95),
+      control_type: "corrective",
+    },
+    {
+      title: "SDK licence scanning in CI",
+      description: "Build fails on copyleft licences without a Legal exception ticket.",
+      is_key: false,
+      effectiveness: "effective",
+      last_tested_at: addDaysToIsoDate(today, -12),
+      control_type: "detective",
+    },
+    {
+      title: "Sanctions exception four-eye review",
+      description: "Exceptions cannot be released by the analyst who raised them.",
+      is_key: true,
+      effectiveness: "effective",
+      last_tested_at: addDaysToIsoDate(today, -40),
+      control_type: "preventive",
+    },
+  );
+
   ids.controlIds = controlSpecs.map(() => newId());
   await insertRows(
     "controls",
@@ -970,6 +1104,14 @@ export async function seedDemonstrationData(
     [30, 26],
     [31, 27],
     [33, 4],
+    [34, 2],
+    [35, 29],
+    [36, 5],
+    [37, 9],
+    [38, 33],
+    [39, 32],
+    [40, 30],
+    [41, 31],
   ];
 
   await insertRows(
@@ -1006,6 +1148,38 @@ export async function seedDemonstrationData(
       ...test,
       ...ownerFields(owner),
     })),
+  );
+
+  const extraTests = [
+    { controlIndex: 0, daysAgo: 60, effectiveness: "effective" as const },
+    { controlIndex: 0, daysAgo: 200, effectiveness: "effective" as const },
+    { controlIndex: 1, daysAgo: 90, effectiveness: "effective" as const },
+    { controlIndex: 3, daysAgo: 150, effectiveness: "ineffective" as const },
+    { controlIndex: 4, daysAgo: 45, effectiveness: "effective" as const },
+    { controlIndex: 5, daysAgo: 110, effectiveness: "ineffective" as const },
+    { controlIndex: 8, daysAgo: 30, effectiveness: "effective" as const },
+    { controlIndex: 12, daysAgo: 75, effectiveness: "effective" as const },
+    { controlIndex: 17, daysAgo: 220, effectiveness: "ineffective" as const },
+    { controlIndex: 21, daysAgo: 14, effectiveness: "effective" as const },
+    { controlIndex: 29, daysAgo: 18, effectiveness: "ineffective" as const },
+    { controlIndex: 31, daysAgo: 40, effectiveness: "effective" as const },
+    { controlIndex: 2, daysAgo: 240, effectiveness: "effective" as const },
+    { controlIndex: 8, daysAgo: 280, effectiveness: "ineffective" as const },
+    { controlIndex: 9, daysAgo: 320, effectiveness: "effective" as const },
+    { controlIndex: 21, daysAgo: 340, effectiveness: "ineffective" as const },
+  ];
+
+  await insertRows(
+    "control_test_results",
+    extraTests
+      .filter((test) => ids.controlIds[test.controlIndex])
+      .map((test) => ({
+        control_id: ids.controlIds[test.controlIndex],
+        effectiveness: test.effectiveness,
+        tested_at: addDaysToIsoDate(today, -test.daysAgo),
+        notes: `Historical sample from ${test.daysAgo} days ago.`,
+        ...ownerFields(owner),
+      })),
   );
 
   const incidentSpecs: Array<{
@@ -1143,6 +1317,93 @@ export async function seedDemonstrationData(
     },
   ];
 
+  incidentSpecs.push(
+    {
+      title: "Vendor bank-detail change paid to a mule account",
+      description:
+        "A callback was skipped; £84k left the house before the fraud team froze the payment.",
+      daysAgo: 38,
+      severity: "high",
+      status: "investigating",
+      root_cause: "Month-end override of the callback control.",
+      riskIndex: 35,
+    },
+    {
+      title: "Limit override on a wholesale name overnight",
+      description:
+        "A single authoriser lifted a sector-limit breach to complete a syndication.",
+      daysAgo: 70,
+      severity: "high",
+      status: "open",
+      root_cause: "Override path had no dual-control gate.",
+      riskIndex: 40,
+    },
+    {
+      title: "Restore drill missed the weekend window",
+      description:
+        "The new vault vendor declined a Saturday restore; RTO was breached in the exercise.",
+      daysAgo: 120,
+      severity: "medium",
+      status: "resolved",
+      root_cause: "SLA excluded weekend restores.",
+      resolvedDaysAgo: 90,
+      riskIndex: 41,
+    },
+    {
+      title: "Copyleft licence detected in the customer SDK",
+      description:
+        "CI flagged GPL code after a dependency bump; a hotfix was shipped the same day.",
+      daysAgo: 210,
+      severity: "low",
+      status: "resolved",
+      root_cause: "Licence scan was warning-only.",
+      resolvedDaysAgo: 180,
+      riskIndex: 39,
+    },
+    {
+      title: "Sanctions exception released by the raising analyst",
+      description:
+        "Four-eye review was bypassed during a peak payments day.",
+      daysAgo: 15,
+      severity: "critical",
+      status: "investigating",
+      root_cause: "Deputy cover was not provisioned.",
+      riskIndex: 38,
+    },
+    {
+      title: "MFA fatigue complaints spike after step-up change",
+      description:
+        "Contact centre logged 400 abandonment complaints in a week.",
+      daysAgo: 9,
+      severity: "medium",
+      status: "open",
+      root_cause: "Risk-based authentication thresholds were tightened without a customer test.",
+      riskIndex: 34,
+    },
+    {
+      title: "Batch window overrun recovered without customer impact",
+      description:
+        "Overnight processing overran by 40 minutes; the SLA credit clause was not triggered.",
+      daysAgo: 160,
+      severity: "low",
+      status: "resolved",
+      root_cause: "A late file from a vendor delayed the start.",
+      resolvedDaysAgo: 140,
+      riskIndex: 29,
+    },
+    {
+      title: "Fourth-party outage contained by contractual fallback",
+      description:
+        "A sub-processor of the card platform was down for two hours; traffic failed over.",
+      daysAgo: 240,
+      severity: "medium",
+      status: "resolved",
+      root_cause: "No direct monitoring of the fourth party.",
+      resolvedDaysAgo: 220,
+      riskIndex: 15,
+    },
+  );
+
   ids.incidentIds = incidentSpecs.map(() => newId());
   const incidentOperating: Record<
     number,
@@ -1263,6 +1524,7 @@ export async function seedDemonstrationData(
     status: "open" | "in_progress" | "pending_review" | "closed";
     identifiedDaysAgo: number;
     dueInDays: number;
+    closedDaysAgo?: number;
     root_cause: string;
     remediation_plan: string;
     riskIndex?: number;
@@ -1462,6 +1724,7 @@ export async function seedDemonstrationData(
       status: "closed",
       identifiedDaysAgo: 45,
       dueInDays: -5,
+      closedDaysAgo: 32,
       root_cause: "Conversion workflow is a separate HRIS path.",
       remediation_plan: "Same gate applied; retested.",
       riskIndex: 22,
@@ -1507,6 +1770,168 @@ export async function seedDemonstrationData(
     },
   ];
 
+  issueSpecs.push(
+    {
+      title: "Callback control bypassed at month-end",
+      description:
+        "AP skipped vendor bank-detail callbacks for known suppliers during close.",
+      source: "incident",
+      severity: "high",
+      status: "in_progress",
+      identifiedDaysAgo: 36,
+      dueInDays: -2,
+      root_cause: "No hard stop in the payments platform.",
+      remediation_plan: "Make callback a blocking workflow step.",
+      riskIndex: 35,
+      controlIndex: 29,
+    },
+    {
+      title: "Wholesale override path lacks dual control",
+      description: "A single authoriser can lift sector limits overnight.",
+      source: "risk_assessment",
+      severity: "critical",
+      status: "open",
+      identifiedDaysAgo: 12,
+      dueInDays: 18,
+      root_cause: "",
+      remediation_plan: "",
+      riskIndex: 40,
+      controlIndex: 30,
+    },
+    {
+      title: "Vault SLA excludes weekend restores",
+      description: "RTO cannot be met if an incident falls on a Saturday.",
+      source: "control_failure",
+      severity: "high",
+      status: "pending_review",
+      identifiedDaysAgo: 88,
+      dueInDays: 6,
+      root_cause: "Contract novation dropped weekend coverage.",
+      remediation_plan: "Renegotiate SLA and retest.",
+      riskIndex: 41,
+      controlIndex: 31,
+    },
+    {
+      title: "SDK licence scan is warning-only",
+      description: "Copyleft can still ship if the build owner dismisses the warning.",
+      source: "self_identified",
+      severity: "medium",
+      status: "open",
+      identifiedDaysAgo: 200,
+      dueInDays: 40,
+      root_cause: "CI gate was never switched to fail.",
+      remediation_plan: "Fail the build without a Legal exception.",
+      riskIndex: 39,
+      controlIndex: 32,
+    },
+    {
+      title: "Sanctions four-eye bypass during peak",
+      description: "Exceptions were released by the raising analyst.",
+      source: "incident",
+      severity: "critical",
+      status: "in_progress",
+      identifiedDaysAgo: 14,
+      dueInDays: -1,
+      root_cause: "Deputy cover not provisioned.",
+      remediation_plan: "Enforce four-eye in the workflow engine.",
+      riskIndex: 38,
+      controlIndex: 33,
+    },
+    {
+      title: "Step-up authentication not customer-tested",
+      description: "Threshold change caused abandonment without a journey test.",
+      source: "external_audit",
+      severity: "medium",
+      status: "open",
+      identifiedDaysAgo: 7,
+      dueInDays: 25,
+      root_cause: "",
+      remediation_plan: "",
+      riskIndex: 34,
+    },
+    {
+      title: "CIT fallback carrier never exercised",
+      description: "Contractual alternate exists; no live run in 18 months.",
+      source: "internal_audit",
+      severity: "low",
+      status: "closed",
+      identifiedDaysAgo: 260,
+      dueInDays: -200,
+      closedDaysAgo: 210,
+      root_cause: "Exercise was deferred twice.",
+      remediation_plan: "Annual live run booked.",
+      riskIndex: 36,
+    },
+    {
+      title: "Crypto-asset promotion legal memo overdue",
+      description: "Product wants to launch before the promotions opinion lands.",
+      source: "regulatory_exam",
+      severity: "high",
+      status: "open",
+      identifiedDaysAgo: 21,
+      dueInDays: 9,
+      root_cause: "",
+      remediation_plan: "",
+      riskIndex: 37,
+    },
+    {
+      title: "Privilege recertification completed after catch-up",
+      description: "Orphaned admin accounts were revoked; the next cycle is on calendar.",
+      source: "control_failure",
+      severity: "medium",
+      status: "closed",
+      identifiedDaysAgo: 120,
+      dueInDays: -80,
+      closedDaysAgo: 95,
+      root_cause: "Owner left without a deputy.",
+      remediation_plan: "Deputy named and calendar invite series created.",
+      riskIndex: 1,
+      controlIndex: 0,
+    },
+    {
+      title: "Complaints queue filter corrected",
+      description: "Migrated cases now appear on the SLA dashboard.",
+      source: "regulatory_exam",
+      severity: "low",
+      status: "closed",
+      identifiedDaysAgo: 75,
+      dueInDays: -40,
+      closedDaysAgo: 48,
+      root_cause: "Hard-coded legacy team code.",
+      remediation_plan: "Dashboard rebuilt from the case-management API.",
+      riskIndex: 13,
+      controlIndex: 11,
+    },
+    {
+      title: "IdP secondary region configured after brownout",
+      description: "Failover was proven in a weekend exercise.",
+      source: "incident",
+      severity: "medium",
+      status: "closed",
+      identifiedDaysAgo: 200,
+      dueInDays: -150,
+      closedDaysAgo: 160,
+      root_cause: "No secondary region.",
+      remediation_plan: "Secondary region live; runbook updated.",
+      riskIndex: 12,
+      controlIndex: 12,
+    },
+    {
+      title: "Archive purge job extended to the records store",
+      description: "Retention control now covers the archive schema.",
+      source: "control_failure",
+      severity: "medium",
+      status: "closed",
+      identifiedDaysAgo: 300,
+      dueInDays: -240,
+      closedDaysAgo: 250,
+      root_cause: "Job scoped to the live schema only.",
+      remediation_plan: "Job extended and retested.",
+      riskIndex: 8,
+      controlIndex: 7,
+    },
+  );
+
   ids.issueIds = issueSpecs.map(() => newId());
   await insertRows(
     "issues",
@@ -1524,7 +1949,14 @@ export async function seedDemonstrationData(
       closure_notes: spec.status === "closed" ? "Retested and closed." : "",
       closed_at:
         spec.status === "closed"
-          ? new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString()
+          ? new Date(
+              Date.now() -
+                (spec.closedDaysAgo ?? Math.max(1, spec.identifiedDaysAgo - 14)) *
+                  24 *
+                  60 *
+                  60 *
+                  1000,
+            ).toISOString()
           : null,
       ...(includeEnterprise ? { assignee_id: assignee(index + 3) } : {}),
       ...ownerFields(owner),
@@ -1610,6 +2042,43 @@ export async function seedDemonstrationData(
       assignee_email: owner.email,
       due_date: addDaysToIsoDate(today, 5),
       status: "open",
+      ...ownerFields(owner),
+    },
+    {
+      issue_id: ids.issueIds[ids.issueIds.length - 12],
+      description: "Block payments until callback is recorded",
+      assignee_email: owner.email,
+      due_date: addDaysToIsoDate(today, 3),
+      status: "in_progress",
+      ...ownerFields(owner),
+    },
+    {
+      issue_id: ids.issueIds[ids.issueIds.length - 11],
+      description: "Add dual authoriser to the overnight override path",
+      assignee_email: owner.email,
+      due_date: addDaysToIsoDate(today, 10),
+      status: "open",
+      ...ownerFields(owner),
+    },
+  ]);
+
+  await insertRows("issue_comments", [
+    {
+      issue_id: ids.issueIds[0],
+      body: "Deputy named; recertification pack is in review.",
+      kind: "comment",
+      ...ownerFields(owner),
+    },
+    {
+      issue_id: ids.issueIds[ids.issueIds.length - 12],
+      body: "Month-end override of callback is still possible; platform change requested.",
+      kind: "comment",
+      ...ownerFields(owner),
+    },
+    {
+      issue_id: ids.issueIds[ids.issueIds.length - 5],
+      body: "Legal memo still outstanding; product launch is gated.",
+      kind: "comment",
       ...ownerFields(owner),
     },
   ]);
@@ -1732,6 +2201,113 @@ export async function seedDemonstrationData(
         issueIndexes: [],
       },
     ];
+
+    obligationSpecs.push(
+      {
+        title: "Financial promotions for qualifying cryptoassets",
+        source: "FCA",
+        citation: "PS23/6",
+        requirement_text:
+          "Ensure cryptoasset promotions are fair, clear and not misleading, with a clear risk warning.",
+        status: "open",
+        review_frequency_days: 180,
+        effectiveDaysAgo: 40,
+        reviewInDays: 20,
+        controlIndexes: [],
+        issueIndexes: [issueSpecs.length - 5],
+      },
+      {
+        title: "Sanctions screening effectiveness",
+        source: "OFSI",
+        citation: "Guidance",
+        requirement_text:
+          "Screening must be timely, complete, and independently reviewed.",
+        status: "monitoring",
+        review_frequency_days: 90,
+        effectiveDaysAgo: 400,
+        reviewInDays: -8,
+        controlIndexes: [9, 33],
+        issueIndexes: [issueSpecs.length - 8],
+      },
+      {
+        title: "Operational resilience important business services",
+        source: "PRA",
+        citation: "SS1/21",
+        requirement_text:
+          "Set impact tolerances for each important business service and test them.",
+        status: "open",
+        review_frequency_days: 365,
+        effectiveDaysAgo: 250,
+        reviewInDays: 40,
+        controlIndexes: [31],
+        issueIndexes: [issueSpecs.length - 10],
+      },
+      {
+        title: "Consumer Duty monitoring of authentication journeys",
+        source: "FCA",
+        citation: "PRIN 2A",
+        requirement_text:
+          "Monitor whether retail customers receive good outcomes, including friction in authentication.",
+        status: "open",
+        review_frequency_days: 180,
+        effectiveDaysAgo: 70,
+        reviewInDays: 11,
+        controlIndexes: [2],
+        issueIndexes: [issueSpecs.length - 7],
+      },
+      {
+        title: "Outsourcing register completeness",
+        source: "EBA",
+        citation: "EBA/GL/2019/02",
+        requirement_text:
+          "Maintain a register of outsourcing arrangements including fourth parties.",
+        status: "open",
+        review_frequency_days: 365,
+        effectiveDaysAgo: 180,
+        reviewInDays: -20,
+        controlIndexes: [19],
+        issueIndexes: [],
+      },
+      {
+        title: "Records of processing activities",
+        source: "UK GDPR",
+        citation: "Article 30",
+        requirement_text:
+          "Maintain a record of processing activities for which the firm is controller.",
+        status: "monitoring",
+        review_frequency_days: 365,
+        effectiveDaysAgo: 500,
+        reviewInDays: 80,
+        controlIndexes: [7, 24],
+        issueIndexes: [],
+      },
+      {
+        title: "Payment Services incident reporting",
+        source: "PSD2 / FCA",
+        citation: "SUP 15.3",
+        requirement_text:
+          "Notify the FCA of operational or security incidents that affect payment services.",
+        status: "open",
+        review_frequency_days: 180,
+        effectiveDaysAgo: 110,
+        reviewInDays: -2,
+        controlIndexes: [4],
+        issueIndexes: [],
+      },
+      {
+        title: "Staff screening for certified roles",
+        source: "SMCR",
+        citation: "FIT",
+        requirement_text:
+          "Assess fitness and propriety before a person performs a certified function.",
+        status: "monitoring",
+        review_frequency_days: 365,
+        effectiveDaysAgo: 420,
+        reviewInDays: 25,
+        controlIndexes: [14],
+        issueIndexes: [],
+      },
+    );
 
     ids.obligationIds = obligationSpecs.map(() => newId());
     await insertRowsOptional(
@@ -1929,6 +2505,9 @@ export async function seedDemonstrationData(
     { riskIndex: 25, daysAgo: 90, likelihood: 3, impact: 3 },
     { riskIndex: 9, daysAgo: 370, likelihood: 4, impact: 4 },
     { riskIndex: 17, daysAgo: 22, likelihood: 3, impact: 4, previousLikelihood: 2, previousImpact: 4 },
+    { riskIndex: 35, daysAgo: 11, likelihood: 3, impact: 4, previousLikelihood: 4, previousImpact: 4 },
+    { riskIndex: 40, daysAgo: 6, likelihood: 3, impact: 5, previousLikelihood: 4, previousImpact: 5 },
+    { riskIndex: 41, daysAgo: 28, likelihood: 2, impact: 5, previousLikelihood: 3, previousImpact: 5 },
   ];
 
   await insertRows(
@@ -1944,6 +2523,17 @@ export async function seedDemonstrationData(
         previous_impact: review.previousImpact ?? review.impact,
         final_likelihood: review.likelihood,
         final_impact: review.impact,
+        ...(includeResidual
+          ? {
+              previous_residual_likelihood: Math.max(
+                1,
+                (review.previousLikelihood ?? review.likelihood) - 1,
+              ),
+              previous_residual_impact: review.previousImpact ?? review.impact,
+              final_residual_likelihood: Math.max(1, review.likelihood - 1),
+              final_residual_impact: review.impact,
+            }
+          : {}),
         ai_recommended_likelihood: null,
         ai_recommended_impact: null,
         ai_rationale: null,

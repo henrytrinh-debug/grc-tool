@@ -1,10 +1,7 @@
 import { isAppetiteBreach, matchesInheritedCategory, matchesCategoryFilter } from "@/lib/taxonomy";
 import type { RiskCategory } from "@/lib/settings/defaults";
-import {
-  getRiskScore,
-  getSeverityBand,
-  type SeverityBand,
-} from "@/lib/dashboard/analytics";
+import type { SeverityBand } from "@/lib/dashboard/analytics";
+import { operatingBand, operatingScore, storedResidual } from "@/lib/risk/ratings";
 import {
   getTestingStatus,
   type Control,
@@ -50,6 +47,9 @@ export type RiskListFilters = {
   assignee: string;
   appetiteBreach: boolean;
   department: string;
+  residualUnassessed: boolean;
+  residualLikelihood: number | null;
+  residualImpact: number | null;
 };
 
 export type ControlListFilters = {
@@ -146,6 +146,17 @@ export function parseRiskFilters(params: URLSearchParams): RiskListFilters {
     assignee: getParam(params, "assignee"),
     appetiteBreach: getParam(params, "appetiteBreach") === "true",
     department: getParam(params, "department"),
+    residualUnassessed: getParam(params, "residualUnassessed") === "true",
+    residualLikelihood: (() => {
+      const raw = getParam(params, "residualLikelihood");
+      const value = Number(raw);
+      return raw && value >= 1 && value <= 5 ? value : null;
+    })(),
+    residualImpact: (() => {
+      const raw = getParam(params, "residualImpact");
+      const value = Number(raw);
+      return raw && value >= 1 && value <= 5 ? value : null;
+    })(),
   };
 }
 
@@ -384,9 +395,7 @@ export function filterRisks(
     }
 
     if (filters.severity) {
-      const band = getSeverityBand(
-        getRiskScore(risk.likelihood, risk.impact),
-      );
+      const band = operatingBand(risk);
       if (!matchesListedToken(band, filters.severity)) {
         return false;
       }
@@ -446,6 +455,25 @@ export function filterRisks(
 
     if (
       !matchesDepartment(risk.assignee_id, filters.department, context.people)
+    ) {
+      return false;
+    }
+
+    if (filters.residualUnassessed && storedResidual(risk)) {
+      return false;
+    }
+
+    const residual = storedResidual(risk);
+    if (
+      filters.residualLikelihood !== null &&
+      residual?.likelihood !== filters.residualLikelihood
+    ) {
+      return false;
+    }
+
+    if (
+      filters.residualImpact !== null &&
+      residual?.impact !== filters.residualImpact
     ) {
       return false;
     }
@@ -638,12 +666,10 @@ const INCIDENT_STATUS_RANK: Record<IncidentStatus, number> = {
   resolved: 2,
 };
 
-/** Highest inherent score first so Critical exposure isn't buried under recent Low rows. */
+/** Highest operating score first so residual Critical exposure isn't buried. */
 export function sortRisksByExposure(risks: Risk[]) {
   return [...risks].sort((left, right) => {
-    const scoreDiff =
-      getRiskScore(right.likelihood, right.impact) -
-      getRiskScore(left.likelihood, left.impact);
+    const scoreDiff = operatingScore(right) - operatingScore(left);
 
     if (scoreDiff !== 0) {
       return scoreDiff;

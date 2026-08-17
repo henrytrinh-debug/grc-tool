@@ -5,6 +5,8 @@ export const EMPTY_RISK_FORM: NewRisk = {
   description: "",
   likelihood: 3,
   impact: 3,
+  residual_likelihood: null,
+  residual_impact: null,
   category_id: "",
   treatment: "mitigate",
   assignee_id: "",

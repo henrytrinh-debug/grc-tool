@@ -1,4 +1,4 @@
-import { getRiskScore, getSeverityBand } from "@/lib/dashboard/analytics";
+import { inherentBand, inherentScore, operatingBand, operatingScore, storedResidual } from "@/lib/risk/ratings";
 import {
   appetiteBreachingRisks,
   highCriticalRisks,
@@ -64,12 +64,15 @@ export function buildBoardPack(input: {
   );
 
   function riskRow(risk: Risk): BoardRow {
-    const band = getSeverityBand(getRiskScore(risk.likelihood, risk.impact));
+    const inherent = inherentBand(risk);
+    const residual = storedResidual(risk);
     const controlsCount = linkedControlCounts[risk.id] ?? 0;
     return {
       id: `risk-${risk.id}`,
       title: risk.title,
-      detail: `${band} · ${controlsCount} control${controlsCount === 1 ? "" : "s"}`,
+      detail: residual
+        ? `Inherent ${inherent} (${inherentScore(risk)}) · Residual ${operatingBand(risk)} (${operatingScore(risk)}) · ${controlsCount} control${controlsCount === 1 ? "" : "s"}`
+        : `Inherent ${inherent} (${inherentScore(risk)}) · Residual not assessed · ${controlsCount} control${controlsCount === 1 ? "" : "s"}`,
       href: `/risks/${risk.id}/edit`,
     };
   }

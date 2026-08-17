@@ -51,12 +51,30 @@ export function getSeverityBand(score: number): SeverityBand {
   return "Critical";
 }
 
-export function buildRiskHeatMap(risks: Risk[]) {
+export type HeatMapBasis = "inherent" | "residual";
+
+export function buildRiskHeatMap(
+  risks: Risk[],
+  basis: HeatMapBasis = "inherent",
+) {
   const grid = Array.from({ length: 5 }, () => Array.from({ length: 5 }, () => 0));
 
   for (const risk of risks.filter(isActiveRisk)) {
-    const likelihoodIndex = risk.likelihood - 1;
-    const impactIndex = risk.impact - 1;
+    const rating =
+      basis === "residual"
+        ? typeof risk.residual_likelihood === "number" &&
+          typeof risk.residual_impact === "number"
+          ? {
+              likelihood: risk.residual_likelihood,
+              impact: risk.residual_impact,
+            }
+          : null
+        : { likelihood: risk.likelihood, impact: risk.impact };
+    if (!rating) {
+      continue;
+    }
+    const likelihoodIndex = rating.likelihood - 1;
+    const impactIndex = rating.impact - 1;
 
     if (
       likelihoodIndex >= 0 &&
@@ -80,7 +98,15 @@ export function buildSeverityBandCounts(risks: Risk[]): SeverityBandCount[] {
   };
 
   for (const risk of risks.filter(isActiveRisk)) {
-    const band = getSeverityBand(getRiskScore(risk.likelihood, risk.impact));
+    const rating =
+      typeof risk.residual_likelihood === "number" &&
+      typeof risk.residual_impact === "number"
+        ? {
+            likelihood: risk.residual_likelihood,
+            impact: risk.residual_impact,
+          }
+        : { likelihood: risk.likelihood, impact: risk.impact };
+    const band = getSeverityBand(getRiskScore(rating.likelihood, rating.impact));
     counts[band] += 1;
   }
 

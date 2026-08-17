@@ -39,6 +39,7 @@ type SettingsContextValue = {
   governanceReady: boolean;
   obligationsReady: boolean;
   evidenceReady: boolean;
+  residualReady: boolean;
   evidenceStorageReady: boolean;
   demoIds: DemoIds | null;
   loading: boolean;
@@ -74,6 +75,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [governanceReady, setGovernanceReady] = useState(false);
   const [obligationsReady, setObligationsReady] = useState(false);
   const [evidenceReady, setEvidenceReady] = useState(false);
+  const [residualReady, setResidualReady] = useState(false);
   const [evidenceStorageReady, setEvidenceStorageReady] = useState(false);
   const [demoIds, setDemoIdsState] = useState<DemoIds | null>(null);
   const [loading, setLoading] = useState(true);
@@ -96,6 +98,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setGovernanceReady(false);
       setObligationsReady(false);
       setEvidenceReady(false);
+      setResidualReady(false);
       setEvidenceStorageReady(false);
       setDemoIdsState(null);
       setLoading(false);
@@ -111,6 +114,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       governanceResult,
       obligationsResult,
       evidenceResult,
+      residualResult,
     ] = await Promise.all([
       supabase
         .from("org_settings")
@@ -137,6 +141,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       supabase.from("risk_events").select("id").limit(1),
       supabase.from("obligations").select("id").limit(1),
       supabase.from("evidence").select("id").limit(1),
+      supabase.from("risks").select("residual_likelihood").limit(1),
     ]);
 
     if (
@@ -150,6 +155,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setGovernanceReady(false);
       setObligationsReady(false);
       setEvidenceReady(false);
+      setResidualReady(false);
       setEvidenceStorageReady(false);
       hydrateSettings(DEFAULT_SETTINGS);
       setSettings(DEFAULT_SETTINGS);
@@ -207,6 +213,11 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       throw evidenceResult.error;
     }
 
+    const residualMissing = isProbeMissing(residualResult.error);
+    if (residualResult.error && !residualMissing) {
+      throw residualResult.error;
+    }
+
     setSchemaReady(true);
     setEnterpriseReady(!peopleMissing);
     setOperatingReady(!operatingMissing);
@@ -214,6 +225,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     setGovernanceReady(!governanceMissing);
     setObligationsReady(!obligationsMissing);
     setEvidenceReady(!evidenceMissing);
+    setResidualReady(!residualMissing);
 
     let storageReady = false;
     if (!evidenceMissing) {
@@ -248,6 +260,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         setGovernanceReady(false);
         setObligationsReady(false);
         setEvidenceReady(false);
+        setResidualReady(false);
         setEvidenceStorageReady(false);
         setLoading(false);
       });
@@ -269,6 +282,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         setGovernanceReady(false);
         setObligationsReady(false);
         setEvidenceReady(false);
+        setResidualReady(false);
         setEvidenceStorageReady(false);
         setLoading(false);
       });
@@ -536,6 +550,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       governanceReady,
       obligationsReady,
       evidenceReady,
+      residualReady,
       evidenceStorageReady,
       demoIds,
       loading,
@@ -562,6 +577,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       governanceReady,
       obligationsReady,
       evidenceReady,
+      residualReady,
       evidenceStorageReady,
       loading,
       people,

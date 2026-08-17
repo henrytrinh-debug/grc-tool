@@ -14,9 +14,9 @@ import { RatingMovementList } from "@/app/components/oversight/movement-list";
 import { ErrorBanner, PageHeader, PageLoading } from "@/app/components/page-parts";
 import { mutedTextClassName } from "@/app/components/ui";
 import {
+  buildControlTestTrend,
   buildOpenedClosedTrend,
-  buildOperatingTrend,
-  OPERATING_TREND_SERIES,
+  CONTROL_TEST_TREND_SERIES,
 } from "@/lib/charts/time-series";
 import { useSettings } from "@/lib/settings/context";
 import {
@@ -82,7 +82,7 @@ type OversightData = {
     covered: number;
     uncovered: number;
   } | null;
-  operatingTrend: ReturnType<typeof buildOperatingTrend>;
+  controlTestTrend: ReturnType<typeof buildControlTestTrend>;
   issueMonthly: ReturnType<typeof buildOpenedClosedTrend>;
   incidentMonthly: ReturnType<typeof buildOpenedClosedTrend>;
 };
@@ -117,7 +117,7 @@ const emptyData: OversightData = {
     moves: [],
   },
   obligationCoverage: null,
-  operatingTrend: [],
+  controlTestTrend: [],
   issueMonthly: [],
   incidentMonthly: [],
 };
@@ -233,11 +233,7 @@ export default function OversightPage() {
         obligationCoverage: obligationsReady
           ? obligationCoverage(obligationRows, obligationLinks)
           : null,
-        operatingTrend: buildOperatingTrend({
-          incidents,
-          issues,
-          tests: testResults,
-        }),
+        controlTestTrend: buildControlTestTrend(testResults),
         issueMonthly: buildOpenedClosedTrend(
           issues.map((issue) => ({ date: issue.identified_at })),
           issues
@@ -383,13 +379,13 @@ export default function OversightPage() {
 
               <div className="grid gap-6 lg:grid-cols-2">
                 <ChartCard
-                  title="Operating volume"
-                  description="Incidents, issues, and control tests across the last 12 months."
+                  title="Control testing over time"
+                  description="Tests recorded as effective or ineffective. Separate from incident and issue flow below."
                 >
                   <StackedTimeChart
-                    data={data.operatingTrend}
-                    series={[...OPERATING_TREND_SERIES]}
-                    empty="No operating volume in the last 12 months."
+                    data={data.controlTestTrend}
+                    series={[...CONTROL_TEST_TREND_SERIES]}
+                    empty="No control tests recorded in the last 12 months."
                   />
                 </ChartCard>
                 <ChartCard
@@ -481,7 +477,7 @@ export default function OversightPage() {
                   Rating movement
                 </h2>
                 <p className={`mt-1 text-sm ${mutedTextClassName}`}>
-                  How inherent scores are changing, and whether reviews are current.
+                  How inherent and residual scores are changing, and whether reviews are current.
                 </p>
               </div>
 
@@ -513,7 +509,7 @@ export default function OversightPage() {
               <div className="grid gap-6 lg:grid-cols-2">
                 <ChartCard
                   title="Rating movement"
-                  description="Latest assessment vs the score the reviewer started from. Tightening (down) is usually the healthy direction."
+                  description="Latest assessment vs the inherent score the reviewer started from. Residual movement is shown when both ratings were stored."
                 >
                   <RatingMovementList summary={data.ratingMovement} />
                 </ChartCard>

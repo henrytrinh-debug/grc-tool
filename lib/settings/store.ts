@@ -201,6 +201,7 @@ export function isMissingRelationError(error: { message?: string; code?: string 
   const message = (error.message ?? "").toLowerCase();
   return (
     error.code === "PGRST205" ||
+    error.code === "PGRST204" ||
     error.code === "42P01" ||
     error.code === "42703" ||
     message.includes("does not exist") ||

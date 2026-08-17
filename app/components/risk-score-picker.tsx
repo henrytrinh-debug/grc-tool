@@ -20,6 +20,8 @@ type RiskScorePickerProps = {
   onChange: (next: { likelihood: number; impact: number }) => void;
   /** Shown above the grid, e.g. "Confirm or adjust the rating". */
   description?: string;
+  legend?: string;
+  isCellEnabled?: (likelihood: number, impact: number) => boolean;
 };
 
 /**
@@ -31,6 +33,8 @@ export function RiskScorePicker({
   impact,
   onChange,
   description,
+  legend = "Likelihood × Impact",
+  isCellEnabled,
 }: RiskScorePickerProps) {
   useSettings();
   const score = getRiskScore(likelihood, impact);
@@ -39,7 +43,7 @@ export function RiskScorePicker({
   return (
     <fieldset className="min-w-0">
       <legend className="text-sm font-medium text-slate-700 dark:text-slate-300">
-        Likelihood × Impact
+        {legend}
       </legend>
       {description && (
         <p className={`mt-1 text-sm ${mutedTextClassName}`}>{description}</p>
@@ -70,12 +74,16 @@ export function RiskScorePicker({
                 const cellScore = getRiskScore(likelihoodValue, impactValue);
                 const selected =
                   likelihoodValue === likelihood && impactValue === impact;
+                const enabled = isCellEnabled
+                  ? isCellEnabled(likelihoodValue, impactValue)
+                  : true;
 
                 return (
                   <button
                     key={`${likelihoodValue}-${impactValue}`}
                     type="button"
                     role="gridcell"
+                    disabled={!enabled}
                     aria-label={`Likelihood ${likelihoodValue} ${formatLikelihood(likelihoodValue)}, impact ${impactValue} ${formatImpact(impactValue)}, score ${cellScore}`}
                     aria-selected={selected}
                     onClick={() =>
@@ -85,9 +93,11 @@ export function RiskScorePicker({
                       })
                     }
                     className={`flex aspect-square min-h-11 min-w-11 items-center justify-center rounded-md text-xs font-semibold text-white transition-shadow focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 dark:focus-visible:outline-teal-400 ${
-                      selected
-                        ? "ring-2 ring-slate-950 ring-offset-2 ring-offset-white dark:ring-white dark:ring-offset-slate-900"
-                        : "hover:brightness-110"
+                      !enabled
+                        ? "cursor-not-allowed opacity-30"
+                        : selected
+                          ? "ring-2 ring-slate-950 ring-offset-2 ring-offset-white dark:ring-white dark:ring-offset-slate-900"
+                          : "hover:brightness-110"
                     }`}
                     style={{ backgroundColor: getScoreHeatColor(cellScore) }}
                   >

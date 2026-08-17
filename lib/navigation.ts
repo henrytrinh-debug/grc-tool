@@ -281,3 +281,12 @@ export function isActiveNavigationPath(href: string, pathname: string) {
 
   return pathname.startsWith(href);
 }
+
+/** Only same-origin app paths. Used when returning from a nested create form. */
+export function safeReturnTo(value: string | null | undefined) {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) {
+    return null;
+  }
+
+  return value;
+}

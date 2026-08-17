@@ -34,8 +34,7 @@ export function ResidualInsight({ residual }: ResidualInsightProps) {
       </div>
       <p className={`mt-3 text-sm ${mutedTextClassName}`}>{residual.rationale}</p>
       <p className={`mt-1 text-xs ${mutedTextClassName}`}>
-        Residual is derived from linked control effectiveness, not stored. The
-        confirmed rating below remains inherent likelihood × impact.
+        Confirm residual separately — it is not written until you submit this review.
       </p>
     </div>
   );

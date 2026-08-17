@@ -31,7 +31,7 @@ import type { ObligationRecord } from "@/lib/types/obligation";
 import type { EvidenceRecord } from "@/lib/types/evidence";
 
 export default function QualityPage() {
-  const { operatingReady, obligationsReady, evidenceReady, enterpriseReady, evidenceStorageReady } =
+  const { operatingReady, obligationsReady, evidenceReady, enterpriseReady, evidenceStorageReady, residualReady } =
     useSettings();
   const [snapshot, setSnapshot] = useState<GrcSnapshot>(emptyGrcSnapshot);
   const [obligations, setObligations] = useState<ObligationRecord[]>([]);
@@ -103,6 +103,7 @@ export default function QualityPage() {
         issueRiskLinks: snapshot.issueRiskLinks,
         issueControlLinks: snapshot.issueControlLinks,
         operatingReady,
+        residualReady,
         obligations: obligationsReady ? obligations : undefined,
         obligationControlLinks: obligationsReady
           ? obligationControlLinks
@@ -116,6 +117,7 @@ export default function QualityPage() {
       obligations,
       obligationsReady,
       operatingReady,
+      residualReady,
       snapshot,
     ],
   );
@@ -132,6 +134,7 @@ export default function QualityPage() {
         issueRiskLinks: snapshot.issueRiskLinks,
         issueControlLinks: snapshot.issueControlLinks,
         operatingReady,
+        residualReady,
         enterpriseReady,
         evidenceStorageReady,
         obligations: obligationsReady ? obligations : undefined,
@@ -149,6 +152,7 @@ export default function QualityPage() {
       obligations,
       obligationsReady,
       operatingReady,
+      residualReady,
       snapshot,
     ],
   );

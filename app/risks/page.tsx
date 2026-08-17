@@ -25,8 +25,8 @@ import {
 } from "@/app/components/status-badge";
 import { primaryButtonClassName, secondaryButtonClassName } from "@/app/components/ui";
 import { RiskSummary } from "@/app/risks/_components/risk-summary";
-import { getRiskScore, getSeverityBand } from "@/lib/dashboard/analytics";
 import { riskQuality } from "@/lib/data-quality/record";
+import { inherentBand, inherentScore, operatingBand, operatingScore, storedResidual } from "@/lib/risk/ratings";
 import { applySort } from "@/lib/list-sort";
 import { useListFilters } from "@/lib/hooks/use-list-filters";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
@@ -86,7 +86,7 @@ function RisksPageContent() {
   const { filters, updateRegisterFilters, clearFilters, sort, searchParams } =
     useListFilters("/risks", parseRiskFilters);
 
-  const { categories, schemaReady, people, enterpriseReady, operatingReady } = useSettings();
+  const { categories, schemaReady, people, enterpriseReady, operatingReady, residualReady } = useSettings();
   const [risks, setRisks] = useState<Risk[]>([]);
   const [linkedControlCounts, setLinkedControlCounts] = useState<
     Record<string, number>
@@ -231,7 +231,8 @@ function RisksPageContent() {
       assignee: (risk) => formatPersonName(people, risk.assignee_id),
       likelihood: (risk) => risk.likelihood,
       impact: (risk) => risk.impact,
-      score: (risk) => getRiskScore(risk.likelihood, risk.impact),
+      score: (risk) => inherentScore(risk),
+      residual: (risk) => (storedResidual(risk) ? operatingScore(risk) : null),
       controls: (risk) => linkedControlCounts[risk.id] ?? 0,
       incidents: (risk) => linkedIncidentCounts[risk.id] ?? 0,
       issues: (risk) => openIssueCounts[risk.id] ?? 0,
@@ -313,6 +314,7 @@ function RisksPageContent() {
               linkedControlCounts={linkedControlCounts}
               reviews={reviews}
               schemaReady={schemaReady}
+              residualReady={residualReady}
             />
           )
         ) : null}
@@ -346,8 +348,12 @@ function RisksPageContent() {
                         "Department",
                         "Likelihood",
                         "Impact",
-                        "Score",
-                        "Band",
+                        "Inherent score",
+                        "Inherent band",
+                        "Residual likelihood",
+                        "Residual impact",
+                        "Residual score",
+                        "Residual band",
                         "Appetite breach",
                         "Controls",
                         "Incidents",
@@ -358,10 +364,7 @@ function RisksPageContent() {
                         "Owner",
                       ],
                       filteredRisks.map((risk) => {
-                        const score = getRiskScore(
-                          risk.likelihood,
-                          risk.impact,
-                        );
+                        const residual = storedResidual(risk);
                         return [
                           risk.title,
                           (risk.category_id &&
@@ -373,8 +376,12 @@ function RisksPageContent() {
                           formatPersonDepartment(people, risk.assignee_id),
                           risk.likelihood,
                           risk.impact,
-                          score,
-                          getSeverityBand(score),
+                          inherentScore(risk),
+                          inherentBand(risk),
+                          residual?.likelihood ?? "",
+                          residual?.impact ?? "",
+                          residual ? operatingScore(risk) : "",
+                          residual ? operatingBand(risk) : "",
                           isAppetiteBreach(risk, categories) ? "Yes" : "No",
                           linkedControlCounts[risk.id] ?? 0,
                           linkedIncidentCounts[risk.id] ?? 0,
@@ -539,7 +546,7 @@ function RisksPageContent() {
                     </th>
                     <th className="px-6 py-3">
                       <ColumnHeader
-                        label="Risk Score"
+                        label="Score"
                         sortKey="score"
                         currentSort={sort}
                         onSort={(value) => updateRegisterFilters({ sort: value })}
@@ -569,6 +576,23 @@ function RisksPageContent() {
                         }
                       />
                     </th>
+                    {residualReady ? (
+                      <th className="px-6 py-3">
+                        <ColumnHeader
+                          label="Residual"
+                          sortKey="residual"
+                          currentSort={sort}
+                          onSort={(value) => updateRegisterFilters({ sort: value })}
+                          filterValue={filters.residualUnassessed ? "true" : ""}
+                          filterOptions={[
+                            { value: "true", label: "Not assessed" },
+                          ]}
+                          onFilterChange={(value) =>
+                            updateRegisterFilters({ residualUnassessed: value })
+                          }
+                        />
+                      </th>
+                    ) : null}
                     <th className="px-6 py-3">
                       <ColumnHeader
                         label="Controls"
@@ -632,9 +656,8 @@ function RisksPageContent() {
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                   {filteredRisks.map((risk) => {
-                    const band = getSeverityBand(
-                      getRiskScore(risk.likelihood, risk.impact),
-                    );
+                    const band = operatingBand(risk);
+                    const residual = storedResidual(risk);
                     const openIssues = openIssueCounts[risk.id] ?? 0;
 
                     const lastReviewedAt = lastReviewedByRisk[risk.id] ?? null;
@@ -669,6 +692,7 @@ function RisksPageContent() {
                                 hasReview: Boolean(lastReviewedAt),
                                 operatingReady,
                                 enterpriseReady,
+                                residualReady,
                               })}
                             >
                               {risk.title}
@@ -710,6 +734,17 @@ function RisksPageContent() {
                         <td className="px-6 py-4">
                           <SeverityBandBadge band={band} />
                         </td>
+                        {residualReady ? (
+                          <td className="px-6 py-4">
+                            {residual ? (
+                              <SeverityBandBadge band={operatingBand(risk)} />
+                            ) : (
+                              <span className="text-slate-500 dark:text-slate-400">
+                                —
+                              </span>
+                            )}
+                          </td>
+                        ) : null}
                         <td className="px-6 py-4">
                           <span
                             className={

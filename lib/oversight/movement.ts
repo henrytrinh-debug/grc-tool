@@ -11,6 +11,7 @@ export type RatingMove = {
   delta: number;
   previousBand: string;
   finalBand: string;
+  residualDelta: number | null;
 };
 
 export type RatingMovementSummary = {
@@ -76,6 +77,20 @@ export function buildRatingMovement(
       delta,
       previousBand: getSeverityBand(previousScore),
       finalBand: getSeverityBand(finalScore),
+      residualDelta:
+        typeof review.previous_residual_likelihood === "number" &&
+        typeof review.previous_residual_impact === "number" &&
+        typeof review.final_residual_likelihood === "number" &&
+        typeof review.final_residual_impact === "number"
+          ? getRiskScore(
+              review.final_residual_likelihood,
+              review.final_residual_impact,
+            ) -
+            getRiskScore(
+              review.previous_residual_likelihood,
+              review.previous_residual_impact,
+            )
+          : null,
     });
   }
 

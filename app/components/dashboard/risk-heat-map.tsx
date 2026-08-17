@@ -1,24 +1,56 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import {
   buildRiskHeatMap,
   getHeatMapCellColor,
   getRiskScore,
+  type HeatMapBasis,
 } from "@/lib/dashboard/analytics";
 import { formatImpact, formatLikelihood, RISK_SCALE_VALUES, type Risk } from "@/lib/types/risk";
 import { useSettings } from "@/lib/settings/context";
+import { mutedTextClassName } from "@/app/components/ui";
 
 type RiskHeatMapProps = {
   risks: Risk[];
+  residualReady?: boolean;
 };
 
-export function RiskHeatMap({ risks }: RiskHeatMapProps) {
+export function RiskHeatMap({ risks, residualReady = false }: RiskHeatMapProps) {
   useSettings();
-  const grid = buildRiskHeatMap(risks);
+  const [basis, setBasis] = useState<HeatMapBasis>("inherent");
+  const grid = buildRiskHeatMap(risks, basis);
+  const unassessed =
+    basis === "residual"
+      ? risks.filter(
+          (risk) =>
+            typeof risk.residual_likelihood !== "number" ||
+            typeof risk.residual_impact !== "number",
+        ).length
+      : 0;
 
   return (
     <div className="space-y-4">
+      {residualReady ? (
+        <div className="flex flex-wrap gap-2">
+          {(["inherent", "residual"] as const).map((value) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setBasis(value)}
+              className={`rounded-full px-3 py-1 text-xs font-medium ${
+                basis === value
+                  ? "bg-teal-800 text-white dark:bg-teal-300 dark:text-slate-950"
+                  : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+              }`}
+            >
+              {value === "inherent" ? "Inherent" : "Residual"}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
       <div className="grid grid-cols-[auto_repeat(5,minmax(0,1fr))] gap-1">
         <div />
         {RISK_SCALE_VALUES.map((likelihood) => (
@@ -39,7 +71,10 @@ export function RiskHeatMap({ risks }: RiskHeatMapProps) {
             {RISK_SCALE_VALUES.map((likelihood) => {
               const count = grid[likelihood - 1][impact - 1];
               const score = getRiskScore(likelihood, impact);
-              const href = `/risks?likelihood=${likelihood}&impact=${impact}`;
+              const href =
+                basis === "residual"
+                  ? `/risks?view=register&residualLikelihood=${likelihood}&residualImpact=${impact}`
+                  : `/risks?view=register&likelihood=${likelihood}&impact=${impact}`;
 
               return (
                 <Link
@@ -68,6 +103,11 @@ export function RiskHeatMap({ risks }: RiskHeatMapProps) {
       <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600 dark:text-slate-400">
         <span>Likelihood →</span>
         <span>Impact ↑</span>
+        {unassessed > 0 ? (
+          <span className={mutedTextClassName}>
+            {unassessed} risk{unassessed === 1 ? "" : "s"} without a residual rating
+          </span>
+        ) : null}
         <span className="ml-auto flex items-center gap-2">
           <span>Low</span>
           <span

@@ -1,4 +1,4 @@
-import { getRiskScore, getSeverityBand } from "@/lib/dashboard/analytics";
+import { inherentBand, storedResidual } from "@/lib/risk/ratings";
 import { isActiveRisk } from "@/lib/taxonomy";
 import { isIncidentOpen, type Incident } from "@/lib/types/incident";
 import { isIssueOpen, type Issue } from "@/lib/types/issue";
@@ -31,8 +31,7 @@ export function summarizeQuality(flags: string[], applicable: number): QualitySu
 }
 
 function isHighOrCritical(risk: Pick<Risk, "likelihood" | "impact">) {
-  const band = getSeverityBand(getRiskScore(risk.likelihood, risk.impact));
-  return band === "High" || band === "Critical";
+  return inherentBand(risk) === "High" || inherentBand(risk) === "Critical";
 }
 
 export function riskQuality(
@@ -45,12 +44,15 @@ export function riskQuality(
     | "treatment_rationale"
     | "likelihood"
     | "impact"
+    | "residual_likelihood"
+    | "residual_impact"
   >,
   options: {
     controlCount: number;
     hasReview: boolean;
     operatingReady?: boolean;
     enterpriseReady?: boolean;
+    residualReady?: boolean;
   },
 ): QualitySummary {
   if (!isActiveRisk(risk)) {
@@ -78,6 +80,19 @@ export function riskQuality(
     applicable += 1;
     if (!options.hasReview) {
       flags.push("High/Critical and never reviewed");
+    }
+  }
+
+  if (options.residualReady && isActiveRisk(risk)) {
+    applicable += 1;
+    const residual = storedResidual(risk);
+    if (!residual) {
+      flags.push("Residual not assessed");
+    } else if (
+      (residual.likelihood < risk.likelihood || residual.impact < risk.impact) &&
+      options.controlCount === 0
+    ) {
+      flags.push("Residual reduced with no linked controls");
     }
   }
 

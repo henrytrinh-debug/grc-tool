@@ -48,6 +48,10 @@ export function riskEventDrafts(input: {
   nextLikelihood: number;
   previousImpact: number;
   nextImpact: number;
+  previousResidualLikelihood?: number | null;
+  nextResidualLikelihood?: number | null;
+  previousResidualImpact?: number | null;
+  nextResidualImpact?: number | null;
 }): GovernanceEventDraft[] {
   const drafts: GovernanceEventDraft[] = [];
   const previousStatus = input.previousStatus ?? "open";
@@ -93,6 +97,21 @@ export function riskEventDrafts(input: {
       field: "likelihood_impact",
       previous_value: `${input.previousLikelihood}×${input.previousImpact}`,
       next_value: `${input.nextLikelihood}×${input.nextImpact}`,
+    });
+  }
+
+  const previousResidual = `${input.previousResidualLikelihood ?? ""}×${input.previousResidualImpact ?? ""}`;
+  const nextResidual = `${input.nextResidualLikelihood ?? ""}×${input.nextResidualImpact ?? ""}`;
+  if (
+    (input.previousResidualLikelihood ?? null) !==
+      (input.nextResidualLikelihood ?? null) ||
+    (input.previousResidualImpact ?? null) !== (input.nextResidualImpact ?? null)
+  ) {
+    drafts.push({
+      event_type: "rating",
+      field: "residual_likelihood_impact",
+      previous_value: previousResidual === "×" ? "" : previousResidual,
+      next_value: nextResidual === "×" ? "" : nextResidual,
     });
   }
 

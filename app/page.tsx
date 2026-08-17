@@ -6,14 +6,18 @@ import { ActivityList } from "@/app/components/dashboard/activity-list";
 import { AttentionList } from "@/app/components/dashboard/attention-list";
 import { ChartCard } from "@/app/components/dashboard/chart-card";
 import { StatCard } from "@/app/components/dashboard/stat-card";
-import { StackedTimeChart } from "@/app/components/dashboard/time-charts";
+import { LineTimeChart } from "@/app/components/dashboard/time-charts";
 import { FilterSelect } from "@/app/components/list-toolbar";
 import { ErrorBanner, PageHeader, PageLoading } from "@/app/components/page-parts";
 import { mutedTextClassName, primaryButtonClassName, secondaryButtonClassName } from "@/app/components/ui";
 import { buildActivityFeed } from "@/lib/activity/feed";
 import {
-  buildOperatingTrend,
-  OPERATING_TREND_SERIES,
+  buildIncidentFlowTrend,
+  buildIssueFlowTrend,
+  formatFlowWindowHint,
+  INCIDENT_FLOW_SERIES,
+  ISSUE_FLOW_SERIES,
+  summariseFlowWindow,
 } from "@/lib/charts/time-series";
 import { buildAttentionItems } from "@/lib/dashboard/attention";
 import { summariseIssues } from "@/lib/dashboard/analytics";
@@ -110,6 +114,8 @@ function HomePageContent() {
     );
     const lateControls = overdueControls(controls);
     const myPersonId = personByEmail(people, user?.email)?.id ?? null;
+    const issueFlow = buildIssueFlowTrend(issues);
+    const incidentFlow = buildIncidentFlowTrend(incidents);
 
     return {
       riskCount: activeRisks(risks).length,
@@ -150,11 +156,10 @@ function HomePageContent() {
         incidentEvents: snapshot.incidentEvents,
         limit: 8,
       }),
-      operatingTrend: buildOperatingTrend({
-        incidents,
-        issues,
-        tests: snapshot.tests,
-      }),
+      issueFlow,
+      incidentFlow,
+      issueFlowTotals: summariseFlowWindow(issueFlow, "closed"),
+      incidentFlowTotals: summariseFlowWindow(incidentFlow, "resolved"),
     };
   }, [categories, filters.categoryId, people, settings.workspacePreferences.defaultHomeCategoryId, snapshot, user?.email]);
 
@@ -333,16 +338,28 @@ function HomePageContent() {
             ) : null}
 
             {shows("trend") ? (
-              <ChartCard
-                title="Operating trend"
-                description="Incidents occurred, issues identified, and control tests recorded over the last 12 months. Register-specific charts live on each register’s Summary tab."
-              >
-                <StackedTimeChart
-                  data={data.operatingTrend}
-                  series={[...OPERATING_TREND_SERIES]}
-                  empty="No incidents, issues, or tests in the last 12 months."
-                />
-              </ChartCard>
+              <section className="grid min-w-0 gap-6 lg:grid-cols-2">
+                <ChartCard
+                  title="Incident flow"
+                  description={`Stock: ${data.openIncidentCount} open now. ${formatFlowWindowHint(data.incidentFlowTotals, "resolved")} Chart is occurred vs resolved — not mixed with issues or tests.`}
+                >
+                  <LineTimeChart
+                    data={data.incidentFlow}
+                    series={[...INCIDENT_FLOW_SERIES]}
+                    empty="No incidents occurred or were resolved in the last 12 months."
+                  />
+                </ChartCard>
+                <ChartCard
+                  title="Issue flow"
+                  description={`Stock: ${data.issuesSummary.open} open now. ${formatFlowWindowHint(data.issueFlowTotals, "closed")} Chart is identified vs closed.`}
+                >
+                  <LineTimeChart
+                    data={data.issueFlow}
+                    series={[...ISSUE_FLOW_SERIES]}
+                    empty="No issues identified or closed in the last 12 months."
+                  />
+                </ChartCard>
+              </section>
             ) : null}
 
             {!shows("stats") &&

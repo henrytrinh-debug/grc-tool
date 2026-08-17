@@ -16,6 +16,7 @@ import {
 import { getRiskScore, getSeverityBand } from "@/lib/dashboard/analytics";
 import { sortRisksByExposure } from "@/lib/list-filters";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
+import { operatingBand, storedResidual } from "@/lib/risk/ratings";
 import { useSettings } from "@/lib/settings/context";
 import { formatReviewCadenceHint } from "@/lib/settings/store";
 import { categoryFilterOptions, matchesCategoryFilter } from "@/lib/taxonomy";
@@ -33,7 +34,7 @@ import type { Risk } from "@/lib/types/risk";
 
 export default function RcsaStartPage() {
   const router = useRouter();
-  const { settings, categories, schemaReady } = useSettings();
+  const { settings, categories, schemaReady, residualReady } = useSettings();
   const [risks, setRisks] = useState<RiskWithLastReviewed[]>([]);
   const [selectedRiskIds, setSelectedRiskIds] = useState<Set<string>>(
     new Set(),
@@ -79,6 +80,8 @@ export default function RcsaStartPage() {
         title: risk.title,
         likelihood: risk.likelihood,
         impact: risk.impact,
+        residual_likelihood: risk.residual_likelihood,
+        residual_impact: risk.residual_impact,
         owner_email: risk.owner_email,
         category_id: risk.category_id,
         lastReviewedAt: lastReviewedByRisk[risk.id] ?? null,
@@ -252,7 +255,7 @@ export default function RcsaStartPage() {
       <main className="mx-auto flex w-full min-w-0 max-w-5xl flex-col gap-8">
         <PageHeader
           title="Risk Assessment"
-          description={`Risks due for review (by severity cadence) are pre-selected. Closed risks are omitted. ${formatReviewCadenceHint(settings)}.`}
+          description={`Risks due for review (by inherent severity cadence) are pre-selected. Each sitting confirms inherent, links evidence, then confirms residual. Closed risks are omitted. ${formatReviewCadenceHint(settings)}.`}
           breadcrumbs={[
             { href: "/", label: "Home" },
             { label: "Risk Assessment" },
@@ -361,7 +364,10 @@ export default function RcsaStartPage() {
                       <span className="sr-only">Select</span>
                     </th>
                     <th className="px-6 py-3 font-medium">Title</th>
-                    <th className="px-6 py-3 font-medium">Rating</th>
+                    <th className="px-6 py-3 font-medium">Inherent</th>
+                    {residualReady ? (
+                      <th className="px-6 py-3 font-medium">Residual</th>
+                    ) : null}
                     <th className="px-6 py-3 font-medium">Owner</th>
                     <th className="px-6 py-3 font-medium">Last Reviewed</th>
                     <th className="px-6 py-3 font-medium">Cadence</th>
@@ -406,6 +412,17 @@ export default function RcsaStartPage() {
                             )}
                           />
                         </td>
+                        {residualReady ? (
+                          <td className="px-6 py-4">
+                            {storedResidual(risk) ? (
+                              <SeverityBandBadge band={operatingBand(risk)} />
+                            ) : (
+                              <span className="text-slate-500 dark:text-slate-400">
+                                Not assessed
+                              </span>
+                            )}
+                          </td>
+                        ) : null}
                         <td className="px-6 py-4 text-slate-950 dark:text-slate-50">
                           {risk.owner_email ?? "—"}
                         </td>

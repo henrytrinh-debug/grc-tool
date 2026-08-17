@@ -1,9 +1,15 @@
 "use client";
 
 import { AssigneeField } from "@/app/components/assignee-field";
-import { inputClassName, labelClassName } from "@/app/components/ui";
+import { inputClassName, labelClassName, mutedTextClassName, secondaryButtonClassName } from "@/app/components/ui";
 import { RiskScorePicker } from "@/app/components/risk-score-picker";
 import { useSettings } from "@/lib/settings/context";
+import {
+  clampResidualToInherent,
+  residualBlockers,
+  residualCellAllowed,
+  storedResidual,
+} from "@/lib/risk/ratings";
 import {
   RISK_STATUS_OPTIONS,
   RISK_TREATMENT_OPTIONS,
@@ -13,9 +19,14 @@ import {
 type RiskFormFieldsProps = {
   form: NewRisk;
   onChange: (updates: Partial<NewRisk>) => void;
+  controlCount?: number;
 };
 
-export function RiskFormFields({ form, onChange }: RiskFormFieldsProps) {
+export function RiskFormFields({
+  form,
+  onChange,
+  controlCount = 0,
+}: RiskFormFieldsProps) {
   const {
     categories,
     schemaReady,
@@ -23,7 +34,16 @@ export function RiskFormFields({ form, onChange }: RiskFormFieldsProps) {
     enterpriseReady,
     operatingReady,
     governanceReady,
+    residualReady,
   } = useSettings();
+  const residual = storedResidual(form);
+  const blockers = residual
+    ? residualBlockers(
+        { likelihood: form.likelihood, impact: form.impact },
+        residual,
+        { controlCount },
+      )
+    : [];
 
   return (
     <>
@@ -56,10 +76,85 @@ export function RiskFormFields({ form, onChange }: RiskFormFieldsProps) {
         <RiskScorePicker
           likelihood={form.likelihood}
           impact={form.impact}
-          onChange={onChange}
-          description="Click a cell to set both ratings. The colour is the resulting inherent risk score."
+          legend="Inherent likelihood × impact"
+          description="Gross exposure before crediting current controls."
+          onChange={(next) => {
+            const nextResidual = residual
+              ? clampResidualToInherent(next, residual)
+              : null;
+            onChange({
+              ...next,
+              residual_likelihood: nextResidual?.likelihood ?? null,
+              residual_impact: nextResidual?.impact ?? null,
+            });
+          }}
         />
       </div>
+
+      {residualReady ? (
+        <div className="sm:col-span-2 space-y-3">
+          {residual ? (
+            <>
+              <RiskScorePicker
+                likelihood={residual.likelihood}
+                impact={residual.impact}
+                legend="Residual likelihood × impact"
+                description="Net exposure after current controls. Cannot exceed inherent on either axis. Leave unset until Risk Assessment if you have not reviewed controls yet."
+                isCellEnabled={(likelihood, impact) =>
+                  residualCellAllowed(
+                    { likelihood: form.likelihood, impact: form.impact },
+                    likelihood,
+                    impact,
+                  )
+                }
+                onChange={(next) =>
+                  onChange({
+                    residual_likelihood: next.likelihood,
+                    residual_impact: next.impact,
+                  })
+                }
+              />
+              <button
+                type="button"
+                className={secondaryButtonClassName}
+                onClick={() =>
+                  onChange({
+                    residual_likelihood: null,
+                    residual_impact: null,
+                  })
+                }
+              >
+                Clear residual (assess in Risk Assessment)
+              </button>
+              {blockers.length > 0 ? (
+                <p className="text-sm text-red-700 dark:text-red-400">
+                  {blockers.join(" ")}
+                </p>
+              ) : null}
+            </>
+          ) : (
+            <div className="rounded-lg border border-dashed border-slate-300 p-4 dark:border-slate-700">
+              <p className={`text-sm ${mutedTextClassName}`}>
+                Residual is not assessed yet. Confirm it during Risk Assessment
+                after reviewing linked controls, or set it now if you already
+                know the net rating.
+              </p>
+              <button
+                type="button"
+                className={`${secondaryButtonClassName} mt-3`}
+                onClick={() =>
+                  onChange({
+                    residual_likelihood: form.likelihood,
+                    residual_impact: form.impact,
+                  })
+                }
+              >
+                Set residual now
+              </button>
+            </div>
+          )}
+        </div>
+      ) : null}
 
       {schemaReady && (
         <>
@@ -126,46 +221,46 @@ export function RiskFormFields({ form, onChange }: RiskFormFieldsProps) {
         </>
       )}
 
-          {operatingReady && (
-            <>
-              <label className="flex flex-col gap-1">
-                <span className={labelClassName}>Treatment target date</span>
-                <input
-                  type="date"
-                  value={form.target_date ?? ""}
-                  onChange={(event) => onChange({ target_date: event.target.value })}
-                  className={inputClassName}
-                />
-              </label>
-              <label className="flex flex-col gap-1 sm:col-span-2">
-                <span className={labelClassName}>Treatment rationale</span>
-                <textarea
-                  rows={3}
-                  value={form.treatment_rationale ?? ""}
-                  onChange={(event) =>
-                    onChange({ treatment_rationale: event.target.value })
-                  }
-                  className={inputClassName}
-                  placeholder="Why this treatment, residual plan, or acceptance conditions."
-                />
-              </label>
-            </>
-          )}
+      {operatingReady && (
+        <>
+          <label className="flex flex-col gap-1">
+            <span className={labelClassName}>Treatment target date</span>
+            <input
+              type="date"
+              value={form.target_date ?? ""}
+              onChange={(event) => onChange({ target_date: event.target.value })}
+              className={inputClassName}
+            />
+          </label>
+          <label className="flex flex-col gap-1 sm:col-span-2">
+            <span className={labelClassName}>Treatment rationale</span>
+            <textarea
+              rows={3}
+              value={form.treatment_rationale ?? ""}
+              onChange={(event) =>
+                onChange({ treatment_rationale: event.target.value })
+              }
+              className={inputClassName}
+              placeholder="Why this treatment, residual plan, or acceptance conditions."
+            />
+          </label>
+        </>
+      )}
 
-          {governanceReady && (
-            <label className="flex flex-col gap-1 sm:col-span-2">
-              <span className={labelClassName}>Closure rationale</span>
-              <textarea
-                rows={3}
-                value={form.closure_rationale ?? ""}
-                onChange={(event) =>
-                  onChange({ closure_rationale: event.target.value })
-                }
-                className={inputClassName}
-                placeholder="Required to close unless this risk already has an RCSA review."
-              />
-            </label>
-          )}
+      {governanceReady && (
+        <label className="flex flex-col gap-1 sm:col-span-2">
+          <span className={labelClassName}>Closure rationale</span>
+          <textarea
+            rows={3}
+            value={form.closure_rationale ?? ""}
+            onChange={(event) =>
+              onChange({ closure_rationale: event.target.value })
+            }
+            className={inputClassName}
+            placeholder="Required to close unless this risk already has an RCSA review."
+          />
+        </label>
+      )}
     </>
   );
 }

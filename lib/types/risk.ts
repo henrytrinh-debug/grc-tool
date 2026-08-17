@@ -11,6 +11,8 @@ export type Risk = {
   description: string;
   likelihood: number;
   impact: number;
+  residual_likelihood?: number | null;
+  residual_impact?: number | null;
   category_id?: string | null;
   treatment?: RiskTreatment;
   assignee_id?: string | null;
@@ -29,6 +31,8 @@ export type NewRisk = Pick<
   | "description"
   | "likelihood"
   | "impact"
+  | "residual_likelihood"
+  | "residual_impact"
   | "category_id"
   | "treatment"
   | "assignee_id"
@@ -107,6 +111,7 @@ export function toRiskFormPayload(
     includeEnterprise?: boolean;
     includeOperating?: boolean;
     includeGovernance?: boolean;
+    includeResidual?: boolean;
   } = {},
 ): Record<string, unknown> {
   const payload: Record<string, unknown> = {
@@ -115,6 +120,14 @@ export function toRiskFormPayload(
     likelihood: form.likelihood,
     impact: form.impact,
   };
+
+  if (options.includeResidual) {
+    const hasResidual =
+      typeof form.residual_likelihood === "number" &&
+      typeof form.residual_impact === "number";
+    payload.residual_likelihood = hasResidual ? form.residual_likelihood : null;
+    payload.residual_impact = hasResidual ? form.residual_impact : null;
+  }
 
   if (options.includeTaxonomy) {
     payload.category_id = form.category_id || null;

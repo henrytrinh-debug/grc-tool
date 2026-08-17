@@ -24,7 +24,7 @@ export const HOME_WIDGET_OPTIONS: { id: HomeWidgetId; label: string }[] = [
   { id: "stats", label: "Headline stats" },
   { id: "attention", label: "Needs attention" },
   { id: "activity", label: "Recent activity" },
-  { id: "trend", label: "Operating trend" },
+    { id: "trend", label: "Incident and issue flows" },
 ];
 
 export const OVERSIGHT_SECTION_IDS = [

@@ -10,7 +10,13 @@ import {
   evidenceQuality,
   riskQuality,
 } from "../lib/data-quality/record";
-import { stackByMonth } from "../lib/charts/time-series";
+import { stackByMonth, buildIssueFlowTrend, buildIncidentFlowTrend, summariseFlowWindow } from "../lib/charts/time-series";
+import { buildSeverityBandCounts } from "../lib/dashboard/analytics";
+import {
+  residualBlockers,
+  operatingBand,
+  storedResidual,
+} from "../lib/risk/ratings";
 import { applySort } from "../lib/list-sort";
 import { parseRegisterView } from "../lib/register/view";
 import {
@@ -132,6 +138,33 @@ assert(parsed.status === "open", "parseRiskFilters status");
 
 assert(isAppetiteBreach(risks[0], [cyber]), "open critical cyber risk is above Medium appetite");
 assert(!isAppetiteBreach(risks[2], [cyber]), "closed risks are not appetite breaches");
+assert(
+  !isAppetiteBreach(
+    { ...risks[0], residual_likelihood: 2, residual_impact: 2 },
+    [cyber],
+  ),
+  "residual inside appetite is not a breach even if inherent is Critical",
+);
+assert(
+  residualBlockers({ likelihood: 3, impact: 4 }, { likelihood: 4, impact: 4 }, { controlCount: 1 })
+    .some((message) => message.includes("cannot be higher")),
+  "residual likelihood above inherent is blocked",
+);
+assert(
+  residualBlockers({ likelihood: 4, impact: 4 }, { likelihood: 3, impact: 4 }, { controlCount: 0 })
+    .some((message) => message.includes("no linked controls")),
+  "residual reduction without controls is blocked",
+);
+assert(
+  residualBlockers({ likelihood: 4, impact: 4 }, { likelihood: 3, impact: 4 }, { controlCount: 2 })
+    .length === 0,
+  "residual below inherent with controls is allowed",
+);
+assert(operatingBand(risks[0]) === "Critical", "unassessed residual uses inherent");
+assert(
+  storedResidual({ residual_likelihood: 2, residual_impact: 3 })?.likelihood === 2,
+  "stored residual is read as a pair",
+);
 assert(!isActiveRisk(risks[2]), "closed risk is inactive");
 
 assert(matchesCategoryFilter(null, UNCATEGORISED_FILTER), "uncategorised filter matches null");
@@ -465,6 +498,46 @@ assert(
   "saved views reject absolute URLs",
 );
 
+assert(
+  buildQualityFindings({
+    risks,
+    controls,
+    incidents,
+    issues,
+    indexes,
+    riskControlLinks: [
+      { risk_id: "r1", control_id: "c1" },
+      { risk_id: "r2", control_id: "c1" },
+    ],
+    issueRiskLinks: [{ issue_id: "i1", risk_id: "r1" }],
+    issueControlLinks: [],
+    operatingReady: true,
+    residualReady: true,
+  }).some((finding) => finding.id === "residual-unassessed" && finding.count >= 2),
+  "quality flags active risks without a stored residual",
+);
+
+assert(
+  buildQualityFindings({
+    risks: [
+      {
+        ...risks[0],
+        residual_likelihood: 2,
+        residual_impact: 2,
+      },
+    ],
+    controls,
+    incidents,
+    issues,
+    indexes: { ...indexes, linkedControlCountsByRisk: {} },
+    riskControlLinks: [],
+    issueRiskLinks: [],
+    issueControlLinks: [],
+    residualReady: true,
+  }).some((finding) => finding.id === "residual-without-controls" && finding.count === 1),
+  "quality flags residual reduced with no linked controls",
+);
+
 const quality = buildQualityFindings({
   risks,
   controls,
@@ -566,6 +639,40 @@ assert(
   "stackByMonth buckets the current month in a 12-month window",
 );
 
+const issueFlow = buildIssueFlowTrend([
+  { identified_at: "2026-08-02", closed_at: null },
+  { identified_at: "2026-07-02", closed_at: "2026-08-03" },
+]);
+assert(
+  issueFlow[issueFlow.length - 1]?.opened === 1 &&
+    issueFlow[issueFlow.length - 1]?.closed === 1,
+  "issue flow keeps opened and closed on the same chart, not mixed with tests",
+);
+const incidentFlow = buildIncidentFlowTrend([
+  { date_occurred: "2026-08-01", resolved_at: "2026-08-10" },
+]);
+assert(
+  incidentFlow[incidentFlow.length - 1]?.opened === 1 &&
+    incidentFlow[incidentFlow.length - 1]?.resolved === 1,
+  "incident flow is occurred vs resolved",
+);
+assert(
+  summariseFlowWindow(
+    [
+      { opened: 2, closed: 1 },
+      { opened: 1, closed: 3 },
+    ],
+    "closed",
+  ).net === -1,
+  "flow window net is opened minus closed",
+);
+assert(
+  buildSeverityBandCounts([
+    { ...risks[0], residual_likelihood: 2, residual_impact: 2 },
+  ]).find((row) => row.band === "Low")?.count === 1,
+  "score bands use residual when assessed",
+);
+
 assert(
   riskQuality(risks[1], {
     controlCount: 0,
@@ -573,6 +680,17 @@ assert(
     enterpriseReady: true,
   }).flags.includes("Uncategorised"),
   "record quality flags uncategorised active risks",
+);
+assert(
+  riskQuality(
+    {
+      ...risks[0],
+      residual_likelihood: 2,
+      residual_impact: 2,
+    },
+    { controlCount: 0, hasReview: true, residualReady: true },
+  ).flags.includes("Residual reduced with no linked controls"),
+  "record quality flags residual reduction without controls",
 );
 assert(
   riskQuality(risks[2], { controlCount: 0, hasReview: false }).applicable === 0,

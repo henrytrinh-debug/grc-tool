@@ -24,45 +24,46 @@ import {
   primaryButtonClassName,
   secondaryButtonClassName,
 } from "@/app/components/ui";
-import { ControlsSummaryCard } from "@/app/rcsa/_components/controls-summary-card";
 import { EvidenceBriefCard } from "@/app/rcsa/_components/evidence-brief";
-import { IncidentsSummaryCard } from "@/app/rcsa/_components/incidents-summary-card";
-import { IssuesSummaryCard } from "@/app/rcsa/_components/issues-summary-card";
 import { ResidualInsight } from "@/app/rcsa/_components/residual-insight";
+import { ReviewEvidenceLinks } from "@/app/rcsa/_components/review-evidence-links";
 import { getRiskScore, getSeverityBand } from "@/lib/dashboard/analytics";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import {
   buildEvidenceBrief,
   buildIndicativeResidual,
 } from "@/lib/rcsa/review-insight";
+import {
+  clampResidualToInherent,
+  residualBlockers,
+  residualCellAllowed,
+  residualWarnings,
+  storedResidual,
+} from "@/lib/risk/ratings";
+import { useSettings } from "@/lib/settings/context";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { throwIfAnyQueryError } from "@/lib/supabase/owned";
-import {
-  groupIncidentRiskRowsByRisk,
-  INCIDENT_RISK_INCIDENT_SELECT,
-  type IncidentRiskIncidentRow,
-} from "@/lib/types/incident-risk";
-import {
-  groupIssuesByRisk,
-  ISSUE_RISK_ISSUE_SELECT,
-  type IssueRiskIssueRow,
-} from "@/lib/types/issue-links";
+import { isIssueOpen } from "@/lib/types/issue";
 import type {
   LinkedControl,
   LinkedIncident,
   LinkedIssue,
 } from "@/lib/types/linked-entities";
-import { toRcsaReviewInsertPayload, formatLastReviewedAt, type RcsaReview } from "@/lib/types/rcsa";
-import { formatImpactOption, formatLikelihoodOption, type Risk } from "@/lib/types/risk";
 import {
-  groupRiskControlRows,
-  RISK_CONTROL_SELECT,
-  type RiskControlRow,
-} from "@/lib/types/risk-control";
+  formatLastReviewedAt,
+  toRcsaReviewInsertPayload,
+  type RcsaReview,
+} from "@/lib/types/rcsa";
+import {
+  formatImpactOption,
+  formatLikelihoodOption,
+  type Risk,
+} from "@/lib/types/risk";
 
 function RcsaReviewPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { residualReady } = useSettings();
   const sessionFromUrl = searchParams.get("session") ?? "";
   const riskIds = useMemo(() => {
     const multi = (searchParams.get("risks") ?? "")
@@ -79,6 +80,7 @@ function RcsaReviewPageContent() {
   }, [searchParams]);
 
   const creatingSessionRef = useRef(false);
+  const residualTouchedRef = useRef(false);
   const [createdSessionId, setCreatedSessionId] = useState("");
   const [currentIndex, setCurrentIndex] = useState(0);
   const [risk, setRisk] = useState<Risk | null>(null);
@@ -87,23 +89,36 @@ function RcsaReviewPageContent() {
   const [linkedIssues, setLinkedIssues] = useState<LinkedIssue[]>([]);
   const [lastReview, setLastReview] = useState<Pick<
     RcsaReview,
-    | "reviewed_at"
-    | "final_likelihood"
-    | "final_impact"
+    "reviewed_at" | "final_likelihood" | "final_impact"
   > | null>(null);
   const [likelihood, setLikelihood] = useState(3);
   const [impact, setImpact] = useState(3);
+  const [residualLikelihood, setResidualLikelihood] = useState(3);
+  const [residualImpact, setResidualImpact] = useState(3);
   const [submitting, setSubmitting] = useState(false);
   const [completed, setCompleted] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const { user, authLoading } = useRequireAuth();
-
-  // The session id lives in the URL once created, so a refresh resumes it.
   const sessionId = sessionFromUrl || createdSessionId;
   const currentRiskId = riskIds[currentIndex] ?? null;
   const isLastRisk = currentIndex >= riskIds.length - 1;
   const loadingRisk = !risk || risk.id !== currentRiskId;
+  const returnTo = `/rcsa/review?${searchParams.toString()}`;
+
+  const handleLinksChange = useCallback(
+    (links: {
+      controls: LinkedControl[];
+      incidents: LinkedIncident[];
+      issues: LinkedIssue[];
+    }) => {
+      setLinkedControls(links.controls);
+      setLinkedIncidents(links.incidents);
+      setLinkedIssues(links.issues);
+    },
+    [],
+  );
+
   const evidenceBrief = useMemo(
     () =>
       buildEvidenceBrief({
@@ -113,43 +128,53 @@ function RcsaReviewPageContent() {
       }),
     [linkedControls, linkedIncidents, linkedIssues],
   );
-  const residual = useMemo(
+  const indicative = useMemo(
     () => buildIndicativeResidual(likelihood, impact, linkedControls),
     [impact, likelihood, linkedControls],
   );
+  const confirmedResidual = {
+    likelihood: residualLikelihood,
+    impact: residualImpact,
+  };
+  const blockers = residualReady
+    ? residualBlockers(
+        { likelihood, impact },
+        confirmedResidual,
+        { controlCount: linkedControls.length, required: true },
+      )
+    : [];
+  const warnings = residualReady
+    ? residualWarnings(
+        { likelihood, impact },
+        confirmedResidual,
+        indicative,
+        {
+          controlCount: linkedControls.length,
+          openHighIncidents: linkedIncidents.filter(
+            (incident) =>
+              incident.status !== "resolved" &&
+              (incident.severity === "high" || incident.severity === "critical"),
+          ).length,
+          openHighIssues: linkedIssues.filter(
+            (issue) =>
+              isIssueOpen(issue.status) &&
+              (issue.severity === "high" || issue.severity === "critical"),
+          ).length,
+        },
+      )
+    : [];
 
   const loadCurrentRisk = useCallback(
     async (ownerId: string, riskId: string) => {
       try {
         const supabase = getSupabaseClient();
-        const [
-          riskResult,
-          controlsResult,
-          incidentsResult,
-          issuesResult,
-          lastReviewResult,
-        ] = await Promise.all([
+        const [riskResult, lastReviewResult] = await Promise.all([
           supabase
             .from("risks")
             .select("*")
             .eq("id", riskId)
             .eq("owner_id", ownerId)
             .maybeSingle(),
-          supabase
-            .from("risk_controls")
-            .select(RISK_CONTROL_SELECT)
-            .eq("owner_id", ownerId)
-            .eq("risk_id", riskId),
-          supabase
-            .from("incident_risks")
-            .select(INCIDENT_RISK_INCIDENT_SELECT)
-            .eq("owner_id", ownerId)
-            .eq("risk_id", riskId),
-          supabase
-            .from("issue_risks")
-            .select(ISSUE_RISK_ISSUE_SELECT)
-            .eq("owner_id", ownerId)
-            .eq("risk_id", riskId),
           supabase
             .from("rcsa_reviews")
             .select("reviewed_at, final_likelihood, final_impact")
@@ -159,36 +184,19 @@ function RcsaReviewPageContent() {
             .limit(1),
         ]);
 
-        throwIfAnyQueryError([
-          riskResult,
-          controlsResult,
-          incidentsResult,
-          issuesResult,
-          lastReviewResult,
-        ]);
+        throwIfAnyQueryError([riskResult, lastReviewResult]);
 
         if (!riskResult.data) {
           throw new Error("Risk not found or you do not have access to it");
         }
 
         const loadedRisk = riskResult.data as Risk;
+        const stored = storedResidual(loadedRisk);
+        residualTouchedRef.current = Boolean(stored);
         setLikelihood(loadedRisk.likelihood);
         setImpact(loadedRisk.impact);
-        setLinkedControls(
-          groupRiskControlRows(
-            (controlsResult.data ?? []) as RiskControlRow[],
-          )[riskId] ?? [],
-        );
-        setLinkedIncidents(
-          groupIncidentRiskRowsByRisk(
-            (incidentsResult.data ?? []) as IncidentRiskIncidentRow[],
-          )[riskId] ?? [],
-        );
-        setLinkedIssues(
-          groupIssuesByRisk(
-            (issuesResult.data ?? []) as IssueRiskIssueRow[],
-          )[riskId] ?? [],
-        );
+        setResidualLikelihood(stored?.likelihood ?? loadedRisk.likelihood);
+        setResidualImpact(stored?.impact ?? loadedRisk.impact);
         setLastReview(
           ((lastReviewResult.data ?? []) as Pick<
             RcsaReview,
@@ -199,9 +207,6 @@ function RcsaReviewPageContent() {
         setRisk(loadedRisk);
       } catch (err) {
         setRisk(null);
-        setLinkedControls([]);
-        setLinkedIncidents([]);
-        setLinkedIssues([]);
         setLastReview(null);
         setError(
           err instanceof Error ? err.message : "Failed to load risk for review",
@@ -213,7 +218,6 @@ function RcsaReviewPageContent() {
 
   const createSession = useCallback(
     async (ownerId: string, ownerEmail: string | undefined) => {
-      // Guard against a second insert while the first is still in flight.
       if (creatingSessionRef.current) {
         return;
       }
@@ -253,9 +257,6 @@ function RcsaReviewPageContent() {
     [router, searchParams],
   );
 
-  // Both effects below synchronise with Supabase off the URL-driven session and
-  // risk ids, so the state they set lands in an async callback rather than
-  // during the effect body itself.
   useEffect(() => {
     if (!user || sessionId || riskIds.length === 0) {
       return;
@@ -274,6 +275,15 @@ function RcsaReviewPageContent() {
     void loadCurrentRisk(user.id, currentRiskId);
   }, [completed, currentRiskId, loadCurrentRisk, sessionId, user]);
 
+  useEffect(() => {
+    if (!residualReady || residualTouchedRef.current) {
+      return;
+    }
+
+    setResidualLikelihood(indicative.residualLikelihood);
+    setResidualImpact(indicative.residualImpact);
+  }, [indicative.residualImpact, indicative.residualLikelihood, residualReady]);
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -286,11 +296,17 @@ function RcsaReviewPageContent() {
       return;
     }
 
+    if (blockers.length > 0) {
+      setError(blockers.join(" "));
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
 
     try {
       const supabase = getSupabaseClient();
+      const previousResidual = storedResidual(risk);
       const payload = toRcsaReviewInsertPayload(
         {
           session_id: sessionId,
@@ -299,13 +315,27 @@ function RcsaReviewPageContent() {
           previous_impact: risk.impact,
           final_likelihood: likelihood,
           final_impact: impact,
+          previous_residual_likelihood: previousResidual?.likelihood ?? null,
+          previous_residual_impact: previousResidual?.impact ?? null,
+          final_residual_likelihood: residualLikelihood,
+          final_residual_impact: residualImpact,
         },
         { id: user.id, email: user.email },
+        { includeResidual: residualReady },
       );
 
       const { error: updateError } = await supabase
         .from("risks")
-        .update({ likelihood, impact })
+        .update({
+          likelihood,
+          impact,
+          ...(residualReady
+            ? {
+                residual_likelihood: residualLikelihood,
+                residual_impact: residualImpact,
+              }
+            : {}),
+        })
         .eq("id", risk.id)
         .eq("owner_id", user.id);
 
@@ -337,12 +367,18 @@ function RcsaReviewPageContent() {
   }
 
   function handleSkip() {
+    const residualChanged =
+      residualReady &&
+      risk &&
+      (residualLikelihood !== (storedResidual(risk)?.likelihood ?? risk.likelihood) ||
+        residualImpact !== (storedResidual(risk)?.impact ?? risk.impact));
+
     if (
       risk &&
-      (likelihood !== risk.likelihood || impact !== risk.impact)
+      (likelihood !== risk.likelihood || impact !== risk.impact || residualChanged)
     ) {
       const confirmed = window.confirm(
-        "You changed the rating. Skip without saving this review?",
+        "You changed a rating. Skip without saving this review?",
       );
 
       if (!confirmed) {
@@ -416,7 +452,7 @@ function RcsaReviewPageContent() {
       <main className="mx-auto flex w-full max-w-4xl flex-col gap-8">
         <PageHeader
           title="Risk Assessment"
-          description={`Risk ${currentIndex + 1} of ${riskIds.length}`}
+          description={`Risk ${currentIndex + 1} of ${riskIds.length}. Confirm inherent first, link evidence, then confirm residual.`}
           actions={
             <>
               {risk && (
@@ -425,6 +461,7 @@ function RcsaReviewPageContent() {
                     source: "risk_assessment",
                     risk: risk.id,
                     title: `Issue identified for risk: ${risk.title}`,
+                    returnTo,
                   }).toString()}`}
                   className={secondaryButtonClassName}
                 >
@@ -440,7 +477,7 @@ function RcsaReviewPageContent() {
 
         <ErrorBanner message={error} />
 
-        {loadingRisk || !risk ? (
+        {loadingRisk || !risk || !user ? (
           <p className={mutedTextClassName}>Loading risk...</p>
         ) : (
           <>
@@ -459,30 +496,33 @@ function RcsaReviewPageContent() {
               {lastReview && (
                 <p className={`mt-3 text-sm ${mutedTextClassName}`}>
                   Last reviewed {formatLastReviewedAt(lastReview.reviewed_at)}{" "}
-                  at {formatLikelihoodOption(lastReview.final_likelihood)} ×{" "}
+                  at inherent {formatLikelihoodOption(lastReview.final_likelihood)} ×{" "}
                   {formatImpactOption(lastReview.final_impact)}.
                 </p>
               )}
               <dl className="mt-6 grid gap-4 sm:grid-cols-3">
                 <div>
                   <dt className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Current likelihood
+                    Current inherent
                   </dt>
                   <dd className="mt-1 text-sm font-medium text-slate-950 dark:text-slate-50">
-                    {formatLikelihoodOption(risk.likelihood)}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Current impact
-                  </dt>
-                  <dd className="mt-1 text-sm font-medium text-slate-950 dark:text-slate-50">
+                    {formatLikelihoodOption(risk.likelihood)} ×{" "}
                     {formatImpactOption(risk.impact)}
                   </dd>
                 </div>
                 <div>
                   <dt className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Current score
+                    Current residual
+                  </dt>
+                  <dd className="mt-1 text-sm font-medium text-slate-950 dark:text-slate-50">
+                    {storedResidual(risk)
+                      ? `${formatLikelihoodOption(storedResidual(risk)!.likelihood)} × ${formatImpactOption(storedResidual(risk)!.impact)}`
+                      : "Not assessed"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Inherent score
                   </dt>
                   <dd className="mt-1 flex flex-wrap items-center gap-2 text-sm font-medium text-slate-950 dark:text-slate-50">
                     {getRiskScore(risk.likelihood, risk.impact)}
@@ -496,46 +536,115 @@ function RcsaReviewPageContent() {
               </dl>
             </section>
 
+            <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+              <h2 className="text-lg font-medium text-slate-950 dark:text-slate-50">
+                1. Confirm inherent rating
+              </h2>
+              <p className={`mt-1 text-sm ${mutedTextClassName}`}>
+                Gross exposure before crediting controls. Residual cells above
+                this rating stay disabled.
+              </p>
+              <div className="mt-6">
+                <RiskScorePicker
+                  likelihood={likelihood}
+                  impact={impact}
+                  legend="Inherent"
+                  onChange={(next) => {
+                    const clamped = clampResidualToInherent(next, {
+                      likelihood: residualLikelihood,
+                      impact: residualImpact,
+                    });
+                    setLikelihood(next.likelihood);
+                    setImpact(next.impact);
+                    if (residualTouchedRef.current) {
+                      setResidualLikelihood(clamped.likelihood);
+                      setResidualImpact(clamped.impact);
+                    }
+                  }}
+                />
+              </div>
+            </section>
+
             <EvidenceBriefCard brief={evidenceBrief} />
 
-            {/* Keyed on the risk so each card starts collapsed for the next risk. */}
-            <ControlsSummaryCard key={`controls-${risk.id}`} links={linkedControls} />
-            <IncidentsSummaryCard
-              key={`incidents-${risk.id}`}
-              links={linkedIncidents}
+            <ReviewEvidenceLinks
+              key={risk.id}
+              riskId={risk.id}
+              ownerId={user.id}
+              returnTo={returnTo}
+              onError={setError}
+              onLinksChange={handleLinksChange}
             />
-            <IssuesSummaryCard key={`issues-${risk.id}`} links={linkedIssues} />
 
             <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <h2 className="text-lg font-medium text-slate-950 dark:text-slate-50">
-                Confirm inherent rating
+                3. Confirm residual rating
               </h2>
               <p className={`mt-1 text-sm ${mutedTextClassName}`}>
-                Click a cell to confirm or change likelihood and impact. Residual
-                below updates as an indicative view of control effectiveness —
-                it is not saved separately.
+                {residualReady
+                  ? "Net exposure after current controls. This is stored on the register and compared to appetite."
+                  : "Run supabase/schema/010_residual.sql to store residual separately. Until then, only inherent is saved."}
               </p>
 
               <div className="mt-6 space-y-6">
-                <ResidualInsight residual={residual} />
+                <ResidualInsight residual={indicative} />
+                {residualReady ? (
+                  <button
+                    type="button"
+                    className={secondaryButtonClassName}
+                    onClick={() => {
+                      residualTouchedRef.current = true;
+                      setResidualLikelihood(indicative.residualLikelihood);
+                      setResidualImpact(indicative.residualImpact);
+                    }}
+                  >
+                    Apply indicative residual
+                  </button>
+                ) : null}
 
                 <form
                   onSubmit={(event) => void handleSubmit(event)}
                   className="space-y-6"
                 >
-                  <RiskScorePicker
-                    likelihood={likelihood}
-                    impact={impact}
-                    onChange={(next) => {
-                      setLikelihood(next.likelihood);
-                      setImpact(next.impact);
-                    }}
-                  />
+                  {residualReady ? (
+                    <RiskScorePicker
+                      likelihood={residualLikelihood}
+                      impact={residualImpact}
+                      legend="Residual"
+                      description="Disabled cells sit above inherent."
+                      isCellEnabled={(cellLikelihood, cellImpact) =>
+                        residualCellAllowed(
+                          { likelihood, impact },
+                          cellLikelihood,
+                          cellImpact,
+                        )
+                      }
+                      onChange={(next) => {
+                        residualTouchedRef.current = true;
+                        setResidualLikelihood(next.likelihood);
+                        setResidualImpact(next.impact);
+                      }}
+                    />
+                  ) : null}
 
-                  <div className="flex flex-wrap gap-3">
+                  {blockers.length > 0 ? (
+                    <p className="text-sm text-red-700 dark:text-red-400">
+                      {blockers.join(" ")}
+                    </p>
+                  ) : null}
+                  {warnings.map((warning) => (
+                    <p
+                      key={warning}
+                      className="text-sm text-amber-800 dark:text-amber-300"
+                    >
+                      {warning}
+                    </p>
+                  ))}
+
+                  <div className="sticky bottom-4 z-10 flex flex-wrap gap-3 rounded-xl border border-slate-200 bg-white/95 p-4 shadow-lg backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
                     <button
                       type="submit"
-                      disabled={submitting}
+                      disabled={submitting || blockers.length > 0}
                       className={primaryButtonClassName}
                     >
                       {submitting

@@ -119,6 +119,7 @@ function AdminSettings({ user }: { user: User }) {
     governanceReady,
     obligationsReady,
     evidenceReady,
+    residualReady,
     evidenceStorageReady,
     demoIds,
     saveSettings,
@@ -209,6 +210,7 @@ function AdminSettings({ user }: { user: User }) {
           includeOperating: operatingReady,
           includeObligations: obligationsReady,
           includeEvidence: evidenceReady,
+          includeResidual: residualReady,
         },
       );
       await setDemoIds(ids);
@@ -327,6 +329,14 @@ function AdminSettings({ user }: { user: User }) {
             Run <code className="font-mono">supabase/schema/009_evidence.sql</code>{" "}
             to enable evidence metadata. File uploads also need the private{" "}
             <code className="font-mono">grc-evidence</code> Storage bucket.
+          </SchemaNotice>
+        )}
+
+        {!residualReady && (
+          <SchemaNotice>
+            Run <code className="font-mono">supabase/schema/010_residual.sql</code>{" "}
+            to store residual likelihood and impact alongside inherent ratings.
+            Until then, Risk Assessment still confirms inherent only.
           </SchemaNotice>
         )}
 

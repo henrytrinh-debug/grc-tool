@@ -1,4 +1,4 @@
-import { getRiskScore, getSeverityBand } from "@/lib/dashboard/analytics";
+import { operatingBand } from "@/lib/risk/ratings";
 import type { RiskCategory } from "@/lib/settings/defaults";
 import { isAppetiteBreach, isActiveRisk } from "@/lib/taxonomy";
 import { getTestingStatus, type Control } from "@/lib/types/control";
@@ -16,7 +16,7 @@ export function activeRisks(risks: Risk[]) {
 
 export function highCriticalRisks(risks: Risk[]) {
   return activeRisks(risks).filter((risk) => {
-    const band = getSeverityBand(getRiskScore(risk.likelihood, risk.impact));
+    const band = operatingBand(risk);
     return band === "High" || band === "Critical";
   });
 }

@@ -65,33 +65,60 @@ export function stackByMonth<T extends string>(
   }));
 }
 
-export const OPERATING_TREND_SERIES = [
-  { key: "incidents", label: "Incidents" },
-  { key: "issues", label: "Issues identified" },
-  { key: "tests", label: "Control tests" },
+export const ISSUE_FLOW_SERIES = [
+  { key: "opened", label: "Opened" },
+  { key: "closed", label: "Closed" },
 ] as const;
 
-export function buildOperatingTrend(input: {
-  incidents: Array<{ date_occurred?: string | null }>;
-  issues: Array<{ identified_at?: string | null }>;
-  tests: Array<{ tested_at?: string | null }>;
-}) {
+export const INCIDENT_FLOW_SERIES = [
+  { key: "opened", label: "Occurred" },
+  { key: "resolved", label: "Resolved" },
+] as const;
+
+export const CONTROL_TEST_TREND_SERIES = [
+  { key: "effective", label: "Effective" },
+  { key: "ineffective", label: "Ineffective" },
+] as const;
+
+export function buildIssueFlowTrend(issues: Array<{
+  identified_at?: string | null;
+  closed_at?: string | null;
+}>) {
+  return buildOpenedClosedTrend(
+    issues.map((row) => ({ date: row.identified_at })),
+    issues
+      .filter((row) => row.closed_at)
+      .map((row) => ({ date: row.closed_at })),
+  );
+}
+
+export function buildIncidentFlowTrend(incidents: Array<{
+  date_occurred?: string | null;
+  resolved_at?: string | null;
+}>) {
+  return buildOpenedClosedTrend(
+    incidents.map((row) => ({ date: row.date_occurred })),
+    incidents
+      .filter((row) => row.resolved_at)
+      .map((row) => ({ date: row.resolved_at })),
+    "resolved",
+  );
+}
+
+export function buildControlTestTrend(
+  tests: Array<{ tested_at?: string | null; effectiveness?: string | null }>,
+) {
   return stackByMonth(
-    [
-      ...input.incidents.map((row) => ({
-        date: row.date_occurred,
-        series: "incidents" as const,
-      })),
-      ...input.issues.map((row) => ({
-        date: row.identified_at,
-        series: "issues" as const,
-      })),
-      ...input.tests.map((row) => ({
+    tests
+      .filter(
+        (row) =>
+          row.effectiveness === "effective" || row.effectiveness === "ineffective",
+      )
+      .map((row) => ({
         date: row.tested_at,
-        series: "tests" as const,
+        series: row.effectiveness as "effective" | "ineffective",
       })),
-    ],
-    ["incidents", "issues", "tests"],
+    ["effective", "ineffective"],
   );
 }
 
@@ -107,4 +134,39 @@ export function buildOpenedClosedTrend(
     ],
     ["opened", closedKey],
   );
+}
+
+export type FlowWindowTotals = {
+  opened: number;
+  closed: number;
+  net: number;
+};
+
+/** Stock/flow caption: inflows vs outflows across the already-bucketed window. */
+export function summariseFlowWindow(
+  rows: Array<{ opened: number; closed?: number; resolved?: number }>,
+  closedKey: "closed" | "resolved" = "closed",
+): FlowWindowTotals {
+  const totals = rows.reduce<{ opened: number; closed: number }>(
+    (acc, row) => {
+      const closed = Number(row[closedKey] ?? 0);
+      return {
+        opened: acc.opened + row.opened,
+        closed: acc.closed + closed,
+      };
+    },
+    { opened: 0, closed: 0 },
+  );
+
+  return { ...totals, net: totals.opened - totals.closed };
+}
+
+export function formatFlowWindowHint(totals: FlowWindowTotals, closedLabel: string) {
+  const netLabel =
+    totals.net === 0
+      ? "net flat"
+      : totals.net > 0
+        ? `net +${totals.net}`
+        : `net ${totals.net}`;
+  return `Last 12 months: ${totals.opened} in, ${totals.closed} ${closedLabel} (${netLabel}).`;
 }

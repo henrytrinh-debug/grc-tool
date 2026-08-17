@@ -1,4 +1,5 @@
 import { highCriticalRisks } from "@/lib/metrics/kpis";
+import { storedResidual } from "@/lib/risk/ratings";
 import { getRiskScore, getSeverityBand } from "@/lib/dashboard/analytics";
 import { isReviewDue } from "@/lib/types/rcsa";
 import { todayIsoDate } from "@/lib/dates";
@@ -107,6 +108,7 @@ export function buildQualityFindings(input: {
   issueRiskLinks: IssueRiskLink[];
   issueControlLinks: IssueControlLink[];
   operatingReady?: boolean;
+  residualReady?: boolean;
   obligations?: ObligationRecord[];
   obligationControlLinks?: Array<{ obligation_id: string; control_id: string }>;
   evidence?: EvidenceRecord[];
@@ -273,6 +275,57 @@ export function buildQualityFindings(input: {
         "Active accepted or transferred risks that do not record why.",
         "/risks",
         missingRationale,
+        "risks",
+      ),
+    );
+  }
+
+  if (input.residualReady) {
+    const unassessedResidual = input.risks
+      .filter((risk) => isActiveRisk(risk) && !storedResidual(risk))
+      .map((risk) => ({
+        id: risk.id,
+        title: risk.title,
+        href: riskHref(risk.id),
+      }));
+
+    findings.push(
+      finding(
+        "residual-unassessed",
+        "Residual rating not assessed",
+        "Active risks still have inherent only. Confirm residual in Risk Assessment after reviewing controls.",
+        "/risks?residualUnassessed=true",
+        unassessedResidual,
+        "risks",
+      ),
+    );
+
+    const residualWithoutControls = input.risks
+      .filter((risk) => {
+        if (!isActiveRisk(risk)) {
+          return false;
+        }
+        const residual = storedResidual(risk);
+        if (!residual) {
+          return false;
+        }
+        const reduced =
+          residual.likelihood < risk.likelihood || residual.impact < risk.impact;
+        return reduced && (linkedControls[risk.id] ?? 0) === 0;
+      })
+      .map((risk) => ({
+        id: risk.id,
+        title: risk.title,
+        href: riskHref(risk.id),
+      }));
+
+    findings.push(
+      finding(
+        "residual-without-controls",
+        "Residual reduced with no linked controls",
+        "Net rating sits below inherent but the risk has no mapped controls. Link a control or set residual equal to inherent.",
+        "/risks?uncontrolled=true",
+        residualWithoutControls,
         "risks",
       ),
     );
@@ -471,6 +524,7 @@ export function buildRegisterQualityScores(
           hasReview: Boolean(lastReviewed[risk.id]),
           operatingReady: input.operatingReady,
           enterpriseReady: input.enterpriseReady,
+          residualReady: input.residualReady,
         }),
       ),
     ),
