@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --background: #f8fafc;
   --foreground: #0f172a;
@@ -14,6 +16,72 @@
   --accent-foreground: #ffffff;
   --muted: #64748b;
   --ring: #14b8a6;
+  color-scheme: light;
+}
+
+html.dark {
+  --background: #020617;
+  --foreground: #f8fafc;
+  --surface: #0f172a;
+  --surface-muted: #1e293b;
+  --border: #334155;
+  --sidebar: #0f172a;
+  --sidebar-border: #1e293b;
+  --accent: #2dd4bf;
+  --accent-hover: #5eead4;
+  --accent-muted: #134e4a;
+  --accent-foreground: #042f2e;
+  --muted: #94a3b8;
+  --ring: #2dd4bf;
+  color-scheme: dark;
+}
+
+html[data-palette="navy"] {
+  --accent: #1d4ed8;
+  --accent-hover: #1e40af;
+  --accent-muted: #dbeafe;
+  --accent-foreground: #ffffff;
+  --ring: #3b82f6;
+}
+
+html.dark[data-palette="navy"] {
+  --accent: #93c5fd;
+  --accent-hover: #bfdbfe;
+  --accent-muted: #1e3a8a;
+  --accent-foreground: #0f172a;
+  --ring: #93c5fd;
+}
+
+html[data-palette="stone"] {
+  --background: #fafaf9;
+  --foreground: #1c1917;
+  --surface: #ffffff;
+  --surface-muted: #f5f5f4;
+  --border: #e7e5e4;
+  --sidebar: #ffffff;
+  --sidebar-border: #e7e5e4;
+  --accent: #57534e;
+  --accent-hover: #44403c;
+  --accent-muted: #e7e5e4;
+  --accent-foreground: #ffffff;
+  --muted: #78716c;
+  --ring: #78716c;
+}
+
+html.dark[data-palette="stone"] {
+  --background: #1c1917;
+  --foreground: #fafaf9;
+  --surface: #292524;
+  --surface-muted: #44403c;
+  --border: #57534e;
+  --sidebar: #292524;
+  --sidebar-border: #44403c;
+  --accent: #d6d3d1;
+  --accent-hover: #e7e5e4;
+  --accent-muted: #44403c;
+  --accent-foreground: #1c1917;
+  --muted: #a8a29e;
+  --ring: #d6d3d1;
 }
 
 @theme inline {
@@ -34,27 +102,9 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #020617;
-    --foreground: #f8fafc;
-    --surface: #0f172a;
-    --surface-muted: #1e293b;
-    --border: #334155;
-    --sidebar: #0f172a;
-    --sidebar-border: #1e293b;
-    --accent: #2dd4bf;
-    --accent-hover: #5eead4;
-    --accent-muted: #134e4a;
-    --accent-foreground: #042f2e;
-    --muted: #94a3b8;
-    --ring: #2dd4bf;
-  }
-}
-
 body {
   background:
-    radial-gradient(1200px 500px at 0% -10%, rgb(13 148 136 / 0.08), transparent 50%),
+    radial-gradient(1200px 500px at 0% -10%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 50%),
     var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;

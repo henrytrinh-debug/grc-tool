@@ -19,6 +19,7 @@ import {
 } from "@/app/components/page-parts";
 import { EventTimeline } from "@/app/components/event-timeline";
 import { EvidencePanel } from "@/app/components/evidence-panel";
+import { RecordFeedback } from "@/app/components/record-feedback";
 import { QualityCallout } from "@/app/components/quality-indicator";
 import {
   dangerButtonClassName,
@@ -81,7 +82,7 @@ export default function EditRiskPage() {
   const [submitting, setSubmitting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { schemaReady, enterpriseReady, operatingReady, governanceReady, residualReady } =
+  const { schemaReady, enterpriseReady, operatingReady, governanceReady, residualReady, feedbackReady, people } =
     useSettings();
 
   const {
@@ -528,6 +529,14 @@ export default function EditRiskPage() {
         ) : null}
 
         <EvidencePanel entityType="risk" entityId={riskId} />
+
+        <RecordFeedback
+          entityType="risk"
+          entityId={riskId}
+          enabled={feedbackReady}
+          owner={user?.email ? { id: user.id, email: user.email } : null}
+          people={people}
+        />
       </main>
     </div>
   );

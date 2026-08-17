@@ -29,6 +29,9 @@ export type RcsaReview = {
   ai_recommended_likelihood?: number | null;
   ai_recommended_impact?: number | null;
   ai_rationale?: string | null;
+  approver_id?: string | null;
+  approval_status?: "not_required" | "pending" | "approved" | "rejected" | null;
+  approved_at?: string | null;
   owner_id?: string;
   owner_email?: string;
   created_at?: string;
@@ -45,6 +48,8 @@ export type NewRcsaReview = {
   previous_residual_impact?: number | null;
   final_residual_likelihood?: number | null;
   final_residual_impact?: number | null;
+  approver_id?: string | null;
+  approval_status?: "not_required" | "pending" | "approved" | "rejected" | null;
 };
 
 export type RiskWithLastReviewed = {
@@ -164,7 +169,7 @@ export function formatNextReviewDue(
 export function toRcsaReviewInsertPayload(
   review: NewRcsaReview,
   owner: { id: string; email: string },
-  options: { includeResidual?: boolean } = {},
+  options: { includeResidual?: boolean; includeApproval?: boolean } = {},
 ) {
   return {
     session_id: review.session_id,
@@ -179,6 +184,13 @@ export function toRcsaReviewInsertPayload(
           previous_residual_impact: review.previous_residual_impact ?? null,
           final_residual_likelihood: review.final_residual_likelihood ?? null,
           final_residual_impact: review.final_residual_impact ?? null,
+        }
+      : {}),
+    ...(options.includeApproval
+      ? {
+          approver_id: review.approver_id ?? null,
+          approval_status: review.approval_status ?? "not_required",
+          approved_at: null,
         }
       : {}),
     ai_recommended_likelihood: null,

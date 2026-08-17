@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { followUpAfterLink } from "@/lib/feedback/ensure";
 import { getSupabaseClient } from "@/lib/supabase/client";
 
 type EntityLinksConfig<TRow, TLinked> = {
@@ -74,11 +75,12 @@ export function useEntityLinks<TRow, TLinked>(
     onError(null);
 
     try {
+      const childId = selectedId;
       const { error } = await getSupabaseClient()
         .from(table)
         .insert({
           [parentColumn]: parentId,
-          [childColumn]: selectedId,
+          [childColumn]: childId,
           owner_id: ownerId,
         });
 
@@ -89,6 +91,17 @@ export function useEntityLinks<TRow, TLinked>(
       setSelectedId("");
       setSearch("");
       await refresh(ownerId);
+
+      const {
+        data: { user },
+      } = await getSupabaseClient().auth.getUser();
+      if (user?.email) {
+        await followUpAfterLink(
+          getSupabaseClient(),
+          { id: user.id, email: user.email },
+          { table, parentColumn, parentId, childId },
+        ).catch(() => undefined);
+      }
     } catch (err) {
       onError(
         err instanceof Error ? err.message : `Failed to link ${label}`,

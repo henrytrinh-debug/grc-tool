@@ -12,6 +12,7 @@ export type WorkspaceModuleId =
   | "obligations"
   | "evidence"
   | "quality"
+  | "feedback"
   | "rcsa"
   | "admin";
 
@@ -43,6 +44,7 @@ export const NAVIGATION_SECTIONS: NavigationSection[] = [
       { module: "lines", href: "/lines", label: "Lines of defence" },
       { module: "board", href: "/board", label: "Board pack" },
       { module: "oversight", href: "/oversight", label: "Oversight" },
+      { module: "feedback", href: "/feedback", label: "Feedback" },
       { module: "quality", href: "/quality", label: "Data quality" },
     ],
   },
@@ -219,6 +221,12 @@ export const STATIC_COMMANDS: StaticCommand[] = [
     label: "Data quality",
     href: "/quality",
     keywords: "completeness gaps uncategorised unassigned",
+  },
+  {
+    module: "feedback",
+    label: "Feedback loops",
+    href: "/feedback",
+    keywords: "actions follow-up comments audit trail",
   },
   {
     module: "obligations",

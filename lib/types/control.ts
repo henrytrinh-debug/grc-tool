@@ -156,3 +156,25 @@ export function formatNextTestDue(
   }
   return formatIsoDate(getNextTestDueDate(lastTestedAt, isKey));
 }
+
+/**
+ * Effectiveness is a snapshot of the latest test. Once a test exists (or a
+ * last-tested date is set), Not Tested is not a valid state.
+ */
+export function controlEffectivenessBlockers(
+  form: Pick<NewControl, "effectiveness" | "last_tested_at">,
+  options: { hasTestHistory?: boolean } = {},
+) {
+  const tested = Boolean(options.hasTestHistory) || Boolean(form.last_tested_at);
+  if (tested && form.effectiveness === "not_tested") {
+    return [
+      "Effectiveness cannot be Not Tested after a test has been recorded. Record a new test, or set Effective / Ineffective to match the latest result.",
+    ];
+  }
+  if (!tested && form.effectiveness !== "not_tested" && !form.last_tested_at) {
+    return [
+      "Set a last-tested date, or record a test, before marking a control Effective or Ineffective.",
+    ];
+  }
+  return [];
+}

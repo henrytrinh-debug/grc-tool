@@ -26,6 +26,9 @@ import {
 } from "@/app/components/ui";
 import { EvidenceBriefCard } from "@/app/rcsa/_components/evidence-brief";
 import { ResidualInsight } from "@/app/rcsa/_components/residual-insight";
+import { AssigneeField } from "@/app/components/assignee-field";
+import { ensureFollowUp } from "@/lib/feedback/ensure";
+import { preferredApproverId } from "@/lib/types/person";
 import { ReviewEvidenceLinks } from "@/app/rcsa/_components/review-evidence-links";
 import { getRiskScore, getSeverityBand } from "@/lib/dashboard/analytics";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
@@ -63,7 +66,7 @@ import {
 function RcsaReviewPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { residualReady } = useSettings();
+  const { residualReady, feedbackReady, people, enterpriseReady } = useSettings();
   const sessionFromUrl = searchParams.get("session") ?? "";
   const riskIds = useMemo(() => {
     const multi = (searchParams.get("risks") ?? "")
@@ -95,6 +98,7 @@ function RcsaReviewPageContent() {
   const [impact, setImpact] = useState(3);
   const [residualLikelihood, setResidualLikelihood] = useState(3);
   const [residualImpact, setResidualImpact] = useState(3);
+  const [approverId, setApproverId] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [completed, setCompleted] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -197,6 +201,7 @@ function RcsaReviewPageContent() {
         setImpact(loadedRisk.impact);
         setResidualLikelihood(stored?.likelihood ?? loadedRisk.likelihood);
         setResidualImpact(stored?.impact ?? loadedRisk.impact);
+        setApproverId((current) => current || preferredApproverId(people));
         setLastReview(
           ((lastReviewResult.data ?? []) as Pick<
             RcsaReview,
@@ -213,7 +218,7 @@ function RcsaReviewPageContent() {
         );
       }
     },
-    [],
+    [people],
   );
 
   const createSession = useCallback(
@@ -307,6 +312,13 @@ function RcsaReviewPageContent() {
     try {
       const supabase = getSupabaseClient();
       const previousResidual = storedResidual(risk);
+      const ratingsChanged =
+        likelihood !== risk.likelihood ||
+        impact !== risk.impact ||
+        (residualReady &&
+          (previousResidual?.likelihood !== residualLikelihood ||
+            previousResidual?.impact !== residualImpact));
+      const needsApproval = Boolean(approverId) && ratingsChanged;
       const payload = toRcsaReviewInsertPayload(
         {
           session_id: sessionId,
@@ -319,9 +331,11 @@ function RcsaReviewPageContent() {
           previous_residual_impact: previousResidual?.impact ?? null,
           final_residual_likelihood: residualLikelihood,
           final_residual_impact: residualImpact,
+          approver_id: approverId || null,
+          approval_status: needsApproval ? "pending" : "not_required",
         },
         { id: user.id, email: user.email },
-        { includeResidual: residualReady },
+        { includeResidual: residualReady, includeApproval: feedbackReady },
       );
 
       const { error: updateError } = await supabase
@@ -349,6 +363,23 @@ function RcsaReviewPageContent() {
 
       if (insertError) {
         throw insertError;
+      }
+
+      if (needsApproval && user.email) {
+        await ensureFollowUp(
+          supabase,
+          { id: user.id, email: user.email },
+          {
+            title: `Approve rating change: ${risk.title}`,
+            description:
+              "Inherent or residual changed in this sitting. A second-line directory person should confirm the new operating band.",
+            entityType: "risk",
+            entityId: risk.id,
+            trigger: "rating_changed",
+            approverId,
+            status: "pending_approval",
+          },
+        ).catch(() => undefined);
       }
 
       if (isLastRisk) {
@@ -640,6 +671,15 @@ function RcsaReviewPageContent() {
                       {warning}
                     </p>
                   ))}
+
+                  {enterpriseReady && feedbackReady ? (
+                    <AssigneeField
+                      label="Approver"
+                      value={approverId}
+                      people={people}
+                      onChange={setApproverId}
+                    />
+                  ) : null}
 
                   <div className="sticky bottom-4 z-10 flex flex-wrap gap-3 rounded-xl border border-slate-200 bg-white/95 p-4 shadow-lg backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
                     <button

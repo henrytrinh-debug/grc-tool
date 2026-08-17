@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { LinkedEntitiesPanel } from "@/app/components/linked-entities-panel";
 import { EvidencePanel } from "@/app/components/evidence-panel";
+import { RecordFeedback } from "@/app/components/record-feedback";
 import { QualityCallout } from "@/app/components/quality-indicator";
 import {
   buildControlRows,
@@ -105,7 +106,7 @@ export default function EditIssuePage() {
   const [updatingActionId, setUpdatingActionId] = useState<string | null>(null);
   const [savingComment, setSavingComment] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { enterpriseReady } = useSettings();
+  const { enterpriseReady, feedbackReady, people } = useSettings();
 
   const fetchActions = useCallback(async () => {
     const supabase = getSupabaseClient();
@@ -644,6 +645,15 @@ export default function EditIssuePage() {
           comments={comments}
           saving={savingComment}
           onAddComment={handleAddComment}
+        />
+
+        <RecordFeedback
+          entityType="issue"
+          entityId={issueId}
+          enabled={feedbackReady}
+          owner={user?.email ? { id: user.id, email: user.email } : null}
+          people={people}
+          showComments={false}
         />
 
         <EvidencePanel entityType="issue" entityId={issueId} />

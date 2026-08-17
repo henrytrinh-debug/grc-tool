@@ -3,6 +3,8 @@ import type { Effectiveness } from "@/lib/types/control";
 import type { IncidentStatus, Severity } from "@/lib/types/incident";
 import type { IssueSeverity, IssueStatus } from "@/lib/types/issue";
 import type { IssueActionStatus } from "@/lib/types/issue-action";
+import type { FollowUpStatus } from "@/lib/types/follow-up";
+import { formatFollowUpStatus } from "@/lib/types/follow-up";
 
 const baseClassName =
   "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium";
@@ -207,6 +209,24 @@ export function ControlTypeBadge({ label }: { label: string }) {
   return (
     <Badge className="bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
       {label}
+    </Badge>
+  );
+}
+
+const followUpStatusClasses: Record<FollowUpStatus, string> = {
+  open: "bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300",
+  in_progress: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300",
+  pending_approval:
+    "bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-300",
+  done: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
+  dismissed:
+    "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+};
+
+export function FollowUpStatusBadge({ status }: { status: FollowUpStatus }) {
+  return (
+    <Badge className={followUpStatusClasses[status]}>
+      {formatFollowUpStatus(status)}
     </Badge>
   );
 }

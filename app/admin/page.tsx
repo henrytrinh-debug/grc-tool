@@ -27,6 +27,8 @@ import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import { DEFAULT_SETTINGS, type AppSettings } from "@/lib/settings/defaults";
 import { useSettings } from "@/lib/settings/context";
 import {
+  APPEARANCE_MODE_OPTIONS,
+  APPEARANCE_PALETTE_OPTIONS,
   BOARD_SECTION_OPTIONS,
   HOME_WIDGET_OPTIONS,
   OVERSIGHT_SECTION_OPTIONS,
@@ -120,6 +122,7 @@ function AdminSettings({ user }: { user: User }) {
     obligationsReady,
     evidenceReady,
     residualReady,
+    feedbackReady,
     evidenceStorageReady,
     demoIds,
     saveSettings,
@@ -211,12 +214,13 @@ function AdminSettings({ user }: { user: User }) {
           includeObligations: obligationsReady,
           includeEvidence: evidenceReady,
           includeResidual: residualReady,
+          includeFeedback: feedbackReady,
         },
       );
       await setDemoIds(ids);
       await reload();
       setMessage(
-        "Demonstration data loaded. Open Home, Horizon, Board pack, Data quality, Obligations, and Evidence to walk the story.",
+        "Demonstration data loaded. Open Home, Feedback, Board pack, Data quality, and the risk register to walk the story.",
       );
     } catch (err) {
       setError(
@@ -340,6 +344,14 @@ function AdminSettings({ user }: { user: User }) {
           </SchemaNotice>
         )}
 
+        {!feedbackReady && (
+          <SchemaNotice>
+            Run <code className="font-mono">supabase/schema/011_feedback.sql</code>{" "}
+            after 010 to enable comments, follow-ups, audit trail, and RCSA
+            approvers.
+          </SchemaNotice>
+        )}
+
         {evidenceReady && !evidenceStorageReady && (
           <SchemaNotice>
             Evidence metadata is available, but Storage is not. Create the
@@ -443,6 +455,57 @@ function AdminSettings({ user }: { user: User }) {
                     )
                   }
                 />
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="flex flex-col gap-1">
+                  <span className={labelClassName}>Colour mode</span>
+                  <select
+                    value={draft.workspacePreferences.appearance.mode}
+                    onChange={(event) =>
+                      setDraft((current) =>
+                        withPrefs(current, {
+                          appearance: {
+                            ...current.workspacePreferences.appearance,
+                            mode: event.target.value as
+                              (typeof APPEARANCE_MODE_OPTIONS)[number]["id"],
+                          },
+                        }),
+                      )
+                    }
+                    className={inputClassName}
+                  >
+                    {APPEARANCE_MODE_OPTIONS.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className={labelClassName}>Accent palette</span>
+                  <select
+                    value={draft.workspacePreferences.appearance.palette}
+                    onChange={(event) =>
+                      setDraft((current) =>
+                        withPrefs(current, {
+                          appearance: {
+                            ...current.workspacePreferences.appearance,
+                            palette: event.target.value as
+                              (typeof APPEARANCE_PALETTE_OPTIONS)[number]["id"],
+                          },
+                        }),
+                      )
+                    }
+                    className={inputClassName}
+                  >
+                    {APPEARANCE_PALETTE_OPTIONS.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </div>
 
               <div>

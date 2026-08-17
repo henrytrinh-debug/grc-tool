@@ -1,11 +1,11 @@
 export const inputClassName =
-  "field-sizing-fixed w-full min-w-0 max-w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-600/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-50 dark:focus:border-teal-400 dark:focus:ring-teal-400/20";
+  "field-sizing-fixed w-full min-w-0 max-w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none focus:border-accent focus:ring-2 focus:ring-ring/20 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-50";
 
 export const labelClassName =
   "text-sm font-medium text-slate-700 dark:text-slate-300";
 
 export const primaryButtonClassName =
-  "inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-600 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-teal-400 dark:text-slate-950 dark:hover:bg-teal-300";
+  "inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-60";
 
 export const secondaryButtonClassName =
   "inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800";

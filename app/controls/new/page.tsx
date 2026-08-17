@@ -9,7 +9,7 @@ import { safeReturnTo } from "@/lib/navigation";
 import { insertOwnedRow } from "@/lib/supabase/records";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { useSettings } from "@/lib/settings/context";
-import { toControlFormPayload, type Control, type NewControl } from "@/lib/types/control";
+import { toControlFormPayload, controlEffectivenessBlockers, type Control, type NewControl } from "@/lib/types/control";
 import { ControlFormFields } from "../_components/control-form-fields";
 import { EMPTY_CONTROL_FORM } from "../_components/constants";
 
@@ -38,6 +38,13 @@ function NewControlPageContent() {
     setError(null);
 
     try {
+      const blockers = controlEffectivenessBlockers(form);
+      if (blockers.length > 0) {
+        setError(blockers.join(" "));
+        setSubmitting(false);
+        return;
+      }
+
       const created = await insertOwnedRow<Control>(
         "controls",
         toControlFormPayload(form, enterpriseReady),

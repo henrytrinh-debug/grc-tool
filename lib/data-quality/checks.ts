@@ -81,7 +81,10 @@ export type QualityFinding = {
   count: number;
   items: QualityItem[];
   register: QualityRegister;
+  severity: QualitySeverity;
 };
+
+export type QualitySeverity = "blocker" | "gap";
 
 function finding(
   id: string,
@@ -90,8 +93,27 @@ function finding(
   href: string,
   items: QualityItem[],
   register: QualityRegister,
+  severity: QualitySeverity = "gap",
 ): QualityFinding {
-  return { id, title, description, href, count: items.length, items, register };
+  return {
+    id,
+    title,
+    description,
+    href,
+    count: items.length,
+    items,
+    register,
+    severity,
+  };
+}
+
+export function groupQualityBySeverity(findings: QualityFinding[]) {
+  return {
+    blockers: findings.filter(
+      (item) => item.severity === "blocker" && item.count > 0,
+    ),
+    gaps: findings.filter((item) => item.severity === "gap" && item.count > 0),
+  };
 }
 
 function riskHref(id: string) {
@@ -217,6 +239,7 @@ export function buildQualityFindings(input: {
       "/risks?severity=High,Critical&reviewRecency=never",
       neverReviewedHigh,
       "risks",
+      "blocker",
     ),
     finding(
       "reviews-due",
@@ -276,6 +299,7 @@ export function buildQualityFindings(input: {
         "/risks",
         missingRationale,
         "risks",
+        "blocker",
       ),
     );
   }
@@ -327,6 +351,7 @@ export function buildQualityFindings(input: {
         "/risks?uncontrolled=true",
         residualWithoutControls,
         "risks",
+        "blocker",
       ),
     );
   }
@@ -350,6 +375,7 @@ export function buildQualityFindings(input: {
       "/incidents?status=resolved",
       resolvedNoCause,
       "incidents",
+      "blocker",
     ),
   );
 
@@ -448,6 +474,7 @@ export function buildQualityFindings(input: {
         "/evidence?expired=true",
         expired,
         "evidence",
+        "blocker",
       ),
       finding(
         "missing-evidence-files",

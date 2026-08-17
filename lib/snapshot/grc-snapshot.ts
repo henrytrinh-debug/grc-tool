@@ -77,7 +77,7 @@ type SnapshotProfileConfig = {
 const PROFILE_CONFIG: Record<SnapshotProfile, SnapshotProfileConfig> = {
   board: {
     actions: false,
-    reviews: false,
+    reviews: true,
     tests: false,
     comments: false,
     issueRiskLinks: false,

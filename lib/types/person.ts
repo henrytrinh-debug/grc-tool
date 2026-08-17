@@ -50,6 +50,14 @@ export function personByEmail(people: OrgPerson[], email: string | null | undefi
   );
 }
 
+export function preferredApproverId(people: OrgPerson[]) {
+  return (
+    people.find((person) => person.line_of_defence === "second")?.id ??
+    people[0]?.id ??
+    ""
+  );
+}
+
 export function personById(
   people: OrgPerson[],
   id: string | null | undefined,

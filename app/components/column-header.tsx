@@ -84,7 +84,7 @@ export function ColumnHeader({
       ) : (
         <span className="font-medium">{label}</span>
       )}
-      {filterOptions && onFilterChange ? (
+      {(filterOptions && onFilterChange) || extraFilter ? (
         <>
           <button
             type="button"
@@ -105,6 +105,7 @@ export function ColumnHeader({
               id={menuId}
               className="absolute left-0 top-full z-20 mt-1 min-w-44 space-y-2 rounded-lg border border-slate-200 bg-white p-2 shadow-lg dark:border-slate-700 dark:bg-slate-900"
             >
+              {filterOptions && onFilterChange ? (
               <select
                 autoFocus
                 value={filterValue ?? ""}
@@ -123,6 +124,7 @@ export function ColumnHeader({
                   </option>
                 ))}
               </select>
+              ) : null}
               {extraFilter ? (
                 <label className="block space-y-1">
                   <span className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">

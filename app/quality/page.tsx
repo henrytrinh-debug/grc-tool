@@ -15,6 +15,7 @@ import { mutedTextClassName, pageClassName } from "@/app/components/ui";
 import {
   buildQualityFindings,
   buildRegisterQualityScores,
+  groupQualityBySeverity,
   groupQualityFindings,
 } from "@/lib/data-quality/checks";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
@@ -158,8 +159,10 @@ export default function QualityPage() {
   );
 
   const openFindings = findings.filter((finding) => finding.count > 0);
+  const { blockers, gaps } = groupQualityBySeverity(openFindings);
+  const groupedBlockers = groupQualityFindings(blockers);
+  const groupedGaps = groupQualityFindings(gaps);
   const openCount = openFindings.reduce((sum, finding) => sum + finding.count, 0);
-  const grouped = groupQualityFindings(openFindings);
   const averageScore =
     registerScores.length === 0
       ? 100
@@ -204,9 +207,15 @@ export default function QualityPage() {
                 tone={averageScore < 80 ? "alert" : "default"}
               />
               <StatCard
-                label="Checks with gaps"
-                value={openFindings.length}
-                hint={`${findings.length} checks run`}
+                label="Needs a decision"
+                value={blockers.reduce((sum, finding) => sum + finding.count, 0)}
+                hint="Governance blockers: never reviewed High/Critical, residual without controls, missing rationale, resolved without root cause, expired evidence"
+                tone={blockers.length > 0 ? "alert" : "default"}
+              />
+              <StatCard
+                label="Completeness gaps"
+                value={gaps.reduce((sum, finding) => sum + finding.count, 0)}
+                hint="Missing links, uncategorised records, and unassessed residual"
               />
             </section>
 
@@ -232,38 +241,96 @@ export default function QualityPage() {
                 filtered registers still work if you want to inspect the data.
               </ListEmpty>
             ) : (
-              <div className="flex flex-col gap-10">
-                {grouped.map((group) => (
-                  <section key={group.register} className="space-y-4">
-                    <h2 className="text-lg font-semibold text-slate-950 dark:text-slate-50">
-                      {group.label}
-                    </h2>
-                    <div className="grid min-w-0 gap-6 lg:grid-cols-2">
-                      {group.findings.map((finding) => (
-                        <section
-                          key={finding.id}
-                          className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900"
-                        >
-                          <div className="mb-3">
-                            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                              {finding.title}
-                            </h3>
-                            <p className={`mt-1 text-sm ${mutedTextClassName}`}>
-                              {finding.description}
-                            </p>
-                          </div>
-                          <RecordLinkList
-                            items={finding.items}
-                            empty="No records match this check."
-                            limit={6}
-                            moreHref={finding.href}
-                            moreLabel={`View all (${finding.count})`}
-                          />
-                        </section>
-                      ))}
+              <div className="flex flex-col gap-12">
+                {groupedBlockers.length > 0 ? (
+                  <div className="flex flex-col gap-6">
+                    <div>
+                      <h2 className="text-lg font-semibold text-slate-950 dark:text-slate-50">
+                        Needs a decision
+                      </h2>
+                      <p className={`mt-1 text-sm ${mutedTextClassName}`}>
+                        These records are not just incomplete — they can mislead
+                        appetite, residual credit, or closure.
+                      </p>
                     </div>
-                  </section>
-                ))}
+                    {groupedBlockers.map((group) => (
+                      <section key={`blocker-${group.register}`} className="space-y-4">
+                        <h3 className="text-sm font-semibold uppercase tracking-wide text-red-700 dark:text-red-400">
+                          {group.label}
+                        </h3>
+                        <div className="grid min-w-0 gap-6 lg:grid-cols-2">
+                          {group.findings.map((finding) => (
+                            <section
+                              key={finding.id}
+                              className="rounded-xl border border-red-200 bg-white p-6 shadow-sm dark:border-red-900 dark:bg-slate-900"
+                            >
+                              <div className="mb-3">
+                                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                  {finding.title}
+                                </h3>
+                                <p className={`mt-1 text-sm ${mutedTextClassName}`}>
+                                  {finding.description}
+                                </p>
+                              </div>
+                              <RecordLinkList
+                                items={finding.items}
+                                empty="No records match this check."
+                                limit={6}
+                                moreHref={finding.href}
+                                moreLabel={`View all (${finding.count})`}
+                              />
+                            </section>
+                          ))}
+                        </div>
+                      </section>
+                    ))}
+                  </div>
+                ) : null}
+
+                {groupedGaps.length > 0 ? (
+                  <div className="flex flex-col gap-6">
+                    <div>
+                      <h2 className="text-lg font-semibold text-slate-950 dark:text-slate-50">
+                        Completeness gaps
+                      </h2>
+                      <p className={`mt-1 text-sm ${mutedTextClassName}`}>
+                        Missing taxonomy, links, or residual confirmation. Useful
+                        hygiene, not immediate board items.
+                      </p>
+                    </div>
+                    {groupedGaps.map((group) => (
+                      <section key={`gap-${group.register}`} className="space-y-4">
+                        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          {group.label}
+                        </h3>
+                        <div className="grid min-w-0 gap-6 lg:grid-cols-2">
+                          {group.findings.map((finding) => (
+                            <section
+                              key={finding.id}
+                              className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+                            >
+                              <div className="mb-3">
+                                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                  {finding.title}
+                                </h3>
+                                <p className={`mt-1 text-sm ${mutedTextClassName}`}>
+                                  {finding.description}
+                                </p>
+                              </div>
+                              <RecordLinkList
+                                items={finding.items}
+                                empty="No records match this check."
+                                limit={6}
+                                moreHref={finding.href}
+                                moreLabel={`View all (${finding.count})`}
+                              />
+                            </section>
+                          ))}
+                        </div>
+                      </section>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             )}
 

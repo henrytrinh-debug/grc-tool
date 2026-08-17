@@ -82,7 +82,7 @@ Cadence days come from `org_settings` via `getSettings()` / `getTestingCadenceDa
 ### `org_settings`
 One row per owner (`owner_id` PK). Holds organisation name, likelihood/impact labels, score-band thresholds, review cadence by band, control testing cadence, issue due-date windows, optional `demo_ids` for the demonstration dataset, and optional `workspace_preferences` JSONB (added in `006_workspace_preferences.sql`). Schema: `supabase/schema/003_admin_settings.sql`. The app degrades to `DEFAULT_SETTINGS` in `lib/settings/defaults.ts` if the table is missing (`PGRST205` / `42P01` / schema cache).
 
-`workspace_preferences` is **presentation only** — hiding a module, Home widget, Oversight section, or Board pack section does not change RLS or `owner_id` filtering. Direct URLs still work. Home and Admin cannot be hidden. Until `006` is applied, `preferencesReady` is false: the current layout is used, and writes omit the column (`42703` / missing-column is treated like other schema probes).
+`workspace_preferences` is **presentation only** — hiding a module, Home widget, Oversight section, or Board pack section does not change RLS or `owner_id` filtering. Direct URLs still work. Home and Admin cannot be hidden. Appearance (`mode`: system/light/dark, `palette`: teal/navy/stone) lives in the same JSONB blob; Tailwind `dark:` follows `html.dark`, not the OS media query. Until `006` is applied, `preferencesReady` is false: the current layout is used, and writes omit the column (`42703` / missing-column is treated like other schema probes).
 
 Saved register filter presets (name + module + query string) live in the same JSONB blob and appear in the command palette and on register toolbars.
 
@@ -107,6 +107,10 @@ The app sets `obligationsReady` when `obligations` exists (`008_obligations.sql`
 The app sets `evidenceReady` when `evidence` exists (`009_evidence.sql`), and `evidenceStorageReady` when listing the private `grc-evidence` bucket under `auth.uid()` succeeds. Metadata can be saved without Storage; the UI does not pretend uploads work if the bucket or policies are missing.
 
 The app sets `residualReady` when `risks.residual_likelihood` exists (`010_residual.sql`). Until then residual is omitted from writes and Risk Assessment saves inherent only.
+
+The app sets `feedbackReady` when `follow_ups` exists (`011_feedback.sql`). Until then comments, follow-ups, the Feedback module, and RCSA approver columns are omitted from writes. Missing-table errors are ignored so pages still load.
+
+Recording a test result is the source of truth for control effectiveness. Once `last_tested_at` is set or a test history row exists, Effectiveness cannot be set back to Not Tested. New controls may still start as Not Tested.
 
 The runtime snapshot is hydrated by `SettingsProvider` (`lib/settings/context.tsx`) into `lib/settings/store.ts` so pure helpers (`getSeverityBand`, `getReviewCadenceDays`, `formatLikelihood`, `getDefaultDueDate`) pick up live values without threading React context everywhere.
 
@@ -178,6 +182,9 @@ so a rating change has provenance rather than silently overwriting the risk.
 | previous_likelihood / previous_impact | int2 | the inherent rating as it stood before review |
 | final_likelihood / final_impact | int2 | what the reviewer confirmed or changed inherent to |
 | previous_residual_* / final_residual_* | int2 | nullable — residual before/after. Added in `010`. Omitted from writes until `residualReady`. |
+| approver_id | uuid | nullable FK → `org_people`. Added in `011_feedback.sql`. Directory label, not a login. |
+| approval_status | text | `'not_required' \| 'pending' \| 'approved' \| 'rejected'`. Added in `011`. |
+| approved_at | timestamptz | nullable. Added in `011`. |
 | ai_recommended_likelihood / ai_recommended_impact | int2 | nullable — reserved for Objective 7, always null today |
 | ai_rationale | text | nullable — same |
 | owner_id / owner_email | uuid / text | |
@@ -188,6 +195,15 @@ risk. Review **due** is also derived from Admin cadence: by default Critical eve
 High every 180 days, Medium/Low annually. The register filter `reviewRecency=due` and
 Oversight's "Due for Review" stat use `getReviewCadenceDays` / `isReviewDue`. Next review
 due dates are shown on the risk register via `formatNextReviewDue`.
+
+### `follow_ups` / `entity_comments`
+Cross-register challenge loops and comments (`011_feedback.sql`). Tenant remains `owner_id`. Approvers are `org_people` labels.
+
+`follow_ups`: title, description, `entity_type` (`risk|control|incident|issue|obligation`), `entity_id`, `trigger_type` (`incident_on_control|issue_on_control|ineffective_test|incident_on_risk|issue_on_risk|rating_changed`), status (`open|in_progress|pending_approval|done|dismissed`), optional assignee/approver, due date, optional source incident/issue. Partial unique index: one **open** loop per `(owner_id, entity_type, entity_id, trigger_type)`. Do not merge with `issue_actions` (those stay remediation on a finding).
+
+`entity_comments`: polymorphic notes (`kind` `comment|status_change`) on the same entity types plus `follow_up`. Issues keep their existing `issue_comments` trail; the shared panel is used on other assets.
+
+`ensureFollowUp` / `followUpAfterLink` in `lib/feedback/ensure.ts` create loops after link inserts. Horizon and Data quality still cover overdue tests and unassessed residual — those are not auto-spammed as follow-ups.
 
 ### `issues`
 Findings raised from audits, control failures, incidents, or risk assessments. This is the
@@ -289,7 +305,7 @@ policy anywhere, it's leftover from before auth and should be replaced with an o
 
 Early tables were created by hand in the Supabase SQL editor with no record in the repo.
 From the Issues module onward, schema lives in versioned files under `supabase/schema/`
-(e.g. `001_issues.sql` … `010_residual.sql`) which are **run manually in the
+(e.g. `001_issues.sql` … `011_feedback.sql`) which are **run manually in the
 Supabase SQL editor** — there is no migration runner wired up. The files are written to
 be re-runnable (`create table if not exists`, `add column if not exists`, `drop policy
 if exists` before create).
@@ -312,7 +328,7 @@ If the app 404s or errors on a whole module, check whether its SQL has been appl
   issue workflow/action-plan/activity panels, and a `constants.ts` holding the empty-form
   default. The `_` prefix keeps these out of Next.js routing.
 - **Sidebar navigation** — grouped sections rather than a flat module list: Overview
-  (Home, My work, Horizon, Lines of defence, Board pack, Oversight, Data quality), Registers (Risks, Controls, Incidents, Issues, Obligations, Evidence), Assessment
+  (Home, My work, Horizon, Lines of defence, Board pack, Oversight, Feedback, Data quality), Registers (Risks, Controls, Incidents, Issues, Obligations, Evidence), Assessment
   (Risk Assessment), Administration (Settings → `/admin`). The header shows the
   organisation name from Admin. Collapses behind a Menu button on small screens.
   `⌘K` / `Ctrl+K` opens a jump palette (`app/components/command-palette.tsx`).
@@ -332,17 +348,23 @@ If the app 404s or errors on a whole module, check whether its SQL has been appl
   a filter or `sort` query opens the table; `view=` is explicit. Column headers sort on click
   and expose filters in a popover (`ColumnHeader`) instead of a dropdown grid above the table.
   Deep links such as `/risks?severity=High,Critical` still land on the filtered table.
+  The risk register shows **Inherent Score** and **Residual Score** (band + numeric score + L×I),
+  not standalone Likelihood/Impact columns. The `severity` query param is the **operating**
+  band (residual if assessed, otherwise inherent) so High/Critical KPI links still work.
   Lists still support department filter (from the assignee’s `org_people.department`), High or
   Critical combined severity, sticky table headers, next-test-due on controls, and
   incident↔control counts after `005`.
-- **My work** (`/work`) — assigned-to-me queue across risks, controls, incidents, and issues.
-  Resolves “me” by matching `org_people.email` to the signed-in user.
+- **My work** (`/work`) — assigned-to-me queue across risks, controls, incidents, issues,
+  and open follow-ups (assignee or approver). Resolves “me” by matching `org_people.email`
+  to the signed-in user. Risk rows use the operating band (residual if assessed).
 - **Horizon** (`/horizon`) — operating calendar of derived obligations: risk reviews, treatment target dates (after `005`), control tests, issue due dates, and action due dates, bucketed overdue / 7 / 30 / 90 days.
 - **Lines of defence** (`/lines`) — workload by assignee and 1st / 2nd / 3rd line from the people directory.
-- **Board pack** (`/board`) — printable committee snapshot: above-appetite, High/Critical risks, overdue key controls, overdue issues, severe open incidents, uncontrolled High/Critical. Print hides the sidebar. CSV export included.
+- **Board pack** (`/board`) — printable committee snapshot of **exceptions and decisions**, not the operating dumps: above-appetite, material High/Critical, control failures (ineffective tests), decisions required (open follow-ups), severe open incidents, uncontrolled High/Critical, plus a short rating-movement sentence. Lists cap at 5 with “and N more”. Print hides the sidebar. CSV export included.
+- **Feedback** (`/feedback`) — action list of follow-ups and a cross-register audit trail (assembled from risk/incident events, RCSA reviews, tests, comments, and follow-ups — not a new events table). Comments live on each asset’s edit page. Issue remediation stays on `issue_actions` / `issue_comments`; follow-ups are the challenge loop (retest control, reassess residual, approve a rating change). Auto-created when an incident or issue is linked to a control or risk, when a test is recorded ineffective, or when RCSA changes ratings and an approver is set. One open loop per owner + entity + trigger.
+- **Data quality** (`/quality`) — live completeness, not a stored score. Findings split into **Needs a decision** (blockers: never-reviewed High/Critical, residual reduced with no controls, accept/transfer without rationale, resolved incidents without root cause, expired evidence) and **Completeness gaps**.
 - **Overview surface boundaries** — Home is the operational landing page (cross-register
-  stats, attention, activity, trend). Oversight is the 2LoD analytical view (health, flow,
-  movement). Board pack is the printable committee view. Register Summary tabs own
+  stats, attention, activity, trend, open follow-ups). Oversight is the 2LoD analytical view (health, flow,
+  movement). Board pack is the printable committee view. Feedback is the action/audit loop. Register Summary tabs own
   asset-specific visuals. They fetch through `lib/snapshot/grc-snapshot.ts` profiles and
   share KPI predicates from `lib/metrics/kpis.ts`. Do not copy owner-scoped fetch bundles
   or reimplement “open / overdue / above appetite” predicates in a page.
@@ -368,7 +390,7 @@ If the app 404s or errors on a whole module, check whether its SQL has been appl
   Requires `003_admin_settings.sql`. `004_enterprise.sql` unlocks people, assignees,
   risk status, control type, and appetite. `005_operating.sql` unlocks treatment
   target dates, incident lessons learned, and incident↔control links. Until those files are run, the page shows
-  banners and the rest of the app omits unknown columns.
+  banners and the rest of the app omits unknown columns. Appearance (light/dark/system and teal/navy/stone) is under Workspace. Run `010` then `011` before re-loading demonstration data if you want residual, comments, and follow-ups in the seed.
 - **Command palette** — pages, filtered views, taxonomy deep-links, and jump-to-record
   by title (fetched when the palette opens).
 - **Bar-chart hover** — Recharts' default pale overlay is disabled
@@ -401,6 +423,7 @@ then extracted. **Reach for these before writing a new page from scratch:**
 | Register tabs (Summary / Register / Settings) | `RegisterTabs` + `parseRegisterView` in `lib/register/view.ts`; shell in `app/components/register-page-shell.tsx` |
 | Time-series charts | `stackByMonth` / `buildIssueFlowTrend` / `buildIncidentFlowTrend` / `buildControlTestTrend` in `lib/charts/time-series.ts`; `StackedTimeChart` / `LineTimeChart` in `app/components/dashboard/time-charts.tsx` |
 | Inherent vs residual | `lib/risk/ratings.ts` — `operatingRating`, `residualBlockers`, `residualWarnings` |
+| Follow-ups / comments | `ensureFollowUp` / `followUpAfterLink` in `lib/feedback/ensure.ts`; `buildAuditTrail` in `lib/feedback/audit.ts`; `RecordFeedback` |
 | Register methodology | `MethodologySettings` / `RegisterSettingsPanel` — scoring, review cadence, testing cadence, issue due days |
 | Sticky register tables | `RegisterTable` / `registerTheadClassName` in `app/components/page-parts.tsx` |
 | CSV download of a filtered list | `downloadCsv` in `lib/export/csv.ts` |
@@ -503,6 +526,7 @@ a new env var locally.
 | — | Governance gates + immutable risk/incident events (`007`) | ✅ Done |
 | — | Obligations register (`008`) | ✅ Done |
 | — | Inherent and residual ratings (`010`) | ✅ Done |
+| — | Feedback loops, comments, audit trail, board pack exceptions, themes (`011`) | ✅ Done |
 | — | CSV import with preview/validation (`/admin/import`) | ✅ Done |
 | 7 | AI-assisted rating recommendations during RCSA | 🔜 Not started |
 
@@ -529,7 +553,8 @@ The review page is built for a **challenger**, not a form-filler:
    impact unchanged). Used as a starting point for unassessed residual. After `010_residual.sql`, the
    reviewer **confirms residual** on the same 5×5 scale; it is stored on `risks`
    and on the review row. Residual cannot exceed inherent, and cannot be reduced
-   with no linked controls.
+   with no linked controls. After `011`, a directory **approver** (prefer 2nd line)
+   can be set; a rating change raises a pending follow-up instead of a second login.
 
 `/rcsa/review` also accepts a single `risk` id, so "Review This Risk" from the
 risks list or a risk's edit page skips the selection step.

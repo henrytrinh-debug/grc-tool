@@ -18,11 +18,8 @@ import {
   RegisterTable,
   registerTheadClassName,
 } from "@/app/components/page-parts";
-import {
-  AppetiteBreachBadge,
-  RiskStatusBadge,
-  SeverityBandBadge,
-} from "@/app/components/status-badge";
+import { AppetiteBreachBadge, RiskStatusBadge } from "@/app/components/status-badge";
+import { RiskScoreCell } from "@/app/components/risk-score-cell";
 import { primaryButtonClassName, secondaryButtonClassName } from "@/app/components/ui";
 import { RiskSummary } from "@/app/risks/_components/risk-summary";
 import { riskQuality } from "@/lib/data-quality/record";
@@ -67,11 +64,8 @@ import {
   type RcsaReview,
 } from "@/lib/types/rcsa";
 import {
-  formatImpactOption,
-  formatLikelihoodOption,
   formatRiskStatus,
   formatTreatment,
-  RISK_SCALE_VALUES,
   RISK_STATUS_OPTIONS,
   RISK_TREATMENT_OPTIONS,
   type Risk,
@@ -514,52 +508,30 @@ function RisksPageContent() {
                     )}
                     <th className="px-6 py-3">
                       <ColumnHeader
-                        label="Likelihood"
-                        sortKey="likelihood"
-                        currentSort={sort}
-                        onSort={(value) => updateRegisterFilters({ sort: value })}
-                        filterValue={filters.likelihood?.toString() ?? ""}
-                        filterOptions={RISK_SCALE_VALUES.map((value) => ({
-                          value: String(value),
-                          label: formatLikelihoodOption(value),
-                        }))}
-                        onFilterChange={(value) =>
-                          updateRegisterFilters({ likelihood: value })
-                        }
-                      />
-                    </th>
-                    <th className="px-6 py-3">
-                      <ColumnHeader
-                        label="Impact"
-                        sortKey="impact"
-                        currentSort={sort}
-                        onSort={(value) => updateRegisterFilters({ sort: value })}
-                        filterValue={filters.impact?.toString() ?? ""}
-                        filterOptions={RISK_SCALE_VALUES.map((value) => ({
-                          value: String(value),
-                          label: formatImpactOption(value),
-                        }))}
-                        onFilterChange={(value) =>
-                          updateRegisterFilters({ impact: value })
-                        }
-                      />
-                    </th>
-                    <th className="px-6 py-3">
-                      <ColumnHeader
-                        label="Score"
+                        label="Inherent Score"
                         sortKey="score"
                         currentSort={sort}
                         onSort={(value) => updateRegisterFilters({ sort: value })}
-                        filterValue={filters.severity}
-                        filterOptions={[
-                          { value: "Low", label: "Low" },
-                          { value: "Medium", label: "Medium" },
-                          { value: "High", label: "High" },
-                          { value: "Critical", label: "Critical" },
-                          { value: "High,Critical", label: "High or Critical" },
-                        ]}
-                        onFilterChange={(value) =>
-                          updateRegisterFilters({ severity: value })
+                        filterValue={residualReady ? undefined : filters.severity}
+                        filterOptions={
+                          residualReady
+                            ? undefined
+                            : [
+                                { value: "Low", label: "Low" },
+                                { value: "Medium", label: "Medium" },
+                                { value: "High", label: "High" },
+                                { value: "Critical", label: "Critical" },
+                                {
+                                  value: "High,Critical",
+                                  label: "High or Critical",
+                                },
+                              ]
+                        }
+                        onFilterChange={
+                          residualReady
+                            ? undefined
+                            : (value) =>
+                                updateRegisterFilters({ severity: value })
                         }
                         extraFilter={
                           enterpriseReady
@@ -579,17 +551,30 @@ function RisksPageContent() {
                     {residualReady ? (
                       <th className="px-6 py-3">
                         <ColumnHeader
-                          label="Residual"
+                          label="Residual Score"
                           sortKey="residual"
                           currentSort={sort}
                           onSort={(value) => updateRegisterFilters({ sort: value })}
-                          filterValue={filters.residualUnassessed ? "true" : ""}
+                          filterValue={filters.severity}
                           filterOptions={[
-                            { value: "true", label: "Not assessed" },
+                            { value: "Low", label: "Low" },
+                            { value: "Medium", label: "Medium" },
+                            { value: "High", label: "High" },
+                            { value: "Critical", label: "Critical" },
+                            { value: "High,Critical", label: "High or Critical" },
                           ]}
                           onFilterChange={(value) =>
-                            updateRegisterFilters({ residualUnassessed: value })
+                            updateRegisterFilters({ severity: value })
                           }
+                          extraFilter={{
+                            label: "Assessment",
+                            value: filters.residualUnassessed ? "true" : "",
+                            options: [
+                              { value: "true", label: "Not assessed" },
+                            ],
+                            onChange: (value) =>
+                              updateRegisterFilters({ residualUnassessed: value }),
+                          }}
                         />
                       </th>
                     ) : null}
@@ -656,7 +641,6 @@ function RisksPageContent() {
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                   {filteredRisks.map((risk) => {
-                    const band = operatingBand(risk);
                     const residual = storedResidual(risk);
                     const openIssues = openIssueCounts[risk.id] ?? 0;
 
@@ -725,24 +709,23 @@ function RisksPageContent() {
                             </td>
                           </>
                         )}
-                        <td className="px-6 py-4 text-slate-950 dark:text-slate-50">
-                          {formatLikelihoodOption(risk.likelihood)}
-                        </td>
-                        <td className="px-6 py-4 text-slate-950 dark:text-slate-50">
-                          {formatImpactOption(risk.impact)}
-                        </td>
                         <td className="px-6 py-4">
-                          <SeverityBandBadge band={band} />
+                          <RiskScoreCell
+                            likelihood={risk.likelihood}
+                            impact={risk.impact}
+                            score={inherentScore(risk)}
+                            band={inherentBand(risk)}
+                          />
                         </td>
                         {residualReady ? (
                           <td className="px-6 py-4">
-                            {residual ? (
-                              <SeverityBandBadge band={operatingBand(risk)} />
-                            ) : (
-                              <span className="text-slate-500 dark:text-slate-400">
-                                —
-                              </span>
-                            )}
+                            <RiskScoreCell
+                              likelihood={residual?.likelihood}
+                              impact={residual?.impact}
+                              score={residual ? operatingScore(risk) : undefined}
+                              band={residual ? operatingBand(risk) : undefined}
+                              empty={!residual}
+                            />
                           </td>
                         ) : null}
                         <td className="px-6 py-4">

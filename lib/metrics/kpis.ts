@@ -39,6 +39,17 @@ export function overdueControls(
   );
 }
 
+export function ineffectiveControls(
+  controls: Control[],
+  options: { keyOnly?: boolean } = {},
+) {
+  return controls.filter(
+    (control) =>
+      (!options.keyOnly || control.is_key) &&
+      control.effectiveness === "ineffective",
+  );
+}
+
 export function openIncidents(incidents: Incident[]) {
   return incidents.filter((incident) => isIncidentOpen(incident.status));
 }

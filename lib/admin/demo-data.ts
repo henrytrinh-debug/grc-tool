@@ -12,6 +12,7 @@ type SeedOptions = {
   includeObligations?: boolean;
   includeEvidence?: boolean;
   includeResidual?: boolean;
+  includeFeedback?: boolean;
 };
 
 function ownerFields(owner: Owner) {
@@ -61,6 +62,7 @@ export async function seedDemonstrationData(
   const includeObligations = Boolean(options.includeObligations);
   const includeEvidence = Boolean(options.includeEvidence);
   const includeResidual = Boolean(options.includeResidual);
+  const includeFeedback = Boolean(options.includeFeedback);
   const today = todayIsoDate();
   const ids: DemoIds = {
     categoryIds: [],
@@ -72,6 +74,8 @@ export async function seedDemonstrationData(
     personIds: [],
     obligationIds: [],
     evidenceIds: [],
+    followUpIds: [],
+    commentIds: [],
   };
 
   const personSpecs: Array<{
@@ -149,6 +153,20 @@ export async function seedDemonstrationData(
           name: "Diego Alvarez",
           email: "diego.alvarez@demo.grc",
           title: "Records Manager",
+          department: "Operations",
+          line_of_defence: "first",
+        },
+        {
+          name: "Nora Lindqvist",
+          email: "nora.lindqvist@demo.grc",
+          title: "EU Chief Risk Officer",
+          department: "Risk",
+          line_of_defence: "second",
+        },
+        {
+          name: "Omar Haddad",
+          email: "omar.haddad@demo.grc",
+          title: "EU Operations Lead",
           department: "Operations",
           line_of_defence: "first",
         },
@@ -698,6 +716,15 @@ export async function seedDemonstrationData(
     },
   );
 
+  const baseRiskCount = riskSpecs.length;
+  for (const spec of riskSpecs.slice()) {
+    riskSpecs.push({
+      ...spec,
+      title: `${spec.title} — EU book`,
+      description: `EU-entity twin of the UK book. ${spec.description}`,
+    });
+  }
+
   ids.riskIds = riskSpecs.map(() => newId());
   const riskOperating: Record<
     number,
@@ -741,7 +768,7 @@ export async function seedDemonstrationData(
       description: spec.description,
       likelihood: spec.likelihood,
       impact: spec.impact,
-      ...(includeResidual && ![4, 14, 32, 33, 40].includes(index)
+      ...(includeResidual && ![4, 14, 32, 33, 40].includes(index % baseRiskCount)
         ? {
             residual_likelihood: Math.max(1, spec.likelihood - (index % 3 === 0 ? 1 : 0)),
             residual_impact: spec.impact,
@@ -1050,6 +1077,15 @@ export async function seedDemonstrationData(
     },
   );
 
+  const baseControlCount = controlSpecs.length;
+  for (const spec of controlSpecs.slice()) {
+    controlSpecs.push({
+      ...spec,
+      title: `${spec.title} — EU book`,
+      description: `EU-entity twin. ${spec.description}`,
+    });
+  }
+
   ids.controlIds = controlSpecs.map(() => newId());
   await insertRows(
     "controls",
@@ -1113,6 +1149,16 @@ export async function seedDemonstrationData(
     [40, 30],
     [41, 31],
   ];
+
+  riskControlPairs.push(
+    ...riskControlPairs.map(
+      ([riskIndex, controlIndex]) =>
+        [riskIndex + baseRiskCount, controlIndex + baseControlCount] as [
+          number,
+          number,
+        ],
+    ),
+  );
 
   await insertRows(
     "risk_controls",
@@ -1404,6 +1450,16 @@ export async function seedDemonstrationData(
     },
   );
 
+  const baseIncidentCount = incidentSpecs.length;
+  for (const spec of incidentSpecs.slice()) {
+    incidentSpecs.push({
+      ...spec,
+      title: `${spec.title} — EU book`,
+      description: `EU-entity twin. ${spec.description}`,
+      riskIndex: spec.riskIndex + baseRiskCount,
+    });
+  }
+
   ids.incidentIds = incidentSpecs.map(() => newId());
   const incidentOperating: Record<
     number,
@@ -1500,11 +1556,25 @@ export async function seedDemonstrationData(
     await insertRows(
       "incident_controls",
       Object.entries(incidentOperating).flatMap(([index, spec]) =>
-        spec.controlIndexes.map((controlIndex) => ({
-          incident_id: ids.incidentIds[Number(index)],
-          control_id: ids.controlIds[controlIndex],
-          owner_id: owner.id,
-        })),
+        spec.controlIndexes.flatMap((controlIndex) => {
+          const rows = [
+            {
+              incident_id: ids.incidentIds[Number(index)],
+              control_id: ids.controlIds[controlIndex],
+              owner_id: owner.id,
+            },
+          ];
+          const euIncident = ids.incidentIds[Number(index) + baseIncidentCount];
+          const euControl = ids.controlIds[controlIndex + baseControlCount];
+          if (euIncident && euControl) {
+            rows.push({
+              incident_id: euIncident,
+              control_id: euControl,
+              owner_id: owner.id,
+            });
+          }
+          return rows;
+        }),
       ),
     );
   }
@@ -1931,6 +2001,23 @@ export async function seedDemonstrationData(
       controlIndex: 7,
     },
   );
+
+  const originalIssues = issueSpecs.slice();
+  for (const spec of originalIssues) {
+    issueSpecs.push({
+      ...spec,
+      title: `${spec.title} — EU book`,
+      description: `EU-entity twin. ${spec.description}`,
+      riskIndex:
+        spec.riskIndex !== undefined
+          ? spec.riskIndex + baseRiskCount
+          : undefined,
+      controlIndex:
+        spec.controlIndex !== undefined
+          ? spec.controlIndex + baseControlCount
+          : undefined,
+    });
+  }
 
   ids.issueIds = issueSpecs.map(() => newId());
   await insertRows(
@@ -2543,6 +2630,156 @@ export async function seedDemonstrationData(
     }),
   );
 
+  if (includeFeedback) {
+    const secondLine = ids.personIds?.[3] ?? ids.personIds?.[0] ?? null;
+    const firstLine = ids.personIds?.[1] ?? null;
+    ids.followUpIds = [newId(), newId(), newId(), newId(), newId(), newId()];
+    ids.commentIds = [newId(), newId(), newId(), newId(), newId(), newId()];
+
+    await insertRowsOptional("follow_ups", [
+      {
+        id: ids.followUpIds[0],
+        title: "Retest privileged access after the jump-host incident",
+        description:
+          "An incident was mapped to this control. Confirm design/operating effectiveness still holds, then retest.",
+        entity_type: "control",
+        entity_id: ids.controlIds[0],
+        trigger_type: "incident_on_control",
+        status: "open",
+        assignee_id: firstLine,
+        approver_id: secondLine,
+        due_date: addDaysToIsoDate(today, 10),
+        source_incident_id: ids.incidentIds[0],
+        ...ownerFields(owner),
+      },
+      {
+        id: ids.followUpIds[1],
+        title: "Reassess recertification control after the overdue finding",
+        description:
+          "An issue was mapped to this control. Decide whether redesign or retesting is needed.",
+        entity_type: "control",
+        entity_id: ids.controlIds[0],
+        trigger_type: "issue_on_control",
+        status: "in_progress",
+        assignee_id: secondLine,
+        due_date: addDaysToIsoDate(today, 7),
+        source_issue_id: ids.issueIds[0],
+        ...ownerFields(owner),
+      },
+      {
+        id: ids.followUpIds[2],
+        title: "Remediate and retest after an ineffective result",
+        description:
+          "The latest test found this control ineffective. Record a new test after the catch-up recert.",
+        entity_type: "control",
+        entity_id: ids.controlIds[0],
+        trigger_type: "ineffective_test",
+        status: "open",
+        assignee_id: firstLine,
+        due_date: addDaysToIsoDate(today, 14),
+        ...ownerFields(owner),
+      },
+      {
+        id: ids.followUpIds[3],
+        title: "Reassess residual after the ransomware attempt",
+        description:
+          "An incident was mapped to this risk. Confirm inherent still holds and whether residual credit is still justified.",
+        entity_type: "risk",
+        entity_id: ids.riskIds[0],
+        trigger_type: "incident_on_risk",
+        status: "open",
+        assignee_id: firstLine,
+        approver_id: secondLine,
+        due_date: addDaysToIsoDate(today, 14),
+        source_incident_id: ids.incidentIds[0],
+        ...ownerFields(owner),
+      },
+      {
+        id: ids.followUpIds[4],
+        title: "Reassess residual after the recertification finding",
+        description:
+          "An issue was mapped to this risk. Confirm treatment and residual still match how the risk is running.",
+        entity_type: "risk",
+        entity_id: ids.riskIds[1],
+        trigger_type: "issue_on_risk",
+        status: "open",
+        assignee_id: secondLine,
+        due_date: addDaysToIsoDate(today, 21),
+        source_issue_id: ids.issueIds[0],
+        ...ownerFields(owner),
+      },
+      {
+        id: ids.followUpIds[5],
+        title: "Approve rating change: ransomware interrupting customer operations",
+        description:
+          "Inherent or residual changed in the latest sitting. A second-line directory person should confirm the new operating band.",
+        entity_type: "risk",
+        entity_id: ids.riskIds[0],
+        trigger_type: "rating_changed",
+        status: "pending_approval",
+        assignee_id: firstLine,
+        approver_id: secondLine,
+        due_date: addDaysToIsoDate(today, 5),
+        ...ownerFields(owner),
+      },
+    ]);
+
+    await insertRowsOptional("entity_comments", [
+      {
+        id: ids.commentIds[0],
+        entity_type: "risk",
+        entity_id: ids.riskIds[0],
+        body: "Backup restore test last week still failed the RTO. Residual should not get more credit until that lands.",
+        kind: "comment",
+        ...ownerFields(owner),
+      },
+      {
+        id: ids.commentIds[1],
+        entity_type: "control",
+        entity_id: ids.controlIds[0],
+        body: "12 orphaned admin accounts remain. Recert pack is with Priya.",
+        kind: "comment",
+        ...ownerFields(owner),
+      },
+      {
+        id: ids.commentIds[2],
+        entity_type: "incident",
+        entity_id: ids.incidentIds[0],
+        body: "Containment held. Forensics still confirming whether the jump host was the only foothold.",
+        kind: "comment",
+        ...ownerFields(owner),
+      },
+      {
+        id: ids.commentIds[3],
+        entity_type: "follow_up",
+        entity_id: ids.followUpIds[5],
+        body: "Pending second-line approval of the residual reduction.",
+        kind: "status_change",
+        ...ownerFields(owner),
+      },
+      {
+        id: ids.commentIds[4],
+        entity_type: "risk",
+        entity_id: ids.riskIds[baseRiskCount],
+        body: "EU book: local DORA incident reporting clock is shorter than the UK equivalent.",
+        kind: "comment",
+        ...ownerFields(owner),
+      },
+      ...(ids.obligationIds?.[0]
+        ? [
+            {
+              id: ids.commentIds[5],
+              entity_type: "obligation",
+              entity_id: ids.obligationIds[0],
+              body: "Coverage gap still open — no mapped control for this duty.",
+              kind: "comment",
+              ...ownerFields(owner),
+            },
+          ]
+        : []),
+    ]);
+  }
+
   return ids;
 }
 
@@ -2565,6 +2802,9 @@ export async function removeDemonstrationData(ownerId: string, ids: DemoIds) {
     }
   }
 
+  await deleteByIds("follow_ups", "id", ids.followUpIds ?? []);
+  await deleteByIds("entity_comments", "id", ids.commentIds ?? []);
+  await deleteByIds("entity_comments", "entity_id", ids.followUpIds ?? []);
   await deleteByIds("issue_actions", "issue_id", ids.issueIds);
   await deleteByIds("issue_comments", "issue_id", ids.issueIds);
   await deleteByIds("issue_risks", "issue_id", ids.issueIds);

@@ -9,6 +9,7 @@ import { StatCard } from "@/app/components/dashboard/stat-card";
 import { LineTimeChart } from "@/app/components/dashboard/time-charts";
 import { FilterSelect } from "@/app/components/list-toolbar";
 import { ErrorBanner, PageHeader, PageLoading } from "@/app/components/page-parts";
+import { RecordLinkList } from "@/app/components/record-link-list";
 import { mutedTextClassName, primaryButtonClassName, secondaryButtonClassName } from "@/app/components/ui";
 import { buildActivityFeed } from "@/lib/activity/feed";
 import {
@@ -51,17 +52,25 @@ import {
   matchesCategoryFilter,
   matchesInheritedCategory,
 } from "@/lib/taxonomy";
+import { fetchOwnedTableOptional } from "@/lib/supabase/owned";
 import { personByEmail } from "@/lib/types/person";
+import type { FollowUp } from "@/lib/types/follow-up";
+import {
+  entityHref,
+  formatFollowUpTrigger,
+  isFollowUpOpen,
+} from "@/lib/types/follow-up";
 
 function parseDashboardFilters(params: URLSearchParams) {
   return { categoryId: params.get("category")?.trim() ?? "" };
 }
 
 function HomePageContent() {
-  const { settings, categories, schemaReady, people, enterpriseReady } =
+  const { settings, categories, schemaReady, people, enterpriseReady, feedbackReady } =
     useSettings();
   const { filters, updateFilters } = useListFilters("/", parseDashboardFilters);
   const [snapshot, setSnapshot] = useState<GrcSnapshot>(emptyGrcSnapshot);
+  const [followUps, setFollowUps] = useState<FollowUp[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -71,6 +80,13 @@ function HomePageContent() {
     try {
       const supabase = getSupabaseClient();
       setSnapshot(await fetchGrcSnapshot(supabase, ownerId, "home"));
+      if (feedbackReady) {
+        setFollowUps(
+          await fetchOwnedTableOptional<FollowUp>(supabase, "follow_ups", ownerId),
+        );
+      } else {
+        setFollowUps([]);
+      }
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to load dashboard data",
@@ -78,7 +94,7 @@ function HomePageContent() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [feedbackReady]);
 
   const { user, authLoading } = useRequireAuth(fetchDashboardData);
 
@@ -160,8 +176,9 @@ function HomePageContent() {
       incidentFlow,
       issueFlowTotals: summariseFlowWindow(issueFlow, "closed"),
       incidentFlowTotals: summariseFlowWindow(incidentFlow, "resolved"),
+      openFollowUps: followUps.filter((item) => isFollowUpOpen(item.status)),
     };
-  }, [categories, filters.categoryId, people, settings.workspacePreferences.defaultHomeCategoryId, snapshot, user?.email]);
+  }, [categories, filters.categoryId, followUps, people, settings.workspacePreferences.defaultHomeCategoryId, snapshot, user?.email]);
 
   const prefs = settings.workspacePreferences;
   const defaultCategoryId = resolvedDefaultHomeCategoryId(
@@ -337,6 +354,26 @@ function HomePageContent() {
               </section>
             ) : null}
 
+            {shows("followUps") ? (
+              <ChartCard
+                title="Open follow-ups"
+                description="Challenge loops from incidents, issues, ineffective tests, and rating changes."
+              >
+                <RecordLinkList
+                  items={data.openFollowUps.map((item) => ({
+                    id: item.id,
+                    href: entityHref(item.entity_type, item.entity_id),
+                    title: item.title,
+                    detail: formatFollowUpTrigger(item.trigger_type),
+                    meta: item.status.replaceAll("_", " "),
+                  }))}
+                  empty="No open follow-ups."
+                  limit={6}
+                  moreHref="/feedback"
+                />
+              </ChartCard>
+            ) : null}
+
             {shows("trend") ? (
               <section className="grid min-w-0 gap-6 lg:grid-cols-2">
                 <ChartCard
@@ -365,7 +402,8 @@ function HomePageContent() {
             {!shows("stats") &&
             !shows("attention") &&
             !shows("activity") &&
-            !shows("trend") ? (
+            !shows("trend") &&
+            !shows("followUps") ? (
               <p className={mutedTextClassName}>
                 Home widgets are hidden. Restore them from Admin → Workspace.
               </p>

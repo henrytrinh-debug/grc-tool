@@ -14,7 +14,9 @@ import {
   ErrorBanner,
   PageLoading,
 } from "@/app/components/page-parts";
+import { RecordFeedback } from "@/app/components/record-feedback";
 import { RelatedIssuesCard } from "@/app/components/related-issues-card";
+import { ensureFollowUp } from "@/lib/feedback/ensure";
 import {
   dangerButtonClassName,
   primaryButtonClassName,
@@ -27,6 +29,7 @@ import { getSupabaseClient } from "@/lib/supabase/client";
 import { useSettings } from "@/lib/settings/context";
 import { controlQuality } from "@/lib/data-quality/record";
 import {
+  controlEffectivenessBlockers,
   toControlFormPayload,
   type Control,
   type NewControl,
@@ -67,7 +70,7 @@ export default function EditControlPage() {
   const [submitting, setSubmitting] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { enterpriseReady } = useSettings();
+  const { enterpriseReady, feedbackReady, people } = useSettings();
 
   const fetchTestResults = useCallback(
     async (ownerId: string) => {
@@ -213,6 +216,14 @@ export default function EditControlPage() {
       return;
     }
 
+    const blockers = controlEffectivenessBlockers(form, {
+      hasTestHistory: testResults.length > 0,
+    });
+    if (blockers.length > 0) {
+      setError(blockers.join(" "));
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
 
@@ -333,6 +344,21 @@ export default function EditControlPage() {
       );
 
       await fetchTestResults(user.id);
+
+      if (testPayload.effectiveness === "ineffective" && user.email) {
+        await ensureFollowUp(
+          supabase,
+          { id: user.id, email: user.email },
+          {
+            title: "Remediate and retest after an ineffective result",
+            description:
+              "The latest test found this control ineffective. Confirm design/operating effectiveness and record a new test.",
+            entityType: "control",
+            entityId: control.id,
+            trigger: "ineffective_test",
+          },
+        ).catch(() => undefined);
+      }
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Failed to record test result";
@@ -373,7 +399,11 @@ export default function EditControlPage() {
 
         <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <form onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2">
-            <ControlFormFields form={form} onChange={updateForm} />
+            <ControlFormFields
+              form={form}
+              onChange={updateForm}
+              hasTestHistory={testResults.length > 0}
+            />
 
             <div className="flex flex-wrap gap-3 sm:col-span-2">
               <button
@@ -433,6 +463,14 @@ export default function EditControlPage() {
         />
 
         <EvidencePanel entityType="control" entityId={controlId} />
+
+        <RecordFeedback
+          entityType="control"
+          entityId={controlId}
+          enabled={feedbackReady}
+          owner={user?.email ? { id: user.id, email: user.email } : null}
+          people={people}
+        />
       </main>
     </div>
   );

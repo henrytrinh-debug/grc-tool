@@ -14,8 +14,9 @@ import {
 } from "@/app/components/ui";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import { safeReturnTo } from "@/lib/navigation";
-import { useSettings } from "@/lib/settings/context";
+import { followUpAfterLink } from "@/lib/feedback/ensure";
 import { getSupabaseClient } from "@/lib/supabase/client";
+import { useSettings } from "@/lib/settings/context";
 import {
   getDefaultDueDate,
   ISSUE_SOURCE_OPTIONS,
@@ -155,6 +156,33 @@ function NewIssuePageContent() {
       if (followUpError) {
         router.push(safeReturnTo(prefill.returnTo) ?? `/issues/${issueId}/edit`);
         return;
+      }
+
+      if (user.email) {
+        if (prefill.riskId) {
+          await followUpAfterLink(
+            supabase,
+            { id: user.id, email: user.email },
+            {
+              table: "issue_risks",
+              parentColumn: "issue_id",
+              parentId: issueId,
+              childId: prefill.riskId,
+            },
+          ).catch(() => undefined);
+        }
+        if (prefill.controlId) {
+          await followUpAfterLink(
+            supabase,
+            { id: user.id, email: user.email },
+            {
+              table: "issue_controls",
+              parentColumn: "issue_id",
+              parentId: issueId,
+              childId: prefill.controlId,
+            },
+          ).catch(() => undefined);
+        }
       }
 
       router.push(safeReturnTo(prefill.returnTo) ?? `/issues/${issueId}/edit`);

@@ -16,6 +16,7 @@ export const HOME_WIDGET_IDS = [
   "attention",
   "activity",
   "trend",
+  "followUps",
 ] as const;
 
 export type HomeWidgetId = (typeof HOME_WIDGET_IDS)[number];
@@ -25,6 +26,7 @@ export const HOME_WIDGET_OPTIONS: { id: HomeWidgetId; label: string }[] = [
   { id: "attention", label: "Needs attention" },
   { id: "activity", label: "Recent activity" },
     { id: "trend", label: "Incident and issue flows" },
+  { id: "followUps", label: "Open follow-ups" },
 ];
 
 export const OVERSIGHT_SECTION_IDS = [
@@ -46,22 +48,22 @@ export const OVERSIGHT_SECTION_OPTIONS: {
 
 export const BOARD_SECTION_IDS = [
   "headlines",
-  "appetite",
-  "criticalRisks",
-  "overdueKeyControls",
-  "overdueIssues",
+  "matters",
+  "decisions",
+  "controlFailures",
   "severeIncidents",
+  "appetite",
 ] as const;
 
 export type BoardSectionId = (typeof BOARD_SECTION_IDS)[number];
 
 export const BOARD_SECTION_OPTIONS: { id: BoardSectionId; label: string }[] = [
   { id: "headlines", label: "Headline stats" },
-  { id: "appetite", label: "Above appetite" },
-  { id: "criticalRisks", label: "High / Critical risks" },
-  { id: "overdueKeyControls", label: "Overdue key controls" },
-  { id: "overdueIssues", label: "Overdue issues" },
+  { id: "matters", label: "Matters for attention" },
+  { id: "decisions", label: "Decisions required" },
+  { id: "controlFailures", label: "Control failures" },
   { id: "severeIncidents", label: "Severe open incidents" },
+  { id: "appetite", label: "Above appetite" },
 ];
 
 export const REGISTER_PRESET_MODULES = [
@@ -89,6 +91,32 @@ export type SavedRegisterPreset = {
   query: string;
 };
 
+export const APPEARANCE_MODES = ["system", "light", "dark"] as const;
+export type AppearanceMode = (typeof APPEARANCE_MODES)[number];
+
+export const APPEARANCE_PALETTES = ["teal", "navy", "stone"] as const;
+export type AppearancePalette = (typeof APPEARANCE_PALETTES)[number];
+
+export const APPEARANCE_MODE_OPTIONS: { id: AppearanceMode; label: string }[] = [
+  { id: "system", label: "Match device" },
+  { id: "light", label: "Light" },
+  { id: "dark", label: "Dark" },
+];
+
+export const APPEARANCE_PALETTE_OPTIONS: {
+  id: AppearancePalette;
+  label: string;
+}[] = [
+  { id: "teal", label: "Teal" },
+  { id: "navy", label: "Navy" },
+  { id: "stone", label: "Stone" },
+];
+
+export type AppearancePreferences = {
+  mode: AppearanceMode;
+  palette: AppearancePalette;
+};
+
 export type WorkspacePreferences = {
   hiddenModules: WorkspaceModuleId[];
   homeWidgets: HomeWidgetId[];
@@ -96,6 +124,7 @@ export type WorkspacePreferences = {
   boardSections: BoardSectionId[];
   defaultHomeCategoryId: string;
   registerPresets: SavedRegisterPreset[];
+  appearance: AppearancePreferences;
 };
 
 export const DEFAULT_WORKSPACE_PREFERENCES: WorkspacePreferences = {
@@ -105,6 +134,7 @@ export const DEFAULT_WORKSPACE_PREFERENCES: WorkspacePreferences = {
   boardSections: [...BOARD_SECTION_IDS],
   defaultHomeCategoryId: "",
   registerPresets: [],
+  appearance: { mode: "system", palette: "teal" },
 };
 
 const HIDABLE_MODULES = new Set<WorkspaceModuleId>([
@@ -120,6 +150,7 @@ const HIDABLE_MODULES = new Set<WorkspaceModuleId>([
   "obligations",
   "evidence",
   "quality",
+  "feedback",
   "rcsa",
 ]);
 
@@ -136,6 +167,13 @@ const LEGACY_HOME_WIDGETS = new Set([
 const OVERSIGHT_SET = new Set<string>(OVERSIGHT_SECTION_IDS);
 const LEGACY_OVERSIGHT = new Set(["controls", "risks", "issues", "incidents"]);
 const BOARD_SET = new Set<string>(BOARD_SECTION_IDS);
+const LEGACY_BOARD = new Set([
+  "criticalRisks",
+  "overdueKeyControls",
+  "overdueIssues",
+]);
+const APPEARANCE_MODE_SET = new Set<string>(APPEARANCE_MODES);
+const APPEARANCE_PALETTE_SET = new Set<string>(APPEARANCE_PALETTES);
 const PRESET_MODULE_SET = new Set<string>(REGISTER_PRESET_MODULES);
 
 const MAX_PRESETS = 20;
@@ -243,6 +281,15 @@ export function parseWorkspacePreferences(value: unknown): WorkspacePreferences 
     rawHome.some((id) => LEGACY_HOME_WIDGETS.has(id))
       ? [...DEFAULT_WORKSPACE_PREFERENCES.homeWidgets]
       : homeWidgets;
+  const withFollowUps =
+    rawHome !== undefined &&
+    migratedHome.length > 0 &&
+    !migratedHome.includes("followUps") &&
+    ["stats", "attention", "activity", "trend"].every((id) =>
+      migratedHome.includes(id as HomeWidgetId),
+    )
+      ? ([...migratedHome, "followUps"] as HomeWidgetId[])
+      : migratedHome;
 
   const oversightSections = pickKnown<OversightSectionId>(
     asStringArray(record.oversightSections),
@@ -257,17 +304,42 @@ export function parseWorkspacePreferences(value: unknown): WorkspacePreferences 
       ? [...DEFAULT_WORKSPACE_PREFERENCES.oversightSections]
       : oversightSections;
 
+  const rawBoard = asStringArray(record.boardSections);
+  const boardSections = pickKnown<BoardSectionId>(
+    rawBoard,
+    BOARD_SET,
+    DEFAULT_WORKSPACE_PREFERENCES.boardSections,
+  );
+  const migratedBoard =
+    rawBoard !== undefined && rawBoard.some((id) => LEGACY_BOARD.has(id))
+      ? [...DEFAULT_WORKSPACE_PREFERENCES.boardSections]
+      : boardSections;
+
+  const appearanceRecord =
+    record.appearance &&
+    typeof record.appearance === "object" &&
+    !Array.isArray(record.appearance)
+      ? (record.appearance as Record<string, unknown>)
+      : {};
+  const appearanceMode =
+    typeof appearanceRecord.mode === "string" &&
+    APPEARANCE_MODE_SET.has(appearanceRecord.mode)
+      ? (appearanceRecord.mode as AppearanceMode)
+      : DEFAULT_WORKSPACE_PREFERENCES.appearance.mode;
+  const appearancePalette =
+    typeof appearanceRecord.palette === "string" &&
+    APPEARANCE_PALETTE_SET.has(appearanceRecord.palette)
+      ? (appearanceRecord.palette as AppearancePalette)
+      : DEFAULT_WORKSPACE_PREFERENCES.appearance.palette;
+
   return {
     hiddenModules: [...new Set(hidden)],
-    homeWidgets: migratedHome,
+    homeWidgets: withFollowUps,
     oversightSections: migratedOversight,
-    boardSections: pickKnown<BoardSectionId>(
-      asStringArray(record.boardSections),
-      BOARD_SET,
-      DEFAULT_WORKSPACE_PREFERENCES.boardSections,
-    ),
+    boardSections: migratedBoard,
     defaultHomeCategoryId,
     registerPresets: parsePresets(record.registerPresets),
+    appearance: { mode: appearanceMode, palette: appearancePalette },
   };
 }
 
@@ -280,6 +352,7 @@ export function workspacePreferencesToJson(prefs: WorkspacePreferences) {
     boardSections: parsed.boardSections,
     defaultHomeCategoryId: parsed.defaultHomeCategoryId,
     registerPresets: parsed.registerPresets,
+    appearance: parsed.appearance,
   };
 }
 

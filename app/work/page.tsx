@@ -11,33 +11,40 @@ import {
 } from "@/app/components/page-parts";
 import { ClickableRow } from "@/app/components/clickable-row";
 import { mutedTextClassName, primaryButtonClassName } from "@/app/components/ui";
-import { getRiskScore, getSeverityBand } from "@/lib/dashboard/analytics";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
+import { operatingBand } from "@/lib/risk/ratings";
 import { useSettings } from "@/lib/settings/context";
-import { fetchOwnedTable } from "@/lib/supabase/owned";
+import { fetchOwnedTable, fetchOwnedTableOptional } from "@/lib/supabase/owned";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { isAppetiteBreach, isActiveRisk } from "@/lib/taxonomy";
 import { getTestingStatus, type Control } from "@/lib/types/control";
 import { isIncidentOpen, type Incident } from "@/lib/types/incident";
 import { isIssueOverdue, type Issue } from "@/lib/types/issue";
 import { personByEmail } from "@/lib/types/person";
+import type { FollowUp } from "@/lib/types/follow-up";
+import {
+  entityHref,
+  formatFollowUpTrigger,
+  isFollowUpOpen,
+} from "@/lib/types/follow-up";
 import type { Risk } from "@/lib/types/risk";
 
 type WorkItem = {
   id: string;
   href: string;
-  kind: "Risk" | "Control" | "Incident" | "Issue";
+  kind: "Risk" | "Control" | "Incident" | "Issue" | "Follow-up";
   title: string;
   detail: string;
   tone: "alert" | "watch" | "ok";
 };
 
 export default function WorkPage() {
-  const { people, enterpriseReady, categories } = useSettings();
+  const { people, enterpriseReady, categories, feedbackReady } = useSettings();
   const [risks, setRisks] = useState<Risk[]>([]);
   const [controls, setControls] = useState<Control[]>([]);
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [issues, setIssues] = useState<Issue[]>([]);
+  const [followUps, setFollowUps] = useState<FollowUp[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,23 +52,27 @@ export default function WorkPage() {
     setError(null);
     try {
       const supabase = getSupabaseClient();
-      const [nextRisks, nextControls, nextIncidents, nextIssues] =
+      const [nextRisks, nextControls, nextIncidents, nextIssues, nextFollowUps] =
         await Promise.all([
           fetchOwnedTable<Risk>(supabase, "risks", ownerId),
           fetchOwnedTable<Control>(supabase, "controls", ownerId),
           fetchOwnedTable<Incident>(supabase, "incidents", ownerId),
           fetchOwnedTable<Issue>(supabase, "issues", ownerId),
+          feedbackReady
+            ? fetchOwnedTableOptional<FollowUp>(supabase, "follow_ups", ownerId)
+            : Promise.resolve([] as FollowUp[]),
         ]);
       setRisks(nextRisks);
       setControls(nextControls);
       setIncidents(nextIncidents);
       setIssues(nextIssues);
+      setFollowUps(nextFollowUps);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load work queue");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [feedbackReady]);
 
   const { user, authLoading } = useRequireAuth(load);
   const me = personByEmail(people, user?.email);
@@ -77,7 +88,7 @@ export default function WorkPage() {
       if (risk.assignee_id !== me.id || !isActiveRisk(risk)) {
         continue;
       }
-      const band = getSeverityBand(getRiskScore(risk.likelihood, risk.impact));
+      const band = operatingBand(risk);
       const breach = isAppetiteBreach(risk, categories);
       queue.push({
         id: `risk-${risk.id}`,
@@ -138,13 +149,30 @@ export default function WorkPage() {
       });
     }
 
+    for (const followUp of followUps) {
+      if (
+        (followUp.assignee_id !== me.id && followUp.approver_id !== me.id) ||
+        !isFollowUpOpen(followUp.status)
+      ) {
+        continue;
+      }
+      queue.push({
+        id: `follow-up-${followUp.id}`,
+        href: entityHref(followUp.entity_type, followUp.entity_id),
+        kind: "Follow-up",
+        title: followUp.title,
+        detail: formatFollowUpTrigger(followUp.trigger_type),
+        tone: followUp.status === "pending_approval" ? "alert" : "watch",
+      });
+    }
+
     const rank = { alert: 0, watch: 1, ok: 2 };
     return queue.sort(
       (left, right) =>
         rank[left.tone] - rank[right.tone] ||
         left.title.localeCompare(right.title),
     );
-  }, [categories, controls, incidents, issues, me, risks]);
+  }, [categories, controls, followUps, incidents, issues, me, risks]);
 
   if (authLoading) {
     return <PageLoading />;
@@ -184,8 +212,8 @@ export default function WorkPage() {
           <LoadingBlock label="Loading assigned work..." />
         ) : items.length === 0 ? (
           <ListEmpty>
-            Nothing assigned to {me.name}. Assign a risk, control, incident, or
-            issue from its edit page.
+            Nothing assigned to {me.name}. Assign a risk, control, incident,
+            issue, or follow-up from its edit page.
           </ListEmpty>
         ) : (
           <section className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">

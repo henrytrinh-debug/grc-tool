@@ -12,10 +12,22 @@ import {
 type ControlFormFieldsProps = {
   form: NewControl;
   onChange: (updates: Partial<NewControl>) => void;
+  hasTestHistory?: boolean;
 };
 
-export function ControlFormFields({ form, onChange }: ControlFormFieldsProps) {
+export function ControlFormFields({
+  form,
+  onChange,
+  hasTestHistory = false,
+}: ControlFormFieldsProps) {
   const { people, enterpriseReady } = useSettings();
+  const tested = hasTestHistory || Boolean(form.last_tested_at);
+  const effectivenessOptions = tested
+    ? EFFECTIVENESS_OPTIONS.filter(
+        (option) =>
+          option.value !== "not_tested" || form.effectiveness === "not_tested",
+      )
+    : EFFECTIVENESS_OPTIONS;
 
   return (
     <>
@@ -69,8 +81,12 @@ export function ControlFormFields({ form, onChange }: ControlFormFieldsProps) {
           }
           className={inputClassName}
         >
-          {EFFECTIVENESS_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
+          {effectivenessOptions.map((option) => (
+            <option
+              key={option.value}
+              value={option.value}
+              disabled={tested && option.value === "not_tested"}
+            >
               {option.label}
             </option>
           ))}
@@ -84,6 +100,7 @@ export function ControlFormFields({ form, onChange }: ControlFormFieldsProps) {
         <input
           type="date"
           value={form.last_tested_at ?? ""}
+          readOnly={hasTestHistory}
           onChange={(event) =>
             onChange({
               last_tested_at: event.target.value || null,
@@ -91,6 +108,12 @@ export function ControlFormFields({ form, onChange }: ControlFormFieldsProps) {
           }
           className={inputClassName}
         />
+        {hasTestHistory ? (
+          <span className="text-xs text-slate-500 dark:text-slate-400">
+            Last tested is kept in sync with recorded tests. Record a new test
+            to change it.
+          </span>
+        ) : null}
       </label>
 
       {enterpriseReady && (

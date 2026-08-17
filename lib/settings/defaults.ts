@@ -114,4 +114,6 @@ export type DemoIds = {
   personIds?: string[];
   obligationIds?: string[];
   evidenceIds?: string[];
+  followUpIds?: string[];
+  commentIds?: string[];
 };

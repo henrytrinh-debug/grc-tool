@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { EvidencePanel } from "@/app/components/evidence-panel";
+import { RecordFeedback } from "@/app/components/record-feedback";
 import { QualityCallout } from "@/app/components/quality-indicator";
 import { LinkedEntitiesPanel } from "@/app/components/linked-entities-panel";
 import {
@@ -64,7 +65,7 @@ export default function EditObligationPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
   const obligationId = params.id;
-  const { obligationsReady } = useSettings();
+  const { obligationsReady, feedbackReady, people } = useSettings();
 
   const [record, setRecord] = useState<ObligationRecord | null>(null);
   const [form, setForm] = useState<NewObligation | null>(null);
@@ -340,6 +341,14 @@ export default function EditObligationPage() {
         />
 
         <EvidencePanel entityType="obligation" entityId={obligationId} />
+
+        <RecordFeedback
+          entityType="obligation"
+          entityId={obligationId}
+          enabled={feedbackReady}
+          owner={user?.email ? { id: user.id, email: user.email } : null}
+          people={people}
+        />
       </main>
     </div>
   );

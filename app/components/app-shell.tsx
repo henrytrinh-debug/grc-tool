@@ -5,6 +5,7 @@ import { useState } from "react";
 import { AppSidebar } from "@/app/components/app-sidebar";
 import { CommandPalette } from "@/app/components/command-palette";
 import { PageLoading } from "@/app/components/page-parts";
+import { ThemeApplier } from "@/app/components/theme-applier";
 import { SettingsProvider, useSettings } from "@/lib/settings/context";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -14,11 +15,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const navOpen = navOpenForPath === pathname;
 
   if (!showSidebar) {
-    return <SettingsProvider>{children}</SettingsProvider>;
+    return (
+      <SettingsProvider>
+        <ThemeApplier />
+        {children}
+      </SettingsProvider>
+    );
   }
 
   return (
     <SettingsProvider>
+      <ThemeApplier />
       <AuthenticatedShell
         navOpen={navOpen}
         onCloseNav={() => setNavOpenForPath(null)}

@@ -4,9 +4,13 @@ import { FormEvent, Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { EntityFormPage } from "@/app/components/entity-form-page";
 import { PageLoading, SchemaNotice } from "@/app/components/page-parts";
-import { incidentGovernanceBlockers, incidentGovernancePrompts } from "@/lib/governance/gates";
+import { followUpAfterLink } from "@/lib/feedback/ensure";
 import { useRequireAuth } from "@/lib/hooks/use-require-auth";
 import { safeReturnTo } from "@/lib/navigation";
+import {
+  incidentGovernanceBlockers,
+  incidentGovernancePrompts,
+} from "@/lib/governance/gates";
 import { insertOwnedRow } from "@/lib/supabase/records";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { useSettings } from "@/lib/settings/context";
@@ -59,7 +63,8 @@ function NewIncidentPageContent() {
       });
 
       if (riskId && user) {
-        const { error: linkError } = await getSupabaseClient()
+        const supabase = getSupabaseClient();
+        const { error: linkError } = await supabase
           .from("incident_risks")
           .insert({
             incident_id: created.id,
@@ -68,6 +73,18 @@ function NewIncidentPageContent() {
           });
         if (linkError) {
           throw linkError;
+        }
+        if (user.email) {
+          await followUpAfterLink(
+            supabase,
+            { id: user.id, email: user.email },
+            {
+              table: "incident_risks",
+              parentColumn: "incident_id",
+              parentId: created.id,
+              childId: riskId,
+            },
+          ).catch(() => undefined);
         }
       }
 

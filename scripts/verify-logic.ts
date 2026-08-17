@@ -5,6 +5,9 @@
 import { barClickDatum } from "../app/components/chart-theme";
 import { buildActivityFeed } from "../lib/activity/feed";
 import { boardPackCsv, buildBoardPack } from "../lib/board/pack";
+import { buildAuditTrail } from "../lib/feedback/audit";
+import { controlEffectivenessBlockers } from "../lib/types/control";
+import { isFollowUpOpen } from "../lib/types/follow-up";
 import { buildQualityFindings, buildRegisterQualityScores } from "../lib/data-quality/checks";
 import {
   evidenceQuality,
@@ -345,6 +348,14 @@ assert(
   ),
   "board pack counts uncontrolled high/critical",
 );
+assert(
+  pack.headlines.some((headline) => headline.label === "Decisions required"),
+  "board pack includes decisions required for follow-ups",
+);
+assert(
+  pack.matters.length <= 8,
+  "board pack matters are capped for a committee audience",
+);
 
 const movement = buildRatingMovement(
   [
@@ -449,9 +460,28 @@ assert(
   "legacy home widgets remap to the slim Home defaults",
 );
 assert(
-  parseWorkspacePreferences({ oversightSections: ["controls", "risks"] })
-    .oversightSections.length === OVERSIGHT_SECTION_IDS.length,
-  "legacy oversight sections remap to health/flow/movement",
+  parseWorkspacePreferences({
+    boardSections: ["headlines", "criticalRisks", "overdueIssues"],
+  }).boardSections.includes("matters"),
+  "legacy board sections remap to exceptions and decisions",
+);
+assert(
+  parseWorkspacePreferences({}).appearance.mode === "system" &&
+    parseWorkspacePreferences({
+      appearance: { mode: "light", palette: "navy" },
+    }).appearance.palette === "navy",
+  "appearance prefers system teal and accepts known palettes",
+);
+assert(
+  parseWorkspacePreferences({
+    homeWidgets: ["stats", "attention", "activity", "trend"],
+  }).homeWidgets.includes("followUps"),
+  "saved full Home layouts pick up the follow-ups widget",
+);
+assert(
+  parseWorkspacePreferences({ hiddenModules: ["feedback"] }).hiddenModules[0] ===
+    "feedback",
+  "Feedback can be hidden like other overview modules",
 );
 assert(
   !parseWorkspacePreferences({ hiddenModules: ["home", "admin", "work"] })
@@ -815,6 +845,70 @@ assert(
     [{ obligation_id: "o1" }],
   ).uncovered === 0,
   "retired obligations are not coverage gaps",
+);
+
+assert(
+  controlEffectivenessBlockers(
+    { effectiveness: "not_tested", last_tested_at: "2026-01-01" },
+  ).length > 0,
+  "Not Tested is blocked once a last-tested date exists",
+);
+assert(
+  controlEffectivenessBlockers(
+    { effectiveness: "not_tested", last_tested_at: null },
+    { hasTestHistory: true },
+  ).length > 0,
+  "Not Tested is blocked once test history exists",
+);
+assert(
+  controlEffectivenessBlockers({
+    effectiveness: "effective",
+    last_tested_at: "2026-01-01",
+  }).length === 0,
+  "tested controls may stay Effective",
+);
+assert(
+  isFollowUpOpen("pending_approval") && !isFollowUpOpen("done"),
+  "pending approval is still an open follow-up",
+);
+assert(
+  buildAuditTrail({
+    comments: [
+      {
+        id: "c1",
+        entity_type: "risk",
+        entity_id: "r1",
+        body: "Note",
+        kind: "comment",
+        created_at: "2026-08-02T00:00:00.000Z",
+      },
+    ],
+    tests: [
+      {
+        id: "t1",
+        control_id: "c1",
+        effectiveness: "ineffective",
+        tested_at: "2026-08-01",
+        notes: "",
+      },
+    ],
+    titles: { r1: "Risk one", c1: "Control one" },
+  })[0]?.source === "Comment",
+  "audit trail is newest-first across sources",
+);
+assert(
+  buildQualityFindings({
+    risks,
+    controls,
+    incidents,
+    issues,
+    indexes,
+    riskControlLinks: [],
+    issueRiskLinks: [],
+    issueControlLinks: [],
+  }).find((finding) => finding.id === "high-critical-never-reviewed")
+    ?.severity === "blocker",
+  "never-reviewed High/Critical is a quality blocker",
 );
 
 console.log("verify-logic: all checks passed");
